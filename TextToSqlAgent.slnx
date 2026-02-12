@@ -8,6 +8,7 @@
   <Folder Name="/scripts/">
     <File Path="setup-test-db.sql" />
   </Folder>
+  <Folder Name="/Solution Items/" />
   <Folder Name="/src/">
     <Project Path="TextToSqlAgent.Console/TextToSqlAgent.Console.csproj" Id="895f8a64-7ade-44e9-a2e7-5d9a11c5deeb" />
     <Project Path="TextToSqlAgent.Core/TextToSqlAgent.Core.csproj" Id="40d74849-756f-4bd4-869d-ab07c2a5001c" />

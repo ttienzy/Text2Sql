@@ -1,0 +1,84 @@
+# Visual Studio
+.vs/
+.vscode/
+[Bb]in/
+[Oo]bj/
+*.user
+*.userosscache
+*.sln.docstates
+*.suo
+*.cache
+*_i.c
+*_p.c
+*.ilk
+*.meta
+*.obj
+*.pch
+*.pdb
+*.pgc
+*.pgd
+*.rsp
+*.sbr
+*.tlb
+*.tli
+*.tlh
+*.tmp
+*.tmp_proj
+*_wpftmp.csproj
+*.log
+*.vspscc
+*.vssscc
+.builds
+*.pidb
+*.svclog
+*.scc
+
+# Dotnet Core
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Dynamic Code
+GeneratedFiles/
+
+# Rider
+.idea/
+*.sln.iml
+
+# User-specific files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Asp.Net Core
+appsettings.Development.json
+appsettings.local.json
+
+# Test results
+TestResults/
+[Tt]est[Rr]esults/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# NodeJS (if any)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
