@@ -26,14 +26,14 @@ public class SchemaIndexer
         DatabaseSchema schema,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("[Schema Indexer] Bắt đầu index schema...");
+        _logger.LogDebug("[Schema Indexer] Starting schema indexing...");
 
         // 1. Ensure collection exists with correct vector size (will recreate if size mismatch)
         await _qdrant.EnsureCollectionAsync(cancellationToken);
 
         // 2. Build documents
         var documents = BuildSchemaDocuments(schema);
-        _logger.LogInformation("[Schema Indexer] Tạo {Count} documents", documents.Count);
+        _logger.LogDebug("[Schema Indexer] Created {Count} documents", documents.Count);
 
         // 3. Generate embeddings
         var points = await GeneratePointsAsync(documents, cancellationToken);
@@ -41,7 +41,7 @@ public class SchemaIndexer
         // 4. Upsert to Qdrant
         await _qdrant.UpsertPointsAsync(points, cancellationToken);
 
-        _logger.LogInformation("[Schema Indexer] Hoàn tất index schema");
+        _logger.LogInformation("[Schema Indexer] Schema indexing complete");
     }
 
     private List<SchemaDocument> BuildSchemaDocuments(DatabaseSchema schema)
@@ -185,7 +185,7 @@ public class SchemaIndexer
         for (int i = 0; i < batches.Count; i++)
         {
             var batch = batches[i];
-            _logger.LogInformation("[Schema Indexer] Processing batch {Current}/{Total}", i + 1, batches.Count);
+            _logger.LogDebug("[Schema Indexer] Processing batch {Current}/{Total}", i + 1, batches.Count);
 
             foreach (var doc in batch)
             {
@@ -216,7 +216,7 @@ public class SchemaIndexer
             }
         }
 
-        _logger.LogInformation("[Schema Indexer] Generated {Count} embeddings", points.Count);
+        _logger.LogDebug("[Schema Indexer] Generated {Count} embeddings", points.Count);
 
         return points;
     }

@@ -1,11 +1,12 @@
 using Spectre.Console;
 using TextToSqlAgent.Infrastructure.Configuration;
+using TextToSqlAgent.Infrastructure.LLM;
 
 namespace TextToSqlAgent.Console.UI;
 
 public static class ConsoleUI
 {
-    public static void DisplayWelcomeBanner()
+    public static void DisplayWelcomeBanner(LLMProvider provider, string modelName)
     {
         AnsiConsole.Clear();
 
@@ -15,9 +16,10 @@ public static class ConsoleUI
 
         AnsiConsole.WriteLine();
 
+        var providerDisplay = provider == LLMProvider.OpenAI ? "OpenAI" : "Gemini";
         var grid = new Grid();
         grid.AddColumn();
-        grid.AddRow("[dim]Powered by:[/] [cyan]Gemini 2.0 Flash[/]");
+        grid.AddRow($"[dim]Powered by:[/] [cyan]{providerDisplay} - {modelName}[/]");
         grid.AddRow("[dim]Version:[/] [green]1.0.0 (Week 1-2 MVP)[/]");
         grid.AddRow("[dim]Author:[/] [yellow]Text To SQL Team[/]");
 
@@ -26,7 +28,7 @@ public static class ConsoleUI
         AnsiConsole.WriteLine();
     }
 
-    public static void DisplayConfigurationInfo(GeminiConfig geminiConfig, AgentConfig agentConfig)
+    public static void DisplayConfigurationInfo(LLMProvider provider, string model, double temperature, int maxTokens, AgentConfig agentConfig)
     {
         var table = new Table();
         table.Border(TableBorder.Rounded);
@@ -34,9 +36,11 @@ public static class ConsoleUI
         table.AddColumn("[bold]Setting[/]");
         table.AddColumn("[bold]Value[/]");
 
-        table.AddRow("LLM Model", $"[cyan]{geminiConfig.Model}[/]");
-        table.AddRow("Temperature", $"[cyan]{geminiConfig.Temperature}[/]");
-        table.AddRow("Max Tokens", $"[cyan]{geminiConfig.MaxTokens}[/]");
+        var providerName = provider == LLMProvider.OpenAI ? "OpenAI" : "Gemini";
+        table.AddRow("LLM Provider", $"[cyan]{providerName}[/]");
+        table.AddRow("LLM Model", $"[cyan]{model}[/]");
+        table.AddRow("Temperature", $"[cyan]{temperature}[/]");
+        table.AddRow("Max Tokens", $"[cyan]{maxTokens}[/]");
         table.AddRow("Max Self-Correction", $"[cyan]{agentConfig.MaxSelfCorrectionAttempts}[/]");
         table.AddRow("SQL Explanation", $"[cyan]{(agentConfig.EnableSQLExplanation ? "Enabled" : "Disabled")}[/]");
 
@@ -155,46 +159,46 @@ public static class ConsoleUI
         var table = new Table();
         table.Border(TableBorder.Rounded);
         table.BorderStyle(new Style(Color.Blue));
-        table.AddColumn(new TableColumn("[bold yellow]Lệnh[/]").LeftAligned());
-        table.AddColumn(new TableColumn("[bold yellow]Mô tả[/]").LeftAligned());
+        table.AddColumn(new TableColumn("[bold yellow]Command[/]").LeftAligned());
+        table.AddColumn(new TableColumn("[bold yellow]Description[/]").LeftAligned());
 
         // ═══ BASIC COMMANDS ═══
-        table.AddRow("[green bold]═══ CƠ BẢN ═══[/]", "");
-        table.AddRow("[cyan]help[/], [cyan]?[/]", "Hiển thị trợ giúp");
-        table.AddRow("[cyan]examples[/]", "Hiển thị câu hỏi mẫu");
-        table.AddRow("[cyan]clear[/], [cyan]cls[/]", "Xóa màn hình");
+        table.AddRow("[green bold]═══ BASIC ═══[/]", "");
+        table.AddRow("[cyan]help[/], [cyan]?[/]", "Show help");
+        table.AddRow("[cyan]examples[/]", "Show example questions");
+        table.AddRow("[cyan]clear[/], [cyan]cls[/]", "Clear screen");
 
         table.AddEmptyRow();
 
         // ═══ SCHEMA & INDEX ═══
         table.AddRow("[green bold]═══ SCHEMA & INDEX ═══[/]", "");
-        table.AddRow("[cyan]index[/]", "Index database schema vào vector DB");
-        table.AddRow("[cyan]reindex[/]", "Xóa và index lại toàn bộ schema");
-        table.AddRow("[cyan]check index[/]", "Kiểm tra trạng thái index hiện tại");
-        table.AddRow("[cyan]clear cache[/]", "Xóa schema cache và làm mới");
+        table.AddRow("[cyan]index[/]", "Index database schema into vector DB");
+        table.AddRow("[cyan]reindex[/]", "Clear and re-index full schema");
+        table.AddRow("[cyan]check index[/]", "Check current index status");
+        table.AddRow("[cyan]clear cache[/]", "Clear schema cache");
 
         table.AddEmptyRow();
 
         // ═══ DEBUG & TROUBLESHOOTING ═══
-        table.AddRow("[yellow bold]═══ DEBUG & SỬA LỖI ═══[/]", "");
-        table.AddRow("[cyan]debug[/]", "[green]🔧[/] Chẩn đoán Qdrant (kết nối, cấu hình, dữ liệu)");
-        table.AddRow("[cyan]recreate[/]", "[red]⚠️[/] Xóa và tạo lại Qdrant collection");
+        table.AddRow("[yellow bold]═══ DEBUG & TROUBLESHOOTING ═══[/]", "");
+        table.AddRow("[cyan]debug[/]", "[green]🔧[/] Diagnose Qdrant (connection, config, data)");
+        table.AddRow("[cyan]recreate[/]", "[red]⚠️[/] Delete and recreate Qdrant collection");
 
         table.AddEmptyRow();
 
         // ═══ DATABASE ═══
         table.AddRow("[blue bold]═══ DATABASE ═══[/]", "");
-        table.AddRow("[cyan]show db[/]", "Hiển thị kết nối database hiện tại");
-        table.AddRow("[cyan]switch db[/]", "Chuyển sang database khác");
+        table.AddRow("[cyan]show db[/]", "Show current database connection");
+        table.AddRow("[cyan]switch db[/]", "Switch to another database");
 
         table.AddEmptyRow();
 
         // ═══ EXIT ═══
-        table.AddRow("[cyan]exit[/], [cyan]quit[/]", "Thoát chương trình");
+        table.AddRow("[cyan]exit[/], [cyan]quit[/]", "Exit program");
 
         var panel = new Panel(table)
         {
-            Header = new PanelHeader("📚 CÁC LỆNH KHẢ DỤNG", Justify.Left),
+            Header = new PanelHeader("📚 AVAILABLE COMMANDS", Justify.Left),
             Border = BoxBorder.Rounded,
             BorderStyle = new Style(Color.Blue)
         };
@@ -205,10 +209,10 @@ public static class ConsoleUI
         // ═══ TIPS ═══
         var tipsPanel = new Panel(
             new Markup(
-                "[dim]💡 Mẹo:[/]\n" +
-                "  • Nếu câu trả lời không chính xác, thử [cyan]'reindex'[/] để làm mới schema\n" +
-                "  • Khi gặp lỗi kết nối Qdrant, chạy [cyan]'debug'[/] để chẩn đoán\n" +
-                "  • Vector size mismatch? Chạy [cyan]'recreate'[/] rồi [cyan]'index'[/]"))
+                "[dim]💡 Tips:[/]\n" +
+                "  • If answers are inaccurate, try [cyan]'reindex'[/] to refresh schema\n" +
+                "  • If Qdrant connection fails, run [cyan]'debug'[/] to diagnose\n" +
+                "  • Vector size mismatch? Run [cyan]'recreate'[/] then [cyan]'index'[/]"))
         {
             Border = BoxBorder.Rounded,
             BorderStyle = new Style(Color.Grey)
@@ -223,20 +227,20 @@ public static class ConsoleUI
         var table = new Table();
         table.Border(TableBorder.Rounded);
         table.BorderStyle(new Style(Color.Green));
-        table.AddColumn("[bold]Danh mục[/]");
-        table.AddColumn("[bold]Câu hỏi mẫu[/]");
+        table.AddColumn("[bold]Category[/]");
+        table.AddColumn("[bold]Sample Question[/]");
 
-        table.AddRow("[yellow]Schema[/]", "Có bao nhiêu bảng trong database?");
-        table.AddRow("[yellow]Count[/]", "Có bao nhiêu khách hàng?");
-        table.AddRow("[yellow]List[/]", "Liệt kê tất cả khách hàng");
-        table.AddRow("[yellow]Filter[/]", "Khách hàng nào ở Hà Nội?");
-        table.AddRow("[yellow]Aggregate[/]", "Top 5 sản phẩm bán chạy nhất");
-        table.AddRow("[yellow]Date Range[/]", "Đơn hàng tuần này");
-        table.AddRow("[yellow]Join[/]", "Đơn hàng của khách hàng Nguyễn Văn A");
+        table.AddRow("[yellow]Schema[/]", "How many tables are in the database?");
+        table.AddRow("[yellow]Count[/]", "How many customers do we have?");
+        table.AddRow("[yellow]List[/]", "List all customers");
+        table.AddRow("[yellow]Filter[/]", "Which customers are in Hanoi?");
+        table.AddRow("[yellow]Aggregate[/]", "Top 5 best-selling products");
+        table.AddRow("[yellow]Date Range[/]", "Orders this week");
+        table.AddRow("[yellow]Join[/]", "Orders for customer Nguyen Van A");
 
         var panel = new Panel(table)
         {
-            Header = new PanelHeader("💡 Câu hỏi mẫu", Justify.Left),
+            Header = new PanelHeader("💡 Sample Questions", Justify.Left),
             Border = BoxBorder.Rounded,
             BorderStyle = new Style(Color.Green)
         };
@@ -249,7 +253,7 @@ public static class ConsoleUI
     {
         var panel = new Panel(new Markup($"[red]{ex.Message}[/]"))
         {
-            Header = new PanelHeader("❌ Lỗi không mong đợi", Justify.Left),
+            Header = new PanelHeader("❌ Unexpected Error", Justify.Left),
             Border = BoxBorder.Rounded,
             BorderStyle = new Style(Color.Red)
         };
@@ -258,7 +262,7 @@ public static class ConsoleUI
 
         if (ex.InnerException != null)
         {
-            AnsiConsole.MarkupLine($"[dim]Chi tiết: {ex.InnerException.Message}[/]");
+            AnsiConsole.MarkupLine($"[dim]Details: {ex.InnerException.Message}[/]");
         }
 
         AnsiConsole.WriteLine();
@@ -270,7 +274,7 @@ public static class ConsoleUI
 
         var panel = new Panel(
             Align.Center(
-                new Markup("[green bold]Cảm ơn bạn đã sử dụng Text To SQL Agent!\n\n[dim]Chúc bạn làm việc hiệu quả! 🚀[/]"),
+                new Markup("[green bold]Thank you for using Text To SQL Agent!\n\n[dim]Happy coding! 🚀[/]"),
                 VerticalAlignment.Middle))
         {
             Border = BoxBorder.Double,

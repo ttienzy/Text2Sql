@@ -95,8 +95,9 @@ public class ConnectionErrorHandler : BaseErrorHandler
                 attempt++;
                 var delaySeconds = Math.Pow(2, attempt);
                 
-                Logger.LogInformation(
-                    "[Connection Handler] Circuit breaker retry {Attempt}/{Max} after {Delay}s",
+                Logger.LogDebug(
+                    "[{Handler}] Circuit breaker retry {Attempt}/{Max} after {Delay}s",
+                    "Connection Handler",
                     attempt,
                     maxRetries,
                     delaySeconds);
@@ -133,7 +134,7 @@ public class ConnectionErrorHandler : BaseErrorHandler
         
         if (elapsed.TotalSeconds >= CircuitBreakerResetSeconds)
         {
-            Logger.LogInformation(
+            Logger.LogDebug(
                 "[Connection Handler] Circuit breaker reset after {Seconds}s",
                 CircuitBreakerResetSeconds);
             
@@ -156,7 +157,7 @@ public class ConnectionErrorHandler : BaseErrorHandler
     {
         if (_consecutiveFailures > 0 || _circuitOpenedAt != null)
         {
-            Logger.LogInformation("[Connection Handler] Circuit breaker RESET");
+            Logger.LogDebug("[Connection Handler] Circuit breaker RESET");
         }
         
         _consecutiveFailures = 0;

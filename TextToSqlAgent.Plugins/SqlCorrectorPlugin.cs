@@ -26,7 +26,7 @@ public class SqlCorrectorPlugin
         _logger = logger;
     }
 
-    [KernelFunction, Description("Tự động sửa lỗi SQL dựa trên error message và schema")]
+    [KernelFunction, Description("Automatically correct SQL errors based on error message and schema")]
     public async Task<CorrectionAttempt> CorrectSqlAsync(
     string originalSql,
     string errorMessage,
@@ -35,7 +35,7 @@ public class SqlCorrectorPlugin
     int attemptNumber,
     CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("[SQL Corrector] Bắt đầu sửa lỗi (Attempt #{Attempt})", attemptNumber);
+        _logger.LogDebug("[SQL Corrector] Attempting correction (Attempt {Attempt})", attemptNumber);
 
         var attempt = new CorrectionAttempt
         {
@@ -56,9 +56,9 @@ public class SqlCorrectorPlugin
             // 2. Check if recoverable
             if (!error.IsRecoverable)
             {
-                _logger.LogWarning("[SQL Corrector] Lỗi không thể tự sửa");
+                _logger.LogWarning("[SQL Corrector] Error is not auto-correctable");
                 attempt.Success = false;
-                attempt.Reasoning = "Lỗi không thể tự động sửa được.";
+                attempt.Reasoning = "Error cannot be automatically corrected.";
                 return attempt;
             }
 
@@ -105,14 +105,14 @@ public class SqlCorrectorPlugin
             attempt.Success = true;
             attempt.Reasoning = BuildReasoningMessage(error, originalSql, correctedSql);
 
-            _logger.LogInformation("[SQL Corrector] SQL đã được sửa");
+            _logger.LogInformation("[SQL Corrector] SQL corrected check");
             _logger.LogDebug("[SQL Corrector] Corrected SQL: {SQL}", correctedSql);
 
             return attempt;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[SQL Corrector] Lỗi khi sửa SQL");
+            _logger.LogError(ex, "[SQL Corrector] Error correcting SQL");
 
             attempt.Success = false;
             attempt.Reasoning = $"Lỗi khi sửa: {ex.Message}";
@@ -275,7 +275,7 @@ public class SqlCorrectorPlugin
     {
         if (attempts.Count >= maxAttempts)
         {
-            _logger.LogWarning("[SQL Corrector] Đã đạt số lần thử tối đa ({Max})", maxAttempts);
+            _logger.LogWarning("[SQL Corrector] Max attempts reached ({Max})", maxAttempts);
             return false;
         }
 
@@ -288,7 +288,7 @@ public class SqlCorrectorPlugin
         // Don't retry if error is not recoverable
         if (!lastAttempt.Error.IsRecoverable)
         {
-            _logger.LogWarning("[SQL Corrector] Lỗi không thể khôi phục, dừng retry");
+            _logger.LogWarning("[SQL Corrector] Error not recoverable, stopping retry");
             return false;
         }
 
@@ -298,7 +298,7 @@ public class SqlCorrectorPlugin
             var lastTwo = attempts.TakeLast(2).ToList();
             if (lastTwo[0].CorrectedSql == lastTwo[1].CorrectedSql)
             {
-                _logger.LogWarning("[SQL Corrector] SQL lặp lại, dừng retry");
+                _logger.LogWarning("[SQL Corrector] SQL repeated, stopping retry");
                 return false;
             }
         }

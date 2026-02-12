@@ -95,7 +95,7 @@ public class LLMErrorHandler : BaseErrorHandler
         // Try again after waiting
         try
         {
-            Logger.LogInformation("[LLM Handler] Retrying after rate limit wait");
+            Logger.LogDebug("[LLM Handler] Retrying after rate limit wait");
             var result = await operation();
             
             // Success - clear rate limit
@@ -129,7 +129,7 @@ public class LLMErrorHandler : BaseErrorHandler
                 // Progressive wait: 5s, 10s, 15s...
                 var waitSeconds = attempt * 5;
                 
-                Logger.LogInformation(
+                Logger.LogDebug(
                     "[LLM Handler] Service retry {Attempt}/{Max} after {Delay}s",
                     attempt,
                     maxRetries,
@@ -164,7 +164,7 @@ public class LLMErrorHandler : BaseErrorHandler
         SqlError error,
         CancellationToken cancellationToken)
     {
-        Logger.LogInformation("[LLM Handler] Attempting fallback strategy");
+        Logger.LogDebug("[LLM Handler] Attempting fallback strategy");
 
         try
         {
@@ -204,7 +204,7 @@ public class LLMErrorHandler : BaseErrorHandler
     {
         if (_rateLimitResetTime != null)
         {
-            Logger.LogInformation("[LLM Handler] Rate limit cleared");
+            Logger.LogDebug("[LLM Handler] Rate limit cleared");
         }
         _rateLimitResetTime = null;
     }
@@ -255,7 +255,7 @@ public class LLMErrorHandler : BaseErrorHandler
     public void SetRateLimitRetryAfter(int seconds)
     {
         _rateLimitRetryAfterSeconds = seconds;
-        Logger.LogInformation(
+        Logger.LogDebug(
             "[LLM Handler] Rate limit retry-after set to {Seconds}s",
             seconds);
     }

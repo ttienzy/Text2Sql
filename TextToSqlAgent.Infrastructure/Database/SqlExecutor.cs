@@ -39,7 +39,7 @@ public class SqlExecutor
                 onRetry: (exception, timeSpan, retryCount, context) =>
                 {
                     _logger.LogWarning(
-                        "[Database Plugin] Retry {RetryCount}/{MaxRetries} sau {Delay}s do lỗi: {Error}",
+                        "[Database] Retry {RetryCount}/{MaxRetries} after {Delay}s due to error: {Error}",
                         retryCount,
                         config.MaxRetryAttempts,
                         timeSpan.TotalSeconds,
@@ -51,8 +51,8 @@ public class SqlExecutor
         string sql,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("[Database Plugin] Đang thực thi SQL...");
-        _logger.LogDebug("[Database Plugin] SQL: {SQL}", sql);
+        _logger.LogDebug("[Database] Executing SQL...");
+        _logger.LogDebug("[Database] SQL: {SQL}", sql);
 
         try
         {
@@ -61,7 +61,7 @@ public class SqlExecutor
         }
         catch (SqlException ex)
         {
-            _logger.LogWarning(ex, "[Database Plugin] SQL execution failed, attempting error recovery...");
+            _logger.LogWarning(ex, "[Database] SQL execution failed, attempting error recovery...");
 
             // Try error recovery if handler available
             if (_connectionErrorHandler != null)
@@ -79,7 +79,7 @@ public class SqlExecutor
                 }
             }
 
-            _logger.LogError(ex, "[Database Plugin] SQL Error: {Message}", ex.Message);
+            _logger.LogError(ex, "[Database] SQL Error: {Message}", ex.Message);
 
             // Use SQL error handler if available
             if (_sqlErrorHandler != null)
@@ -110,7 +110,7 @@ public class SqlExecutor
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[Database Plugin] Lỗi không mong đợi khi thực thi SQL");
+            _logger.LogError(ex, "[Database] Unexpected error executing SQL");
 
             return new SqlExecutionResult
             {
@@ -164,7 +164,7 @@ public class SqlExecutor
         }
 
         _logger.LogInformation(
-            "[Database Plugin] Query thành công: {RowCount} rows, {ColumnCount} columns",
+            "[Database] Query completed: {RowCount} rows, {ColumnCount} columns",
             result.RowCount,
             result.Columns.Count);
 
@@ -196,7 +196,7 @@ public class SqlExecutor
         // Validate connection string first
         if (string.IsNullOrWhiteSpace(_config.ConnectionString))
         {
-            _logger.LogError("[Database Plugin] Connection string is null or empty");
+            _logger.LogError("[Database] Connection string is null or empty");
             return false;
         }
 
@@ -205,22 +205,22 @@ public class SqlExecutor
             using var connection = new SqlConnection(_config.ConnectionString);
             await connection.OpenAsync(cancellationToken);
 
-            _logger.LogInformation("[Database Plugin] Connection validated successfully");
+            _logger.LogInformation("[Database] Connection validated successfully");
             return true;
         }
         catch (SqlException ex)
         {
-            _logger.LogError(ex, "[Database Plugin] SQL connection failed: {Message}", ex.Message);
+            _logger.LogError(ex, "[Database] SQL connection failed: {Message}", ex.Message);
             return false;
         }
         catch (ArgumentException ex)
         {
-            _logger.LogError(ex, "[Database Plugin] Invalid connection string format: {Message}", ex.Message);
+            _logger.LogError(ex, "[Database] Invalid connection string format: {Message}", ex.Message);
             return false;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[Database Plugin] Connection validation failed: {Message}", ex.Message);
+            _logger.LogError(ex, "[Database] Connection validation failed: {Message}", ex.Message);
             return false;
         }
     }

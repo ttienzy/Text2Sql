@@ -24,7 +24,7 @@ public class IntentAnalysisPlugin
         List<string> availableTables,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("[Agent] Analyzing user intent...");
+        _logger.LogDebug("[Agent] Analyzing user intent...");
 
         var systemPrompt = BuildSystemPrompt();
         var userPrompt = BuildUserPrompt(question, availableTables);

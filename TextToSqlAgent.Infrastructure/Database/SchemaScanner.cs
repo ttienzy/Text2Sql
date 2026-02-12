@@ -19,7 +19,7 @@ public class SchemaScanner
 
     public async Task<DatabaseSchema> ScanAsync(CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("[Database Plugin] Đang quét schema database...");
+        _logger.LogDebug("[Database] Scanning schema...");
 
         if (string.IsNullOrEmpty(_config.ConnectionString))
         {
@@ -38,8 +38,8 @@ public class SchemaScanner
                 ScannedAt = DateTime.UtcNow
             };
 
-            _logger.LogInformation(
-                "[Database Plugin] Quét hoàn tất: {TableCount} bảng, {RelationshipCount} quan hệ",
+            _logger.LogDebug(
+                "[Database] Scan complete: {TableCount} tables, {RelationshipCount} relationships",
                 schema.Tables.Count,
                 schema.Relationships.Count);
 
@@ -47,7 +47,7 @@ public class SchemaScanner
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[Database Plugin] Lỗi khi quét schema");
+            _logger.LogError(ex, "[Database] Error scanning schema");
             throw;
         }
     }
@@ -91,7 +91,7 @@ public class SchemaScanner
 
             result.Add(tableInfo);
 
-            _logger.LogDebug("[Database Plugin] Scanned table: {Schema}.{Table} ({ColumnCount} columns)",
+            _logger.LogDebug("[Database] Scanned table: {Schema}.{Table} ({ColumnCount} columns)",
                 schema, tableName, tableInfo.Columns.Count);
         }
 
@@ -172,12 +172,12 @@ public class SchemaScanner
         {
             using var connection = new SqlConnection(_config.ConnectionString);
             await connection.OpenAsync(cancellationToken);
-            _logger.LogInformation("[Database Plugin] Kết nối database thành công");
+            _logger.LogInformation("[Database] Connected successfully");
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[Database Plugin] Không thể kết nối database");
+            _logger.LogError(ex, "[Database] Cannot connect to database");
             return false;
         }
     }

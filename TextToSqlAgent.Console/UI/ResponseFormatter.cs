@@ -91,16 +91,16 @@ public static class ResponseFormatter
         }
 
         // Suggestions
-        AnsiConsole.MarkupLine("[yellow]💡 Gợi ý:[/]");
-        AnsiConsole.MarkupLine("  • Thử diễn đạt lại câu hỏi");
-        AnsiConsole.MarkupLine("  • Kiểm tra tên bảng/cột có đúng không");
-        AnsiConsole.MarkupLine("  • Gõ 'examples' để xem ví dụ");
+        AnsiConsole.MarkupLine("[yellow]💡 Suggestions:[/]");
+        AnsiConsole.MarkupLine("  • Try rephrasing the question");
+        AnsiConsole.MarkupLine("  • Check table/column names");
+        AnsiConsole.MarkupLine("  • Type 'examples' for samples");
 
         // If was corrected
         if (response.WasCorrected)
         {
             AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine($"[yellow]⚠️  Đã thử tự sửa {response.CorrectionAttempts} lần nhưng không thành công.[/]");
+            AnsiConsole.MarkupLine($"[yellow]⚠️  Attempted self-correction {response.CorrectionAttempts} times but failed.[/]");
         }
     }
     private static void DisplayCorrectionInfo(List<CorrectionAttempt> corrections)
@@ -108,16 +108,16 @@ public static class ResponseFormatter
         var table = new Table();
         table.Border(TableBorder.Rounded);
         table.BorderStyle(new Style(Color.Yellow));
-        table.AddColumn("[bold]Lần thử[/]");
-        table.AddColumn("[bold]Lỗi[/]");
-        table.AddColumn("[bold]Sửa[/]");
+        table.AddColumn("[bold]Attempt[/]");
+        table.AddColumn("[bold]Error[/]");
+        table.AddColumn("[bold]Fix[/]");
 
         foreach (var correction in corrections)
         {
             table.AddRow(
                 $"#{correction.AttemptNumber}",
                 $"[red]{correction.Error.Type}[/]\n[dim]{correction.Error.InvalidElement}[/]",
-                correction.Success ? "[green]✓ Đã sửa[/]" : "[red]✗ Thất bại[/]"
+                correction.Success ? "[green]✓ Fixed[/]" : "[red]✗ Failed[/]"
             );
         }
 

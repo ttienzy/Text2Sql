@@ -19,13 +19,13 @@ public class SqlGeneratorPlugin
         _logger = logger;
     }
 
-    [KernelFunction, Description("Sinh SQL query từ intent và schema")]
+    [KernelFunction, Description("Generate SQL query from intent and schema")]
     public async Task<string> GenerateSqlAsync(
         IntentAnalysis intent,
         DatabaseSchema schema,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("[Agent] Đang tạo SQL query...");
+        _logger.LogDebug("[Agent] Generating SQL query...");
 
         var schemaContext = BuildSchemaContext(intent.Target, schema);
 
@@ -44,7 +44,7 @@ public class SqlGeneratorPlugin
         // Clean the SQL
         sql = CleanSqlResponse(sql);
 
-        _logger.LogInformation("[Agent] SQL đã tạo: {SQL}", sql);
+        _logger.LogDebug("[Agent] Generated SQL: {SQL}", sql);
 
         return sql;
     }
@@ -56,7 +56,7 @@ public class SqlGeneratorPlugin
         if (targetTable.Equals("TABLES", StringComparison.OrdinalIgnoreCase) ||
             targetTable.Equals("SCHEMA", StringComparison.OrdinalIgnoreCase))
         {
-            return "Query về metadata - sử dụng INFORMATION_SCHEMA.TABLES";
+            return "Metadata query - use INFORMATION_SCHEMA.TABLES";
         }
 
         // Find the target table
@@ -73,7 +73,7 @@ public class SqlGeneratorPlugin
             if (similarTables.Any())
             {
                 _logger.LogWarning(
-                    "[Agent] Không tìm thấy bảng '{Target}', gợi ý: {Similar}",
+                    "[Agent] Table '{Target}' not found, suggestion: {Similar}",
                     targetTable,
                     string.Join(", ", similarTables.Select(t => t.TableName)));
 
@@ -132,10 +132,10 @@ public class SqlGeneratorPlugin
         return sql;
     }
 
-    [KernelFunction, Description("Validate SQL an toàn")]
+    [KernelFunction, Description("Validate SQL safety")]
     public bool ValidateSql(string sql)
     {
-        _logger.LogDebug("[Agent] Đang validate SQL...");
+        _logger.LogDebug("[Agent] Validating SQL...");
 
         // Convert to uppercase for checking
         var upperSql = sql.ToUpper();
@@ -152,7 +152,7 @@ public class SqlGeneratorPlugin
         {
             if (Regex.IsMatch(upperSql, $@"\b{keyword}\b"))
             {
-                _logger.LogWarning("[Agent] SQL chứa từ khóa nguy hiểm: {Keyword}", keyword);
+                _logger.LogWarning("[Agent] SQL contains dangerous keyword: {Keyword}", keyword);
                 return false;
             }
         }
@@ -160,15 +160,15 @@ public class SqlGeneratorPlugin
         // Must contain SELECT
         if (!upperSql.Contains("SELECT"))
         {
-            _logger.LogWarning("[Agent] SQL không chứa SELECT");
+            _logger.LogWarning("[Agent] SQL does not contain SELECT");
             return false;
         }
 
-        _logger.LogDebug("[Agent] SQL hợp lệ");
+        _logger.LogDebug("[Agent] SQL valid");
         return true;
     }
 
-    [KernelFunction, Description("Thêm LIMIT nếu chưa có")]
+    [KernelFunction, Description("Add LIMIT if missing")]
     public string EnsureLimit(string sql, int defaultLimit = 100)
     {
         var upperSql = sql.ToUpper();
@@ -196,17 +196,17 @@ public class SqlGeneratorPlugin
             $"SELECT TOP {defaultLimit} ",
             RegexOptions.IgnoreCase);
 
-        _logger.LogDebug("[Agent] Đã thêm TOP {Limit}", defaultLimit);
+        _logger.LogDebug("[Agent] Added TOP {Limit}", defaultLimit);
 
         return modified;
     }
-    [KernelFunction, Description("Sinh SQL với RAG context")]
+    [KernelFunction, Description("Generate SQL with RAG context")]
     public async Task<string> GenerateSqlWithContextAsync(
     IntentAnalysis intent,
     RetrievedSchemaContext schemaContext,
     CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("[Agent] Đang tạo SQL query với RAG context...");
+        _logger.LogDebug("[Agent] Generating SQL query with RAG context...");
 
         var schemaContextText = BuildEnhancedSchemaContext(schemaContext);
 
@@ -224,7 +224,7 @@ public class SqlGeneratorPlugin
 
         sql = CleanSqlResponse(sql);
 
-        _logger.LogInformation("[Agent] SQL đã tạo: {SQL}", sql);
+        _logger.LogDebug("[Agent] Generated SQL: {SQL}", sql);
 
         return sql;
     }

@@ -5,6 +5,8 @@ using TextToSqlAgent.Console.UI;
 using TextToSqlAgent.Infrastructure.Database;
 using TextToSqlAgent.Infrastructure.RAG;
 using TextToSqlAgent.Infrastructure.VectorDB;
+using TextToSqlAgent.Infrastructure.Configuration;
+using Microsoft.Extensions.Configuration;
 
 namespace TextToSqlAgent.Console.Commands;
 
@@ -391,7 +393,33 @@ public class CommandHandler
     private CommandResult HandleClear()
     {
         AnsiConsole.Clear();
-        ConsoleUI.DisplayWelcomeBanner();
+        
+        try
+        {
+            var configuration = _serviceProvider.GetRequiredService<IConfiguration>();
+            var providerString = configuration["LLMProvider"] ?? "Gemini";
+            var provider = Enum.Parse<LLMProvider>(providerString, ignoreCase: true);
+            
+            string modelName;
+            if (provider == LLMProvider.OpenAI)
+            {
+                var openAIConfig = _serviceProvider.GetRequiredService<OpenAIConfig>();
+                modelName = openAIConfig.Model;
+            }
+            else
+            {
+                var geminiConfig = _serviceProvider.GetRequiredService<GeminiConfig>();
+                modelName = geminiConfig.Model;
+            }
+
+            ConsoleUI.DisplayWelcomeBanner(provider, modelName);
+        }
+        catch
+        {
+            // Fallback if something goes wrong
+            ConsoleUI.DisplayWelcomeBanner(LLMProvider.Gemini, "Unknown");
+        }
+        
         return CommandResult.Handled;
     }
 

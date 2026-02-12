@@ -31,7 +31,7 @@ public class SchemaRetriever
         DatabaseSchema fullSchema,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("[Schema Retriever] Retrieving schema for question...");
+        _logger.LogDebug("[Schema Retriever] Retrieving schema for question...");
 
         // 1. Generate query embedding
         var queryEmbedding = await _embeddingClient.GenerateEmbeddingAsync(question, cancellationToken);
@@ -43,12 +43,12 @@ public class SchemaRetriever
             scoreThreshold: _ragConfig.MinimumScore,
             cancellationToken: cancellationToken);
 
-        _logger.LogInformation("[Schema Retriever] Found {Count} relevant schema elements", searchResults.Count);
+        _logger.LogDebug("[Schema Retriever] Found {Count} relevant schema elements", searchResults.Count);
 
         // 3. Build context from results
         var context = BuildSchemaContext(searchResults, fullSchema);
 
-        _logger.LogInformation(
+        _logger.LogDebug(
             "[Schema Retriever] Context: {Tables} tables, {Relationships} relationships",
             context.RelevantTables.Count,
             context.RelevantRelationships.Count);

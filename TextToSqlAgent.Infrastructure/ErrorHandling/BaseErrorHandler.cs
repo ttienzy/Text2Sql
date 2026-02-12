@@ -25,7 +25,7 @@ public abstract class BaseErrorHandler
         SqlError error,
         CancellationToken cancellationToken = default)
     {
-        Logger.LogInformation(
+        Logger.LogDebug(
             "[{Handler}] Handling error: {ErrorType} - {Message}",
             GetType().Name,
             error.Type,
@@ -96,7 +96,7 @@ public abstract class BaseErrorHandler
             try
             {
                 attempt++;
-                Logger.LogInformation(
+                Logger.LogDebug(
                     "[{Handler}] Immediate retry attempt {Attempt}/{Max}",
                     GetType().Name,
                     attempt,
@@ -138,7 +138,7 @@ public abstract class BaseErrorHandler
             try
             {
                 attempt++;
-                Logger.LogInformation(
+                Logger.LogDebug(
                     "[{Handler}] Exponential backoff retry attempt {Attempt}/{Max}",
                     GetType().Name,
                     attempt,
@@ -186,7 +186,7 @@ public abstract class BaseErrorHandler
             try
             {
                 attempt++;
-                Logger.LogInformation(
+                Logger.LogDebug(
                     "[{Handler}] Wait and retry attempt {Attempt}/{Max}",
                     GetType().Name,
                     attempt,

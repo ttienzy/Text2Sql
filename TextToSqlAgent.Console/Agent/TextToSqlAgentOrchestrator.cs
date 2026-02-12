@@ -67,14 +67,12 @@ public class TextToSqlAgentOrchestrator
 
         try
         {
-            _logger.LogInformation("========================================");
-            _logger.LogInformation("[Agent] Bắt đầu xử lý câu hỏi");
-            _logger.LogInformation("========================================");
+            _logger.LogDebug("[Agent] Processing new question");
 
             // ====================================
             // STEP 1: Normalize Prompt
             // ====================================
-            steps.Add("Step 1: Chuẩn hóa câu hỏi");
+            steps.Add("Step 1: Normalize question");
             var normalized = await _normalizeTask.ExecuteAsync(userQuestion, cancellationToken);
 
             // ====================================
@@ -91,7 +89,7 @@ public class TextToSqlAgentOrchestrator
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[Agent] Không thể lấy tên database từ connection string. Sử dụng default collection name.");
+                _logger.LogWarning(ex, "[Agent] Cannot extract database name from connection string. Using default collection name.");
             }
 
             // ====================================
@@ -99,7 +97,7 @@ public class TextToSqlAgentOrchestrator
             // ====================================
             if (_cachedSchema == null)
             {
-                steps.Add("Step 2: Quét schema database");
+                steps.Add("Step 2: Scan database schema");
 
                 try
                 {
@@ -133,7 +131,7 @@ public class TextToSqlAgentOrchestrator
                 // Auto-index schema after first scan
                 if (!_schemaIndexed)
                 {
-                    steps.Add("Step 2.5: Index schema vào vector database");
+                    steps.Add("Step 2.5: Index schema into vector database");
 
                     // Use TryEnsure instead of Ensure to prevent crash
                     if (!await TryEnsureSchemaIndexedAsync(_cachedSchema, cancellationToken))
@@ -148,21 +146,21 @@ public class TextToSqlAgentOrchestrator
             }
             else
             {
-                steps.Add("Step 2: Sử dụng schema đã cache");
-                _logger.LogInformation("[Agent] Sử dụng schema đã cache");
+                steps.Add("Step 2: Use cached schema");
+                _logger.LogDebug("[Agent] Using cached schema");
             }
 
             // ====================================
             // STEP 3: RAG - Retrieve Relevant Schema
             // ====================================
-            steps.Add("Step 3: RAG - Tìm kiếm schema liên quan");
+            steps.Add("Step 3: RAG - Retrieve relevant schema");
             var relevantSchema = await _schemaRetriever.RetrieveAsync(
                 normalized.NormalizedText,
                 _cachedSchema,
                 cancellationToken);
 
-            _logger.LogInformation(
-                "[Agent] RAG tìm thấy: {Tables} bảng, {Rels} relationships",
+            _logger.LogDebug(
+                "[Agent] RAG found: {Tables} tables, {Rels} relationships",
                 relevantSchema.RelevantTables.Count,
                 relevantSchema.RelevantRelationships.Count);
 
@@ -175,7 +173,7 @@ public class TextToSqlAgentOrchestrator
             // ========================================
             if (relevantSchema.RelevantTables.Count == 0)
             {
-                _logger.LogWarning("[Agent] RAG không tìm thấy schema, fallback sang full schema");
+                _logger.LogWarning("[Agent] RAG found 0 results, falling back to full schema");
 
                 // Get table names for intent analysis
                 var tableNamess = _cachedSchema.Tables.Select(t => t.TableName).ToList();
@@ -190,10 +188,10 @@ public class TextToSqlAgentOrchestrator
                 relevantSchema = BuildFallbackSchema(intents.Target, _cachedSchema);
 
                 _logger.LogInformation(
-                    "[Agent] Fallback schema: {Tables} bảng",
+                    "[Agent] Fallback schema: {Tables} tables",
                     relevantSchema.RelevantTables.Count);
             }
-            steps.Add("Step 4: Phân tích ý định");
+            steps.Add("Step 4: Analyze intent");
             var tableNames = relevantSchema.RelevantTables.Select(t => t.TableName).ToList();
             var intent = await _intentPlugin.AnalyzeIntentAsync(
                 normalized.NormalizedText,
@@ -203,7 +201,7 @@ public class TextToSqlAgentOrchestrator
             if (intent.NeedsClarification)
             {
                 response.Success = false;
-                response.Answer = intent.ClarificationQuestion ?? "Câu hỏi chưa rõ ràng.";
+                response.Answer = intent.ClarificationQuestion ?? "Question is unclear.";
                 response.ProcessingSteps = steps;
                 return response;
             }
@@ -211,7 +209,7 @@ public class TextToSqlAgentOrchestrator
             // ====================================
             // STEP 5: Generate SQL (với RAG context)
             // ====================================
-            steps.Add("Step 5: Sinh SQL query với RAG context");
+            steps.Add("Step 5: Generate SQL with RAG context");
             var sql = await _sqlGenerator.GenerateSqlWithContextAsync(
                 intent,
                 relevantSchema,
@@ -224,7 +222,7 @@ public class TextToSqlAgentOrchestrator
             if (!_sqlGenerator.ValidateSql(sql))
             {
                 response.Success = false;
-                response.ErrorMessage = "SQL không an toàn";
+                response.ErrorMessage = "Unsafe SQL detected";
                 response.SqlGenerated = sql;
                 response.ProcessingSteps = steps;
                 return response;
@@ -235,7 +233,7 @@ public class TextToSqlAgentOrchestrator
             // ====================================
             // STEP 7: Execute SQL với Self-Correction
             // ====================================
-            steps.Add("Step 7: Thực thi SQL với self-correction");
+            steps.Add("Step 7: Execute SQL with self-correction");
             var (executionResult, corrections) = await ExecuteWithSelfCorrectionAsync(
                 sql,
                 relevantSchema,
@@ -259,7 +257,7 @@ public class TextToSqlAgentOrchestrator
             // ====================================
             // STEP 8: Format Answer
             // ====================================
-            steps.Add("Step 8: Diễn giải kết quả");
+            steps.Add("Step 8: Interpret results");
             var answer = FormatAnswer(intent, executionResult, corrections);
 
             response.Success = true;
@@ -268,16 +266,16 @@ public class TextToSqlAgentOrchestrator
             response.QueryResult = executionResult;
             response.ProcessingSteps = steps;
 
-            _logger.LogInformation("[Agent] ✓ Hoàn thành xử lý");
+            _logger.LogInformation("[Agent] ✓ Processing complete");
 
             return response;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[Agent] Lỗi khi xử lý câu hỏi");
+            _logger.LogError(ex, "[Agent] Error processing query");
 
             response.Success = false;
-            response.ErrorMessage = $"Lỗi: {ex.Message}";
+            response.ErrorMessage = $"Error: {ex.Message}";
             response.ProcessingSteps = steps;
 
             return response;
@@ -345,7 +343,7 @@ public class TextToSqlAgentOrchestrator
 
         while (attemptNumber < _agentConfig.MaxSelfCorrectionAttempts)
         {
-            _logger.LogInformation("[Agent] Thực thi SQL (Attempt #{Attempt})", attemptNumber + 1);
+            _logger.LogDebug("[Agent] Executing SQL (Attempt {Attempt})", attemptNumber + 1);
 
             // Execute
             var result = await _sqlExecutor.ExecuteAsync(currentSql, cancellationToken);
@@ -355,25 +353,25 @@ public class TextToSqlAgentOrchestrator
             {
                 if (corrections.Any())
                 {
-                    _logger.LogInformation("[Agent] ✓ SQL đã được tự động sửa và chạy thành công sau {Count} lần thử",
+                    _logger.LogInformation("[Agent] ✓ SQL auto-corrected and executed successfully after {Count} attempts",
                         attemptNumber);
                 }
                 return (result, corrections);
             }
 
             // Failed - try to correct
-            _logger.LogWarning("[Agent] SQL lỗi: {Error}", result.ErrorMessage);
+            _logger.LogWarning("[Agent] SQL Error: {Error}", result.ErrorMessage);
 
             attemptNumber++;
 
             if (attemptNumber >= _agentConfig.MaxSelfCorrectionAttempts)
             {
-                _logger.LogError("[Agent] Đã hết số lần tự sửa ({Max})", _agentConfig.MaxSelfCorrectionAttempts);
+                _logger.LogError("[Agent] Max self-correction attempts reached ({Max})", _agentConfig.MaxSelfCorrectionAttempts);
                 return (result, corrections);
             }
 
             // Attempt correction
-            _logger.LogInformation("[Agent] Bắt đầu tự sửa lỗi...");
+            _logger.LogDebug("[Agent] Attempting auto-correction...");
 
             var correction = await _sqlCorrector.CorrectSqlAsync(
                 currentSql,
@@ -387,20 +385,20 @@ public class TextToSqlAgentOrchestrator
 
             if (!correction.Success)
             {
-                _logger.LogWarning("[Agent] Không thể tự sửa lỗi");
+                _logger.LogWarning("[Agent] Unable to auto-correct SQL error");
                 return (result, corrections);
             }
 
             if (!_sqlCorrector.ShouldRetry(corrections, _agentConfig.MaxSelfCorrectionAttempts))
             {
-                _logger.LogWarning("[Agent] Dừng retry");
+                _logger.LogWarning("[Agent] Stopping retry loop");
                 return (result, corrections);
             }
 
             // Use corrected SQL for next attempt
             currentSql = correction.CorrectedSql;
 
-            _logger.LogInformation("[Agent] Thử lại với SQL đã sửa...");
+            _logger.LogDebug("[Agent] Retrying with corrected SQL...");
         }
 
         var finalResult = await _sqlExecutor.ExecuteAsync(currentSql, cancellationToken);
@@ -417,28 +415,28 @@ public class TextToSqlAgentOrchestrator
         // Add correction info if any
         if (corrections.Any())
         {
-            answer += $"ℹ️  SQL đã được tự động sửa {corrections.Count} lần.\n";
+            answer += $"ℹ️  SQL was auto-corrected {corrections.Count} times.\n";
         }
         if (result.RowCount == 0)
         {
-            return answer + "Không tìm thấy kết quả nào.";
+            return answer + "No results found.";
         }
         answer += intent.Intent switch
         {
-            QueryIntent.COUNT => $"Có tất cả {result.Rows[0].Values.First()} bản ghi.",
-            QueryIntent.LIST => $"Tìm thấy {result.RowCount} kết quả.",
+            QueryIntent.COUNT => $"Count: {result.Rows[0].Values.First()} records.",
+            QueryIntent.LIST => $"Found {result.RowCount} results.",
             QueryIntent.SCHEMA when intent.Target.Equals("TABLES", StringComparison.OrdinalIgnoreCase) =>
-                $"Database có {result.RowCount} bảng.",
-            QueryIntent.AGGREGATE => $"Kết quả phân tích: {result.RowCount} nhóm dữ liệu.",
-            QueryIntent.DETAIL => $"Thông tin chi tiết: {result.RowCount} bản ghi.",
-            _ => $"Truy vấn thành công, trả về {result.RowCount} kết quả."
+                $"Database contains {result.RowCount} tables.",
+            QueryIntent.AGGREGATE => $"Analysis result: {result.RowCount} groups.",
+            QueryIntent.DETAIL => $"Detail info: {result.RowCount} records.",
+            _ => $"Query successful, returned {result.RowCount} results."
         }; return answer;
     }
     public void ClearSchemaCache()
     {
         _cachedSchema = null;
         _schemaIndexed = false;
-        _logger.LogInformation("[Agent] Schema cache đã được xóa");
+        _logger.LogInformation("[Agent] Schema cache cleared");
     }
 
     private async Task<bool> TryEnsureSchemaIndexedAsync(
@@ -447,23 +445,23 @@ public class TextToSqlAgentOrchestrator
     {
         try
         {
-            _logger.LogInformation("[Agent] Kiểm tra Qdrant collection...");
+            _logger.LogInformation("[Agent] Checking Qdrant collection...");
 
             await _qdrantService.EnsureCollectionAsync(cancellationToken);
             var pointCount = await _qdrantService.GetPointCountAsync(cancellationToken);
 
             if (pointCount == 0)
             {
-                _logger.LogInformation("[Agent] Index schema vào Qdrant...");
+                _logger.LogInformation("[Agent] Indexing schema to Qdrant...");
                 await _schemaIndexer.IndexSchemaAsync(schema, cancellationToken);
-                _logger.LogInformation("[Agent] ✓ Schema đã được index");
+                _logger.LogInformation("[Agent] ✓ Schema indexed");
             }
 
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "[Agent] Lỗi khi index schema");
+            _logger.LogWarning(ex, "[Agent] Error indexing schema");
             return false;
         }
     }

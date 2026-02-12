@@ -1,17 +1,19 @@
 # 🤖 Text To SQL Agent
 
-Convert natural language questions into SQL queries using AI (Gemini 2.5 Flash).
+Convert natural language questions into SQL queries using AI (Gemini 2.0 Flash).
 
 ![.NET](https://img.shields.io/badge/.NET-10.0-blue)
-![Gemini](https://img.shields.io/badge/AI-Gemini%202.5-green)
+![Gemini](https://img.shields.io/badge/AI-Gemini%202.0-green)
 ![Qdrant](https://img.shields.io/badge/VectorDB-Qdrant-red)
 
 ## ✨ Features
 
-- 🗣️ **Natural Language Support** - Ask questions in natural language
-- 🤖 **AI-Powered** - Uses Google Gemini 2.5 Flash
+- 🗣️ **Natural Language Support** - Ask questions in English or Vietnamese
+- 🤖 **AI-Powered** - Uses Google Gemini 2.0 Flash
 - 🔍 **RAG** - Semantic search with Qdrant vector database
 - 🔄 **Self-Correction** - Automatically corrects SQL errors
+- 🛡️ **Robust Error Handling** - Circuit breakers, rate limiting, auto-recovery
+- ⚡ **Optimized Performance** - Smart caching and minimal console noise
 - 📊 **Beautiful Results** - Professional table presentation
 
 ## 📋 Requirements
@@ -32,9 +34,11 @@ git clone https://github.com/your-username/TextToSqlAgent.git
 cd TextToSqlAgent
 ```
 
-### 2. Configure Gemini API Key
+### 2. Configure AI Provider (Gemini or OpenAI)
 
-**⚠️ IMPORTANT**: Never commit the API key to Git!
+**⚠️ IMPORTANT**: Never commit API keys to Git!
+
+#### Option A: Use Gemini (Default)
 
 Use **User Secrets** (secure, not committed):
 
@@ -44,7 +48,32 @@ dotnet user-secrets init
 dotnet user-secrets set "Gemini:ApiKey" "YOUR_GEMINI_API_KEY"
 ```
 
-> 💡 Get a free API key at: https://aistudio.google.com/app/apikey
+> 💡 Get a free Gemini API key at: https://aistudio.google.com/app/apikey
+
+#### Option B: Use OpenAI
+
+1. Set your OpenAI API key:
+
+```bash
+cd TextToSqlAgent.Console
+dotnet user-secrets init
+dotnet user-secrets set "OpenAI:ApiKey" "YOUR_OPENAI_API_KEY"
+```
+
+> 💡 Get OpenAI API key at: https://platform.openai.com/api-keys
+
+2. Update `appsettings.json` to use OpenAI:
+
+```json
+{
+  "LLMProvider": "OpenAI"
+}
+```
+
+**Supported Models:**
+
+- **Gemini**: `gemini-2.5-flash`, `gemini-2.0-flash-exp`, `gemini-1.5-pro`
+- **OpenAI**: `gpt-4o`, `gpt-4-turbo`, `gpt-3.5-turbo`
 
 ### 3. Start Qdrant (Vector Database)
 
@@ -134,17 +163,29 @@ File `appsettings.json`:
 
 ```json
 {
+  "LLMProvider": "Gemini", // or "OpenAI"
+
   "Gemini": {
-    "Model": "gemini-2.5-flash-lite",
+    "Model": "gemini-2.5-flash",
     "EmbeddingModel": "gemini-embedding-001",
     "MaxTokens": 8192,
     "Temperature": 0.1
   },
+
+  "OpenAI": {
+    "Model": "gpt-4o",
+    "EmbeddingModel": "text-embedding-3-large",
+    "MaxTokens": 8192,
+    "Temperature": 0.0
+  },
+
   "Qdrant": {
     "Host": "localhost",
     "Port": 6334,
-    "VectorSize": 3072
+    "VectorSize": 3072, // 3072 for Gemini, 1536 for OpenAI
+    "UseGrpc": true
   },
+
   "Agent": {
     "MaxSelfCorrectionAttempts": 3,
     "EnableSQLExplanation": true
@@ -165,11 +206,21 @@ File `appsettings.json`:
 
 ## ❓ Troubleshooting
 
-### "GEMINI_API_KEY not found"
+### "GEMINI_API_KEY not found" or "OPENAI_API_KEY not found"
+
+**For Gemini:**
 
 ```bash
 dotnet user-secrets set "Gemini:ApiKey" "YOUR_KEY"
 ```
+
+**For OpenAI:**
+
+```bash
+dotnet user-secrets set "OpenAI:ApiKey" "YOUR_KEY"
+```
+
+Make sure `LLMProvider` in `appsettings.json` matches your chosen provider.
 
 ### "Cannot connect to Qdrant"
 
@@ -181,15 +232,25 @@ docker run -d --name qdrant-texttosql -p 6333:6333 -p 6334:6334 qdrant/qdrant
 
 ### "429 Too Many Requests"
 
-Gemini API has rate limits. Wait 1 minute and try again.
+**Gemini/OpenAI** API has rate limits. Wait 1 minute and try again.
 
 ### "Vector size mismatch"
 
-Delete old collection:
+This happens when switching between Gemini (3072 dimensions) and OpenAI (1536 dimensions).
+
+**Solution:** Delete old collection and update `VectorSize` in `appsettings.json`:
 
 ```powershell
+# Delete old collection
 Invoke-WebRequest -Uri "http://localhost:6333/collections/schema_embeddings" -Method DELETE
 ```
+
+Then update `appsettings.json`:
+
+- For **Gemini**: `"VectorSize": 3072`
+- For **OpenAI**: `"VectorSize": 1536`
+
+After that, run `index` command in the app to rebuild the schema.
 
 ---
 

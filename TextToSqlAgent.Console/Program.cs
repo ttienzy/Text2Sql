@@ -16,8 +16,8 @@ public class Program
 {
     public static async Task<int> Main(string[] args)
     {
-        // Configure Vietnamese language support
-        ConfigureVietnameseSupport();
+        // Configure console support
+        ConfigureConsoleSupport();
 
         // Setup Serilog
         Log.Logger = new LoggerConfiguration()
@@ -28,8 +28,6 @@ public class Program
 
         try
         {
-            ConsoleUI.DisplayWelcomeBanner();
-
             IHost host;
             try
             {
@@ -84,14 +82,42 @@ public class Program
 
         // Get services
         var geminiConfig = scopedServices.GetRequiredService<GeminiConfig>();
+        var openAIConfig = scopedServices.GetRequiredService<OpenAIConfig>();
         var dbConfig = scopedServices.GetRequiredService<DatabaseConfig>();
         var agentConfig = scopedServices.GetRequiredService<AgentConfig>();
         var agent = scopedServices.GetRequiredService<TextToSqlAgentOrchestrator>();
         var sqlExecutor = scopedServices.GetRequiredService<SqlExecutor>();
+        
+        // Get LLM provider from configuration
+        var configuration = scopedServices.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>();
+        var providerString = configuration["LLMProvider"] ?? "Gemini";
+        var provider = Enum.Parse<LLMProvider>(providerString, ignoreCase: true);
+        
+        // Get provider-specific config
+        string modelName;
+        double temperature;
+        int maxTokens;
+        
+        if (provider == LLMProvider.OpenAI)
+        {
+            modelName = openAIConfig.Model;
+            temperature = openAIConfig.Temperature;
+            maxTokens = openAIConfig.MaxTokens;
+        }
+        else
+        {
+            modelName = geminiConfig.Model;
+            temperature = geminiConfig.Temperature;
+            maxTokens = geminiConfig.MaxTokens;
+        }
+        
         try
         {
+            // Display welcome banner with correct provider
+            ConsoleUI.DisplayWelcomeBanner(provider, modelName);
+            
             // Display configuration
-            ConsoleUI.DisplayConfigurationInfo(geminiConfig, agentConfig);
+            ConsoleUI.DisplayConfigurationInfo(provider, modelName, temperature, maxTokens, agentConfig);
 
             // Get database connection
             // Get database connection with error handling
@@ -196,10 +222,10 @@ public class Program
             await AnsiConsole.Status()
                 .Spinner(Spinner.Known.Dots)
                 .SpinnerStyle(Style.Parse("green bold"))
-                .StartAsync("[yellow]Processing your question...[/]", async ctx =>
+                .StartAsync("[yellow]Processing...[/]", async ctx =>
                 {
                     var response = await agent.ProcessQueryAsync(question);
-                    ctx.Status("[green]Done![/]");
+                    ctx.Status("[green]Done[/]");
                     await Task.Delay(500);
 
                     AnsiConsole.WriteLine();
@@ -215,7 +241,7 @@ public class Program
     /// <summary>
     /// Set up Vietnamese language support in the console.
     /// </summary>
-    private static void ConfigureVietnameseSupport()
+    private static void ConfigureConsoleSupport()
     {
         try
         {
@@ -223,10 +249,10 @@ public class Program
             System.Console.OutputEncoding = Encoding.UTF8;
             System.Console.InputEncoding = Encoding.UTF8;
 
-            // Thiết lập culture cho tiếng Việt
-            var vietnameseCulture = System.Globalization.CultureInfo.GetCultureInfo("vi-VN");
-            System.Globalization.CultureInfo.DefaultThreadCurrentCulture = vietnameseCulture;
-            System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = vietnameseCulture;
+            // Set culture to invariant or US English for consistent formatting
+            var culture = System.Globalization.CultureInfo.InvariantCulture;
+            System.Globalization.CultureInfo.DefaultThreadCurrentCulture = culture;
+            System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = culture;
 
             // Windows-specific: Thiết lập Code Page 65001 (UTF-8)
             if (OperatingSystem.IsWindows())
@@ -242,11 +268,11 @@ public class Program
                 }
             }
 
-            Log.Debug("Vietnamese support configured successfully");
+            Log.Debug("Console support configured successfully");
         }
         catch (Exception ex)
         {
-            Log.Warning(ex, "Could not fully configure Vietnamese support, but continuing...");
+            Log.Warning(ex, "Could not fully configure console support, but continuing...");
         }
     }
 
