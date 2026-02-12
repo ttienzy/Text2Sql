@@ -1,0 +1,21 @@
+<Solution>
+  <Folder Name="/docs/">
+    <File Path="architecture.txt" />
+    <File Path="check-list.txt" />
+    <File Path="run-test.txt" />
+    <File Path="test-databases.txt" />
+  </Folder>
+  <Folder Name="/scripts/">
+    <File Path="setup-test-db.sql" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="TextToSqlAgent.Console/TextToSqlAgent.Console.csproj" Id="895f8a64-7ade-44e9-a2e7-5d9a11c5deeb" />
+    <Project Path="TextToSqlAgent.Core/TextToSqlAgent.Core.csproj" Id="40d74849-756f-4bd4-869d-ab07c2a5001c" />
+    <Project Path="TextToSqlAgent.Infrastructure/TextToSqlAgent.Infrastructure.csproj" Id="c9c1744c-ec43-4f83-8567-48636bb1751a" />
+    <Project Path="TextToSqlAgent.Plugins/TextToSqlAgent.Plugins.csproj" Id="f559366f-4fb8-43c9-94df-711d6acf874d" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="TextToSqlAgent.Tests.Integration/TextToSqlAgent.Tests.Integration.csproj" Id="a02891b5-f7ab-486d-8c22-c0900a3d5c3b" />
+    <Project Path="TextToSqlAgent.Tests.Unit/TextToSqlAgent.Tests.Unit.csproj" Id="e0d4ca9d-e8f1-4801-8226-b8434210e2b1" />
+  </Folder>
+</Solution>

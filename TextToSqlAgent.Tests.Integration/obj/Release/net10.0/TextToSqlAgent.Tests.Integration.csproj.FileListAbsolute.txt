@@ -1,0 +1,7 @@
+D:\DACN1\TextToSqlAgent\TextToSqlAgent.Tests.Integration\bin\Release\net10.0\.msCoverageSourceRootsMapping_TextToSqlAgent.Tests.Integration
+D:\DACN1\TextToSqlAgent\TextToSqlAgent.Tests.Integration\bin\Release\net10.0\CoverletSourceRootsMapping_TextToSqlAgent.Tests.Integration
+D:\DACN1\TextToSqlAgent\TextToSqlAgent.Tests.Integration\obj\Release\net10.0\TextToSqlAgent.Tests.Integration.csproj.AssemblyReference.cache
+D:\DACN1\TextToSqlAgent\TextToSqlAgent.Tests.Integration\obj\Release\net10.0\TextToSqlAgent.Tests.Integration.GeneratedMSBuildEditorConfig.editorconfig
+D:\DACN1\TextToSqlAgent\TextToSqlAgent.Tests.Integration\obj\Release\net10.0\TextToSqlAgent.Tests.Integration.AssemblyInfoInputs.cache
+D:\DACN1\TextToSqlAgent\TextToSqlAgent.Tests.Integration\obj\Release\net10.0\TextToSqlAgent.Tests.Integration.AssemblyInfo.cs
+D:\DACN1\TextToSqlAgent\TextToSqlAgent.Tests.Integration\obj\Release\net10.0\TextToSqlAgent.Tests.Integration.csproj.CoreCompileInputs.cache

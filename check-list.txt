@@ -1,0 +1,626 @@
+Week 1-2: ✅ Foundation (COMPLETED)
+├── Infrastructure
+├── Core Tasks
+└── Basic Flow
+
+Week 3-4: 🚀 Intelligence
+├── RAG System
+├── Self-Correction
+└── Advanced SQL Generation
+
+Week 5-6: 💎 Production Polish
+├── Result Interpretation
+├── Enhanced UI/UX
+├── Monitoring
+├── Performance
+├── Security
+└── Deployment
+----------------Final target----------------
+SUCCESS METRICS - FINAL TARGET
+Technical Metrics
+
+ Accuracy: >85% correct SQL first try
+ Self-Correction Rate: >70% errors fixed automatically
+ Response Time: <10s average
+ Uptime: >95%
+ Test Coverage: >70%
+
+User Experience Metrics
+
+ User Satisfaction: >4/5 rating
+ Task Success Rate: >90%
+ Error Recovery: <3 retries average
+ Documentation Quality: >4/5 rating
+
+Business Metrics
+
+ LLM Cost: <$0.10 per query
+ Query Volume: Handle 100+ queries/day
+ Schema Support: Work with 50+ table databases
+
+
+🎁 BONUS FEATURES (Optional - Week 7+)
+Advanced Analytics
+
+ Query pattern analysis
+ Performance trends
+ Usage dashboards
+ Cost optimization reports
+
+Collaboration Features
+
+ Share queries
+ Team workspaces
+ Query templates library
+ Best practices sharing
+
+AI Enhancements
+
+ Query intent prediction
+ Auto-completion suggestions
+ Learning from corrections
+ Personalized recommendations
+
+Integration Options
+
+ REST API
+ gRPC API
+ CLI tool
+ VS Code extension
+ Slack/Teams bot
+----------------Details----------------
+## **📝 FINAL CHECKLIST TUẦN 1-2**
+
+### **✅ Infrastructure (Day 1-2)**
+- [x] Project structure
+- [x] Configuration management
+- [x] Logging setup
+- [x] Test database với read-only user
+- [x] User secrets cho API key
+
+### **✅ Core Components (Day 3-8)**
+- [x] Task 1: Normalize Prompt
+- [x] Task 2: Intent Analysis Plugin
+- [x] Task 3: Schema Scanner
+- [x] Task 5: SQL Generator Plugin
+- [x] Task 7: SQL Executor
+
+### **✅ Integration (Day 9-10)**
+- [x] Agent Orchestrator
+- [x] End-to-end flow
+- [x] Console UI với Spectre.Console
+- [x] Unit tests
+- [x] Integration tests
+
+---
+📅 TUẦN 3-4: RAG + SELF-CORRECTION
+🎯 Mục tiêu Sprint
+
+"Làm cho Agent thông minh hơn và tự sửa lỗi được"
+
+Success Criteria:
+User: "Top 5 khách hàng mua nhiều nhất tháng này"
+Agent: 
+  → RAG: Tìm Orders + Customers + relationship
+  → SQL Draft: JOIN sai
+  → Self-Correct: Phát hiện lỗi → Sửa → Chạy lại
+  → Success: Trả về đúng kết quả
+
+✅ Infrastructure Enhancement (Day 11-12)
+Vector Database Setup
+
+ Install Qdrant (Docker hoặc Cloud)
+ Setup Qdrant client library
+ Create collections cho schema embeddings
+ Test connection và basic CRUD
+
+Embedding Service
+
+ Implement GeminiEmbeddingClient
+ Support batch embedding
+ Add caching cho embeddings
+ Unit tests cho embedding service
+
+Configuration Updates
+
+ Add Qdrant config (URL, API key, collection name)
+ Add embedding config (model, batch size)
+ Update appsettings.json
+ Environment variable support
+
+
+✅ RAG Components (Day 13-15)
+Schema Indexer
+
+ SchemaIndexer class
+
+ Embed table names + descriptions
+ Embed column names + data types
+ Embed relationships
+ Store metadata (table info, column info)
+
+
+ Chunking strategy cho large schemas
+ Batch processing
+ Progress tracking
+
+Schema Retriever
+
+ SchemaRetriever class
+
+ Query embeddings based on user question
+ Rank results by relevance
+ Return top-k tables/columns
+ Filter by confidence threshold
+
+
+ Hybrid search (vector + keyword)
+ Re-ranking algorithm
+ Cache frequent queries
+
+Integration with Scanner
+
+ Auto-index sau khi scan schema
+ Incremental updates (schema changes)
+ Validation (ensure all tables indexed)
+ Performance metrics (indexing time, search latency)
+
+Tests
+
+ Unit tests: Indexer
+ Unit tests: Retriever
+ Integration tests: End-to-end RAG flow
+ Performance tests: Large schema (50+ tables)
+
+
+✅ Self-Correction Loop (Day 16-18)
+Error Analyzer
+
+ SqlErrorAnalyzer class
+
+ Parse SQL error messages
+ Categorize errors (syntax, invalid column, invalid table, etc.)
+ Extract error context
+ Suggest fixes
+
+
+
+SQL Corrector Plugin
+
+ SqlCorrectorPlugin
+
+ Receive: SQL + Error message + Schema context
+ Analyze error
+ Generate corrected SQL
+ Return: New SQL + Explanation
+
+
+ Prompt engineering cho correction
+ Max retry limit (3 attempts)
+ Track correction history
+
+Agent Orchestrator Updates
+
+ Add self-correction loop after SQL execution
+ Track correction attempts
+ Log each correction step
+ Fail gracefully after max retries
+ Return correction history to user
+
+Tests
+
+ Unit tests: Error analyzer với common errors
+ Unit tests: SQL corrector
+ Integration tests: Full correction loop
+ Edge cases: Unfixable errors
+
+
+✅ Enhanced SQL Generation (Day 18-19)
+Context-Aware Generation
+
+ Use RAG results thay vì full schema
+ Multi-table JOIN support
+ Nested queries support
+ Subquery generation
+ CTE (Common Table Expression) support
+
+Business Logic Support
+
+ Sample queries library
+ Common patterns detection
+
+ "Top N" pattern
+ "Last N days" pattern
+ "Group by with aggregation" pattern
+ "Percentage calculation" pattern
+
+
+ Few-shot examples từ RAG
+
+Prompt Improvements
+
+ Dynamic prompt based on intent
+ Include relevant examples
+ Better schema formatting
+ Clearer instructions
+
+
+✅ Testing & Validation (Day 19-20)
+Test Cases Library
+
+ 50+ test questions (Vietnamese + English)
+
+ Simple queries (10)
+ JOIN queries (10)
+ Aggregate queries (10)
+ Complex queries (10)
+ Edge cases (10)
+
+
+ Expected SQL cho mỗi question
+ Expected results
+
+Automated Testing
+
+ Golden test framework
+ SQL comparison (semantic, not literal)
+ Result validation
+ Performance benchmarks
+
+Quality Metrics
+
+ Accuracy: % correct SQL generated
+ Self-correction rate: % errors fixed
+ Avg correction attempts
+ Response time
+ LLM cost per query
+
+
+✅ Documentation (Day 20)
+
+ RAG architecture diagram
+ Self-correction flow diagram
+ API documentation updates
+ Configuration guide
+ Troubleshooting guide
+ Performance tuning guide
+
+
+📅 TUẦN 5-6: PRODUCTION POLISH + ADVANCED FEATURES
+🎯 Mục tiêu Sprint
+
+"Production-ready với UX tốt và features nâng cao"
+
+Success Criteria:
+- Agent stability: 95%+ uptime
+- Response time: <10s average
+- UI professional
+- Error handling comprehensive
+- Monitoring & logging complete
+
+✅ Result Interpretation (Day 21-22)
+Natural Language Answer Generator
+
+ ResultInterpreterPlugin
+
+ Convert SQL results → natural language
+ Summarization cho large results
+ Highlighting key insights
+ Multi-language support (VN/EN)
+
+
+ Template-based answers
+ LLM-based interpretation (optional)
+ Formatting utilities
+
+Answer Types
+
+ Simple count: "Có X bản ghi"
+ List: "Tìm thấy X kết quả: ..."
+ Aggregate: "Tổng là X, trung bình Y"
+ Comparison: "X tăng/giảm Y% so với..."
+ Trend: "Xu hướng tăng/giảm"
+
+Tests
+
+ Unit tests cho từng answer type
+ Localization tests (VN/EN)
+ Edge cases (empty results, very large numbers)
+
+
+✅ Enhanced UI/UX (Day 22-23)
+Console UI Improvements
+
+ Better formatting với Spectre.Console
+
+ Color-coded logs
+ Progress bars cho long operations
+ Spinners cho async tasks
+ Tables cho results
+
+
+ Interactive mode improvements
+
+ Command history (arrow keys)
+ Auto-completion
+ Multi-line input
+
+
+ Export functionality
+
+ CSV export
+ JSON export
+ Markdown export
+
+
+
+Status Dashboard
+
+ Show agent status
+ Schema cache info
+ Query history
+ Performance stats
+ Cost tracking (LLM calls)
+
+
+✅ Query History & Favorites (Day 23-24)
+Query Repository
+
+ QueryHistoryRepository
+
+ Save queries (question, SQL, result)
+ Timestamp tracking
+ Success/failure tracking
+ User feedback (optional)
+
+
+ Storage options
+
+ SQLite local DB
+ JSON file
+ In-memory (session only)
+
+
+
+Favorites System
+
+ Mark queries as favorites
+ Quick replay favorites
+ Edit/delete favorites
+ Export/import favorites
+
+Search & Filter
+
+ Search history by keyword
+ Filter by date range
+ Filter by success/failure
+ Sort by various fields
+
+
+✅ Advanced Error Handling (Day 24-25)
+Comprehensive Error Types
+
+ Connection errors
+ Timeout errors
+ Permission errors
+ LLM API errors (rate limit, quota)
+ Invalid schema errors
+ Ambiguous query errors
+
+Graceful Degradation
+
+ Fallback strategies
+
+ Retry với exponential backoff
+ Alternative LLM models
+ Cached responses
+
+
+ User-friendly error messages
+ Suggested actions
+ Auto-recovery mechanisms
+
+Circuit Breaker
+
+ Implement circuit breaker cho LLM calls
+ Implement circuit breaker cho DB calls
+ Configurable thresholds
+ Auto-reset after cooldown
+
+
+✅ Monitoring & Observability (Day 25-26)
+Logging Enhancements
+
+ Structured logging (JSON format)
+ Log levels configuration
+ Log rotation
+ Sensitive data masking
+
+Metrics Collection
+
+ Query metrics
+
+ Count
+ Success rate
+ Avg response time
+ P95, P99 latency
+
+
+ LLM metrics
+
+ API calls count
+ Token usage
+ Cost estimation
+ Error rate
+
+
+ Database metrics
+
+ Query execution time
+ Retry count
+ Connection pool stats
+
+
+
+Health Checks
+
+ Database health check
+ LLM API health check
+ Vector DB health check
+ Overall system health endpoint
+
+
+✅ Performance Optimization (Day 26-27)
+Caching Strategy
+
+ Schema caching (implemented ✓, enhance)
+ Query result caching
+
+ Redis integration
+ TTL configuration
+ Cache invalidation
+
+
+ Embedding caching
+ LLM response caching (identical queries)
+
+Batch Processing
+
+ Batch embedding generation
+ Batch SQL validation
+ Parallel execution where possible
+
+Resource Management
+
+ Connection pooling
+ Memory management
+ Async/await optimization
+ Cancellation token propagation
+
+
+✅ Security Hardening (Day 27-28)
+SQL Injection Prevention
+
+ Enhanced SQL validation
+ Parameterized queries enforcement
+ Blacklist dangerous patterns
+ Whitelist allowed patterns
+
+Access Control
+
+ Connection string encryption
+ API key rotation support
+ Rate limiting per user/session
+ Audit logging
+
+Data Privacy
+
+ PII detection in logs
+ Query sanitization
+ Result masking (optional)
+
+
+✅ Advanced Features (Day 28-29)
+Query Explanation
+
+ Explain SQL step-by-step
+ Visual query plan (optional)
+ Performance hints
+ Optimization suggestions
+
+Multi-step Queries
+
+ Chain multiple queries
+ Use previous results in next query
+ Conversation context
+ Follow-up questions
+
+Data Visualization (Optional)
+
+ ASCII charts trong console
+ Export chart data
+ Chart type suggestions
+
+Schema Recommendations
+
+ Suggest missing indexes
+ Suggest foreign keys
+ Data quality issues
+
+
+✅ Documentation & Deployment (Day 29-30)
+Documentation
+
+ README.md comprehensive
+
+ Quick start guide
+ Installation instructions
+ Configuration guide
+ Usage examples
+ Troubleshooting
+
+
+ Architecture documentation
+
+ System diagram
+ Component diagram
+ Sequence diagrams
+ Data flow diagram
+
+
+ API documentation
+ Code documentation (XML comments)
+ Video demo (optional)
+
+Deployment Package
+
+ Docker support
+
+ Dockerfile
+ docker-compose.yml
+ Multi-stage build
+
+
+ CI/CD pipeline
+
+ Build automation
+ Test automation
+ Release automation
+
+
+ Configuration templates
+ Migration scripts
+
+Release Preparation
+
+ Version tagging (v1.0.0)
+ Release notes
+ License file
+ Contributing guidelines
+ Code of conduct
+
+
+✅ Testing & Quality Assurance (Day 30)
+Comprehensive Testing
+
+ Unit test coverage >70%
+ Integration test coverage
+ End-to-end test scenarios (20+)
+ Load testing
+ Stress testing
+ Security testing
+
+Code Quality
+
+ Code review checklist
+ Static analysis
+ Code coverage report
+ Performance profiling
+ Memory leak detection
+
+User Acceptance Testing
+
+ Test với real users (5+ người)
+ Collect feedback
+ Bug fixes
+ UX improvements

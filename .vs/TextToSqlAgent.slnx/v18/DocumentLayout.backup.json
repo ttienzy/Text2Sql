@@ -1,0 +1,338 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "D:\\DACN1\\TextToSqlAgent\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{F559366F-4FB8-43C9-94DF-711D6ACF874D}|TextToSqlAgent.Plugins\\TextToSqlAgent.Plugins.csproj|d:\\dacn1\\texttosqlagent\\texttosqlagent.plugins\\sqlcorrectorplugin.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{F559366F-4FB8-43C9-94DF-711D6ACF874D}|TextToSqlAgent.Plugins\\TextToSqlAgent.Plugins.csproj|solutionrelative:texttosqlagent.plugins\\sqlcorrectorplugin.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{C9C1744C-EC43-4F83-8567-48636BB1751A}|TextToSqlAgent.Infrastructure\\TextToSqlAgent.Infrastructure.csproj|d:\\dacn1\\texttosqlagent\\texttosqlagent.infrastructure\\vectordb\\qdrantservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{C9C1744C-EC43-4F83-8567-48636BB1751A}|TextToSqlAgent.Infrastructure\\TextToSqlAgent.Infrastructure.csproj|solutionrelative:texttosqlagent.infrastructure\\vectordb\\qdrantservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{895F8A64-7ADE-44E9-A2E7-5D9A11C5DEEB}|TextToSqlAgent.Console\\TextToSqlAgent.Console.csproj|d:\\dacn1\\texttosqlagent\\texttosqlagent.console\\commands\\commandhandler.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{895F8A64-7ADE-44E9-A2E7-5D9A11C5DEEB}|TextToSqlAgent.Console\\TextToSqlAgent.Console.csproj|solutionrelative:texttosqlagent.console\\commands\\commandhandler.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{895F8A64-7ADE-44E9-A2E7-5D9A11C5DEEB}|TextToSqlAgent.Console\\TextToSqlAgent.Console.csproj|d:\\dacn1\\texttosqlagent\\texttosqlagent.console\\commands\\commandtypes.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{895F8A64-7ADE-44E9-A2E7-5D9A11C5DEEB}|TextToSqlAgent.Console\\TextToSqlAgent.Console.csproj|solutionrelative:texttosqlagent.console\\commands\\commandtypes.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{895F8A64-7ADE-44E9-A2E7-5D9A11C5DEEB}|TextToSqlAgent.Console\\TextToSqlAgent.Console.csproj|d:\\dacn1\\texttosqlagent\\texttosqlagent.console\\ui\\consoleui.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{895F8A64-7ADE-44E9-A2E7-5D9A11C5DEEB}|TextToSqlAgent.Console\\TextToSqlAgent.Console.csproj|solutionrelative:texttosqlagent.console\\ui\\consoleui.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{895F8A64-7ADE-44E9-A2E7-5D9A11C5DEEB}|TextToSqlAgent.Console\\TextToSqlAgent.Console.csproj|d:\\dacn1\\texttosqlagent\\texttosqlagent.console\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{895F8A64-7ADE-44E9-A2E7-5D9A11C5DEEB}|TextToSqlAgent.Console\\TextToSqlAgent.Console.csproj|solutionrelative:texttosqlagent.console\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{895F8A64-7ADE-44E9-A2E7-5D9A11C5DEEB}|TextToSqlAgent.Console\\TextToSqlAgent.Console.csproj|d:\\dacn1\\texttosqlagent\\texttosqlagent.console\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{895F8A64-7ADE-44E9-A2E7-5D9A11C5DEEB}|TextToSqlAgent.Console\\TextToSqlAgent.Console.csproj|solutionrelative:texttosqlagent.console\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{C9C1744C-EC43-4F83-8567-48636BB1751A}|TextToSqlAgent.Infrastructure\\TextToSqlAgent.Infrastructure.csproj|d:\\dacn1\\texttosqlagent\\texttosqlagent.infrastructure\\database\\sqlexecutor.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{C9C1744C-EC43-4F83-8567-48636BB1751A}|TextToSqlAgent.Infrastructure\\TextToSqlAgent.Infrastructure.csproj|solutionrelative:texttosqlagent.infrastructure\\database\\sqlexecutor.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{C9C1744C-EC43-4F83-8567-48636BB1751A}|TextToSqlAgent.Infrastructure\\TextToSqlAgent.Infrastructure.csproj|d:\\dacn1\\texttosqlagent\\texttosqlagent.infrastructure\\errorhandling\\connectionerrorhandler.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{C9C1744C-EC43-4F83-8567-48636BB1751A}|TextToSqlAgent.Infrastructure\\TextToSqlAgent.Infrastructure.csproj|solutionrelative:texttosqlagent.infrastructure\\errorhandling\\connectionerrorhandler.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{C9C1744C-EC43-4F83-8567-48636BB1751A}|TextToSqlAgent.Infrastructure\\TextToSqlAgent.Infrastructure.csproj|d:\\dacn1\\texttosqlagent\\texttosqlagent.infrastructure\\llm\\openaiclient.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{C9C1744C-EC43-4F83-8567-48636BB1751A}|TextToSqlAgent.Infrastructure\\TextToSqlAgent.Infrastructure.csproj|solutionrelative:texttosqlagent.infrastructure\\llm\\openaiclient.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{895F8A64-7ADE-44E9-A2E7-5D9A11C5DEEB}|TextToSqlAgent.Console\\TextToSqlAgent.Console.csproj|d:\\dacn1\\texttosqlagent\\texttosqlagent.console\\texttosqlagent.console.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|",
+      "RelativeMoniker": "D:0:0:{895F8A64-7ADE-44E9-A2E7-5D9A11C5DEEB}|TextToSqlAgent.Console\\TextToSqlAgent.Console.csproj|solutionrelative:texttosqlagent.console\\texttosqlagent.console.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{895F8A64-7ADE-44E9-A2E7-5D9A11C5DEEB}|TextToSqlAgent.Console\\TextToSqlAgent.Console.csproj|d:\\dacn1\\texttosqlagent\\texttosqlagent.console\\setup\\dependencyinjection.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{895F8A64-7ADE-44E9-A2E7-5D9A11C5DEEB}|TextToSqlAgent.Console\\TextToSqlAgent.Console.csproj|solutionrelative:texttosqlagent.console\\setup\\dependencyinjection.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{C9C1744C-EC43-4F83-8567-48636BB1751A}|TextToSqlAgent.Infrastructure\\TextToSqlAgent.Infrastructure.csproj|d:\\dacn1\\texttosqlagent\\texttosqlagent.infrastructure\\factories\\embeddingclientfactory.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{C9C1744C-EC43-4F83-8567-48636BB1751A}|TextToSqlAgent.Infrastructure\\TextToSqlAgent.Infrastructure.csproj|solutionrelative:texttosqlagent.infrastructure\\factories\\embeddingclientfactory.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{C9C1744C-EC43-4F83-8567-48636BB1751A}|TextToSqlAgent.Infrastructure\\TextToSqlAgent.Infrastructure.csproj|d:\\dacn1\\texttosqlagent\\texttosqlagent.infrastructure\\factories\\llmclientfactory.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{C9C1744C-EC43-4F83-8567-48636BB1751A}|TextToSqlAgent.Infrastructure\\TextToSqlAgent.Infrastructure.csproj|solutionrelative:texttosqlagent.infrastructure\\factories\\llmclientfactory.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{C9C1744C-EC43-4F83-8567-48636BB1751A}|TextToSqlAgent.Infrastructure\\TextToSqlAgent.Infrastructure.csproj|d:\\dacn1\\texttosqlagent\\texttosqlagent.infrastructure\\llm\\geminiclient.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{C9C1744C-EC43-4F83-8567-48636BB1751A}|TextToSqlAgent.Infrastructure\\TextToSqlAgent.Infrastructure.csproj|solutionrelative:texttosqlagent.infrastructure\\llm\\geminiclient.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{895F8A64-7ADE-44E9-A2E7-5D9A11C5DEEB}|TextToSqlAgent.Console\\TextToSqlAgent.Console.csproj|d:\\dacn1\\texttosqlagent\\texttosqlagent.console\\agent\\texttosqlagentorchestrator.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{895F8A64-7ADE-44E9-A2E7-5D9A11C5DEEB}|TextToSqlAgent.Console\\TextToSqlAgent.Console.csproj|solutionrelative:texttosqlagent.console\\agent\\texttosqlagentorchestrator.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 10,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 7,
+              "Title": "SqlExecutor.cs",
+              "DocumentMoniker": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Infrastructure\\Database\\SqlExecutor.cs",
+              "RelativeDocumentMoniker": "TextToSqlAgent.Infrastructure\\Database\\SqlExecutor.cs",
+              "ToolTip": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Infrastructure\\Database\\SqlExecutor.cs",
+              "RelativeToolTip": "TextToSqlAgent.Infrastructure\\Database\\SqlExecutor.cs",
+              "ViewState": "AgIAAMEAAAAAAAAAAAAkwA0AAAANAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-01-29T13:22:11.261Z",
+              "IsPinned": true
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{1c4feeaa-4718-4aa9-859d-94ce25d182ba}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:128:0:{116d2292-e37d-41cd-a077-ebacac4c8cc4}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:129:0:{116d2292-e37d-41cd-a077-ebacac4c8cc4}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:130:0:{13b12e3e-c1b4-4539-9371-4fe9a0d523fc}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:2:0:{d212f56b-c48a-434c-a121-1c5d80b59b9f}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{aa2115a1-9712-457b-9047-dbb71ca2cdd2}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{3ae79031-e1bc-11d0-8f78-00a0c9110057}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{40ea2e6b-2121-4bb8-a43e-c83c04b51041}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{e1b7d1f8-9b3c-49b1-8f4f-bfc63a88835d}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "SqlCorrectorPlugin.cs",
+              "DocumentMoniker": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Plugins\\SqlCorrectorPlugin.cs",
+              "RelativeDocumentMoniker": "TextToSqlAgent.Plugins\\SqlCorrectorPlugin.cs",
+              "ToolTip": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Plugins\\SqlCorrectorPlugin.cs",
+              "RelativeToolTip": "TextToSqlAgent.Plugins\\SqlCorrectorPlugin.cs",
+              "ViewState": "AgIAADAAAAAAAAAAAAAQwDkAAAANAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-02-11T16:46:58.542Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "CommandTypes.cs",
+              "DocumentMoniker": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Console\\Commands\\CommandTypes.cs",
+              "RelativeDocumentMoniker": "TextToSqlAgent.Console\\Commands\\CommandTypes.cs",
+              "ToolTip": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Console\\Commands\\CommandTypes.cs",
+              "RelativeToolTip": "TextToSqlAgent.Console\\Commands\\CommandTypes.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-02-11T05:56:20.866Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "ConsoleUI.cs",
+              "DocumentMoniker": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Console\\UI\\ConsoleUI.cs",
+              "RelativeDocumentMoniker": "TextToSqlAgent.Console\\UI\\ConsoleUI.cs",
+              "ToolTip": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Console\\UI\\ConsoleUI.cs",
+              "RelativeToolTip": "TextToSqlAgent.Console\\UI\\ConsoleUI.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA0BAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-02-11T05:54:29.771Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "CommandHandler.cs",
+              "DocumentMoniker": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Console\\Commands\\CommandHandler.cs",
+              "RelativeDocumentMoniker": "TextToSqlAgent.Console\\Commands\\CommandHandler.cs",
+              "ToolTip": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Console\\Commands\\CommandHandler.cs",
+              "RelativeToolTip": "TextToSqlAgent.Console\\Commands\\CommandHandler.cs",
+              "ViewState": "AgIAALABAAAAAAAAAAAAALkBAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-02-11T05:51:15.06Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "appsettings.json",
+              "DocumentMoniker": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Console\\appsettings.json",
+              "RelativeDocumentMoniker": "TextToSqlAgent.Console\\appsettings.json",
+              "ToolTip": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Console\\appsettings.json",
+              "RelativeToolTip": "TextToSqlAgent.Console\\appsettings.json",
+              "ViewState": "AgIAAAwAAAAAAAAAAAAAABkAAAAEAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2026-01-29T13:58:32.564Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 9,
+              "Title": "OpenAIClient.cs",
+              "DocumentMoniker": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Infrastructure\\LLM\\OpenAIClient.cs",
+              "RelativeDocumentMoniker": "TextToSqlAgent.Infrastructure\\LLM\\OpenAIClient.cs",
+              "ToolTip": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Infrastructure\\LLM\\OpenAIClient.cs",
+              "RelativeToolTip": "TextToSqlAgent.Infrastructure\\LLM\\OpenAIClient.cs",
+              "ViewState": "AgIAADEAAAAAAAAAAAAQwBEAAAAzAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-02-11T02:59:37.882Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "QdrantService.cs",
+              "DocumentMoniker": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Infrastructure\\VectorDB\\QdrantService.cs",
+              "RelativeDocumentMoniker": "TextToSqlAgent.Infrastructure\\VectorDB\\QdrantService.cs",
+              "ToolTip": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Infrastructure\\VectorDB\\QdrantService.cs",
+              "RelativeToolTip": "TextToSqlAgent.Infrastructure\\VectorDB\\QdrantService.cs",
+              "ViewState": "AgIAAEkBAAAAAAAAAAAAAE4BAAAzAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-01-29T13:30:05.075Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "Program.cs",
+              "DocumentMoniker": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Console\\Program.cs",
+              "RelativeDocumentMoniker": "TextToSqlAgent.Console\\Program.cs",
+              "ToolTip": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Console\\Program.cs",
+              "RelativeToolTip": "TextToSqlAgent.Console\\Program.cs",
+              "ViewState": "AgIAAAgAAAAAAAAAAAAmwMEAAAALAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-01-29T13:14:19.783Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 12,
+              "Title": "EmbeddingClientFactory.cs",
+              "DocumentMoniker": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Infrastructure\\Factories\\EmbeddingClientFactory.cs",
+              "RelativeDocumentMoniker": "TextToSqlAgent.Infrastructure\\Factories\\EmbeddingClientFactory.cs",
+              "ToolTip": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Infrastructure\\Factories\\EmbeddingClientFactory.cs",
+              "RelativeToolTip": "TextToSqlAgent.Infrastructure\\Factories\\EmbeddingClientFactory.cs",
+              "ViewState": "AgIAADYAAAAAAAAAAAAYwDYAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-02-10T17:22:12.213Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 10,
+              "Title": "TextToSqlAgent.Console.csproj",
+              "DocumentMoniker": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Console\\TextToSqlAgent.Console.csproj",
+              "RelativeDocumentMoniker": "TextToSqlAgent.Console\\TextToSqlAgent.Console.csproj",
+              "ToolTip": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Console\\TextToSqlAgent.Console.csproj",
+              "RelativeToolTip": "TextToSqlAgent.Console\\TextToSqlAgent.Console.csproj",
+              "ViewState": "AgIAAAYAAAAAAAAAAAAAAA8AAABbAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
+              "WhenOpened": "2026-02-11T02:39:20.451Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 8,
+              "Title": "ConnectionErrorHandler.cs",
+              "DocumentMoniker": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Infrastructure\\ErrorHandling\\ConnectionErrorHandler.cs",
+              "RelativeDocumentMoniker": "TextToSqlAgent.Infrastructure\\ErrorHandling\\ConnectionErrorHandler.cs",
+              "ToolTip": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Infrastructure\\ErrorHandling\\ConnectionErrorHandler.cs",
+              "RelativeToolTip": "TextToSqlAgent.Infrastructure\\ErrorHandling\\ConnectionErrorHandler.cs",
+              "ViewState": "AgIAAAsAAAAAAAAAAAAAwAwAAAAlAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-02-11T03:19:42.072Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 13,
+              "Title": "LLMClientFactory.cs",
+              "DocumentMoniker": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Infrastructure\\Factories\\LLMClientFactory.cs",
+              "RelativeDocumentMoniker": "TextToSqlAgent.Infrastructure\\Factories\\LLMClientFactory.cs",
+              "ToolTip": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Infrastructure\\Factories\\LLMClientFactory.cs",
+              "RelativeToolTip": "TextToSqlAgent.Infrastructure\\Factories\\LLMClientFactory.cs",
+              "ViewState": "AgIAADcAAAAAAAAAAAAgwD0AAABEAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-02-10T17:21:39.976Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 11,
+              "Title": "DependencyInjection.cs",
+              "DocumentMoniker": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Console\\Setup\\DependencyInjection.cs",
+              "RelativeDocumentMoniker": "TextToSqlAgent.Console\\Setup\\DependencyInjection.cs",
+              "ToolTip": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Console\\Setup\\DependencyInjection.cs",
+              "RelativeToolTip": "TextToSqlAgent.Console\\Setup\\DependencyInjection.cs",
+              "ViewState": "AgIAAGoAAAAAAAAAAAAwwHgAAAA4AAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-02-11T02:24:12.465Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 14,
+              "Title": "GeminiClient.cs",
+              "DocumentMoniker": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Infrastructure\\LLM\\GeminiClient.cs",
+              "RelativeDocumentMoniker": "TextToSqlAgent.Infrastructure\\LLM\\GeminiClient.cs",
+              "ToolTip": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Infrastructure\\LLM\\GeminiClient.cs",
+              "RelativeToolTip": "TextToSqlAgent.Infrastructure\\LLM\\GeminiClient.cs",
+              "ViewState": "AgIAAEsAAAAAAAAAAAAIwFsAAAASAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-01-29T13:25:39.332Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 15,
+              "Title": "TextToSqlAgentOrchestrator.cs",
+              "DocumentMoniker": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Console\\Agent\\TextToSqlAgentOrchestrator.cs",
+              "RelativeDocumentMoniker": "TextToSqlAgent.Console\\Agent\\TextToSqlAgentOrchestrator.cs",
+              "ToolTip": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Console\\Agent\\TextToSqlAgentOrchestrator.cs",
+              "RelativeToolTip": "TextToSqlAgent.Console\\Agent\\TextToSqlAgentOrchestrator.cs",
+              "ViewState": "AgIAALEBAAAAAAAAAAAiwMUBAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-01-29T13:23:07.006Z"
+            }
+          ]
+        },
+        {
+          "DockedWidth": 148,
+          "SelectedChildIndex": -1,
+          "Children": [
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{d78612c7-9962-4b83-95d9-268046dad23a}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{34e76e81-ee4a-11d0-ae2e-00a0c90fffc3}"
+            }
+          ]
+        },
+        {
+          "DockedWidth": 227,
+          "SelectedChildIndex": -1,
+          "Children": [
+            {
+              "$type": "Bookmark",
+              "Name": "ST:1:0:{d212f56b-c48a-434c-a121-1c5d80b59b9f}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

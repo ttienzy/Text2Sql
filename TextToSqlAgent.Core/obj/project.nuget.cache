@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "MX8tiVme/6M=",
+  "success": true,
+  "projectFilePath": "D:\\DACN1\\TextToSqlAgent\\TextToSqlAgent.Core\\TextToSqlAgent.Core.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\ASUS\\.nuget\\packages\\microsoft.extensions.dependencyinjection.abstractions\\10.0.2\\microsoft.extensions.dependencyinjection.abstractions.10.0.2.nupkg.sha512",
+    "C:\\Users\\ASUS\\.nuget\\packages\\microsoft.extensions.logging.abstractions\\10.0.2\\microsoft.extensions.logging.abstractions.10.0.2.nupkg.sha512"
+  ],
+  "logs": []
+}

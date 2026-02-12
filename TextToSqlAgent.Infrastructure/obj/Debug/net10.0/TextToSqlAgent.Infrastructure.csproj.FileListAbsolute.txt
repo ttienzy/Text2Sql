@@ -1,0 +1,15 @@
+D:\DACN1\TextToSqlAgent\TextToSqlAgent.Infrastructure\bin\Debug\net10.0\TextToSqlAgent.Infrastructure.deps.json
+D:\DACN1\TextToSqlAgent\TextToSqlAgent.Infrastructure\bin\Debug\net10.0\TextToSqlAgent.Infrastructure.dll
+D:\DACN1\TextToSqlAgent\TextToSqlAgent.Infrastructure\bin\Debug\net10.0\TextToSqlAgent.Infrastructure.pdb
+D:\DACN1\TextToSqlAgent\TextToSqlAgent.Infrastructure\bin\Debug\net10.0\TextToSqlAgent.Core.dll
+D:\DACN1\TextToSqlAgent\TextToSqlAgent.Infrastructure\bin\Debug\net10.0\TextToSqlAgent.Core.pdb
+D:\DACN1\TextToSqlAgent\TextToSqlAgent.Infrastructure\obj\Debug\net10.0\TextToSqlAgent.Infrastructure.csproj.AssemblyReference.cache
+D:\DACN1\TextToSqlAgent\TextToSqlAgent.Infrastructure\obj\Debug\net10.0\TextToSqlAgent.Infrastructure.GeneratedMSBuildEditorConfig.editorconfig
+D:\DACN1\TextToSqlAgent\TextToSqlAgent.Infrastructure\obj\Debug\net10.0\TextToSqlAgent.Infrastructure.AssemblyInfoInputs.cache
+D:\DACN1\TextToSqlAgent\TextToSqlAgent.Infrastructure\obj\Debug\net10.0\TextToSqlAgent.Infrastructure.AssemblyInfo.cs
+D:\DACN1\TextToSqlAgent\TextToSqlAgent.Infrastructure\obj\Debug\net10.0\TextToSqlAgent.Infrastructure.csproj.CoreCompileInputs.cache
+D:\DACN1\TextToSqlAgent\TextToSqlAgent.Infrastructure\obj\Debug\net10.0\TextToSq.0AEF9A4F.Up2Date
+D:\DACN1\TextToSqlAgent\TextToSqlAgent.Infrastructure\obj\Debug\net10.0\TextToSqlAgent.Infrastructure.dll
+D:\DACN1\TextToSqlAgent\TextToSqlAgent.Infrastructure\obj\Debug\net10.0\refint\TextToSqlAgent.Infrastructure.dll
+D:\DACN1\TextToSqlAgent\TextToSqlAgent.Infrastructure\obj\Debug\net10.0\TextToSqlAgent.Infrastructure.pdb
+D:\DACN1\TextToSqlAgent\TextToSqlAgent.Infrastructure\obj\Debug\net10.0\ref\TextToSqlAgent.Infrastructure.dll
