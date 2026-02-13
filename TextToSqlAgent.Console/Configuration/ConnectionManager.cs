@@ -127,11 +127,43 @@ public class ConnectionManager
         if (string.IsNullOrWhiteSpace(connectionString))
             return string.Empty;
 
-        // Extract server and database info only
         var parts = connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries);
-        var server = parts.FirstOrDefault(p => p.Trim().StartsWith("Server=", StringComparison.OrdinalIgnoreCase))?.Split('=')[1].Trim();
-        var database = parts.FirstOrDefault(p => p.Trim().StartsWith("Database=", StringComparison.OrdinalIgnoreCase))?.Split('=')[1].Trim();
 
-        return $"Server={server ?? "???"}, Database={database ?? "???"}";
+        static string? GetValue(string[] items, params string[] keys)
+        {
+            foreach (var key in keys)
+            {
+                var match = items.FirstOrDefault(p =>
+                    p.Trim().StartsWith(key + "=", StringComparison.OrdinalIgnoreCase));
+                if (match != null)
+                {
+                    var kv = match.Split('=', 2);
+                    if (kv.Length == 2)
+                    {
+                        return kv[1].Trim();
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        // Common patterns across providers
+        var serverOrHost = GetValue(parts, "Server", "Host", "Data Source", "DataSource");
+        var databaseOrFile = GetValue(parts, "Database", "Initial Catalog", "Filename", "File", "Data Source", "DataSource");
+
+        if (serverOrHost == null && databaseOrFile == null)
+        {
+            return "ConnectionString=[masked]";
+        }
+
+        // For SQLite, emphasize file path
+        if (connectionString.Contains("Data Source", StringComparison.OrdinalIgnoreCase) ||
+            connectionString.Contains("Filename", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"DataSource={databaseOrFile ?? serverOrHost ?? "???"}";
+        }
+
+        return $"Server/Host={serverOrHost ?? "???"}, Database={databaseOrFile ?? "???"}";
     }
 }

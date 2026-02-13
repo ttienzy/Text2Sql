@@ -1,7 +1,8 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using TextToSqlAgent.Infrastructure.Configuration;
 using TextToSqlAgent.Infrastructure.Database;
+using TextToSqlAgent.Infrastructure.Database.Adapters.SqlServer;
 using Xunit;
 
 namespace TextToSqlAgent.Tests.Integration.Database;
@@ -19,7 +20,8 @@ public class SqlExecutorTests
             MaxRetryAttempts = 3
         };
 
-       // _executor = new SqlExecutor(config, NullLogger<SqlExecutor>.Instance);
+        var adapter = new SqlServerAdapter(NullLogger<SqlServerAdapter>.Instance);
+        _executor = new SqlExecutor(config, adapter, NullLogger<SqlExecutor>.Instance);
     }
 
     [Fact]

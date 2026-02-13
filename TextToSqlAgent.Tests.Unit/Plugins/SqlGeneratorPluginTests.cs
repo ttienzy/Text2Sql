@@ -1,10 +1,12 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using TextToSqlAgent.Core.Models;
 using TextToSqlAgent.Infrastructure.Configuration;
 using TextToSqlAgent.Infrastructure.LLM;
 using TextToSqlAgent.Plugins;
 using Xunit;
+using TextToSqlAgent.Core.Interfaces;
+using TextToSqlAgent.Infrastructure.Database.Adapters.SqlServer;
 
 namespace TextToSqlAgent.Tests.Unit.Plugins;
 
@@ -15,18 +17,9 @@ public class SqlGeneratorPluginTests
 
     public SqlGeneratorPluginTests()
     {
-        var apiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY")
-            ?? throw new InvalidOperationException("GEMINI_API_KEY not set");
-
-        var config = new GeminiConfig
-        {
-            ApiKey = apiKey,
-            Model = "gemini-2.5-flash",
-            Temperature = 0.1
-        };
-
-        var geminiClient = new GeminiClient(config, NullLogger<GeminiClient>.Instance);
-        //_plugin = new SqlGeneratorPlugin(geminiClient, NullLogger<SqlGeneratorPlugin>.Instance);
+        var fakeLlm = new FakeLlmClient();
+        var adapter = new SqlServerAdapter(NullLogger<SqlServerAdapter>.Instance);
+        _plugin = new SqlGeneratorPlugin(fakeLlm, adapter, NullLogger<SqlGeneratorPlugin>.Instance);
 
         // Setup test schema
         _testSchema = new DatabaseSchema
@@ -70,6 +63,35 @@ public class SqlGeneratorPluginTests
                 }
             }
         };
+    }
+
+    private sealed class FakeLlmClient : ILLMClient
+    {
+        public Task<string> CompleteAsync(string prompt, CancellationToken cancellationToken = default)
+        {
+            // Not used in these tests
+            return Task.FromResult("SELECT 1");
+        }
+
+        public Task<string> CompleteWithSystemPromptAsync(
+            string systemPrompt,
+            string userPrompt,
+            CancellationToken cancellationToken = default)
+        {
+            // Very lightweight routing based on intent/target markers in the user prompt
+            if (userPrompt.Contains("Intent: COUNT", StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult("SELECT COUNT(*) FROM Customers");
+            }
+
+            if (userPrompt.Contains("Intent: SCHEMA", StringComparison.OrdinalIgnoreCase) &&
+                userPrompt.Contains("Target: TABLES", StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult("SELECT * FROM INFORMATION_SCHEMA.TABLES");
+            }
+
+            return Task.FromResult("SELECT * FROM Customers");
+        }
     }
 
     [Fact]

@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using TextToSqlAgent.Core.Enums;
 using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Models;
+using TextToSqlAgent.Infrastructure.Prompts;
 
 namespace TextToSqlAgent.Infrastructure.Database.Adapters.SqlServer;
 
@@ -79,12 +80,12 @@ public class SqlServerAdapter : IDatabaseAdapter
 
     public string GetSystemPrompt()
     {
-        return TextToSqlAgent.Infrastructure.Prompts.SqlGenerationPrompt.SystemPrompt;
+        return SqlGenerationPrompt.SystemPrompt;
     }
 
     public string GetCorrectionSystemPrompt()
     {
-        return TextToSqlAgent.Infrastructure.Prompts.SqlCorrectionPrompt.SystemPrompt;
+        return SqlCorrectionPrompt.SystemPrompt;
     }
 
     private async Task<List<TableInfo>> ScanTablesAsync(IDbConnection connection, CancellationToken ct)

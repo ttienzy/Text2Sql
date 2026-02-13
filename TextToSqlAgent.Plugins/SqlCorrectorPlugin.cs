@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
 using System.ComponentModel;
 using System.Text.Json;
@@ -14,15 +14,18 @@ public class SqlCorrectorPlugin
 {
     private readonly ILLMClient _llmClient;
     private readonly SqlErrorAnalyzer _errorAnalyzer;
+    private readonly IDatabaseAdapter _adapter;
     private readonly ILogger<SqlCorrectorPlugin> _logger;
 
     public SqlCorrectorPlugin(
         ILLMClient llmClient,
         SqlErrorAnalyzer errorAnalyzer,
+        IDatabaseAdapter adapter,
         ILogger<SqlCorrectorPlugin> logger)
     {
         _llmClient = llmClient;
         _errorAnalyzer = errorAnalyzer;
+        _adapter = adapter;
         _logger = logger;
     }
 
@@ -94,7 +97,7 @@ public class SqlCorrectorPlugin
                 filterValue);  // ← PASS filter value
 
             var correctedSql = await _llmClient.CompleteWithSystemPromptAsync(
-                SqlCorrectionPrompt.SystemPrompt,
+                _adapter.GetCorrectionSystemPrompt(),
                 userPrompt,
                 cancellationToken);
 

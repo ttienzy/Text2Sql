@@ -1,7 +1,7 @@
-﻿using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using TextToSqlAgent.Core.Exceptions;
+using TextToSqlAgent.Core.Enums;
 using TextToSqlAgent.Core.Models;
 using TextToSqlAgent.Core.Tasks;
 using TextToSqlAgent.Infrastructure.Configuration;
@@ -76,12 +76,11 @@ public class TextToSqlAgentOrchestrator
             var normalized = await _normalizeTask.ExecuteAsync(userQuestion, cancellationToken);
 
             // ====================================
-            // STEP 1.5: Setup Qdrant Collection Name
+            // STEP 1.5: Setup Qdrant Collection Name (provider-agnostic)
             // ====================================
-            try 
+            try
             {
-                var builder = new SqlConnectionStringBuilder(_dbConfig.ConnectionString);
-                var dbName = builder.InitialCatalog; // Or builder.DataSource if appropriate, but InitialCatalog is usually the DB name
+                var dbName = ExtractDatabaseName(_dbConfig);
                 if (!string.IsNullOrEmpty(dbName))
                 {
                     _qdrantService.SetCollectionName(dbName);
@@ -280,6 +279,66 @@ public class TextToSqlAgentOrchestrator
 
             return response;
         }
+    }
+
+    private static string? ExtractDatabaseName(DatabaseConfig config)
+    {
+        if (string.IsNullOrWhiteSpace(config.ConnectionString))
+        {
+            return null;
+        }
+
+        var parts = config.ConnectionString.Split(';', StringSplitOptions.RemoveEmptyEntries);
+
+        static string? GetValue(string[] items, params string[] keys)
+        {
+            foreach (var key in keys)
+            {
+                var match = items.FirstOrDefault(p =>
+                    p.Trim().StartsWith(key + "=", StringComparison.OrdinalIgnoreCase));
+                if (match != null)
+                {
+                    var kv = match.Split('=', 2);
+                    if (kv.Length == 2)
+                    {
+                        return kv[1].Trim();
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        // SQLite: use file name (without extension) as logical database/collection name
+        if (config.Provider == DatabaseProvider.SQLite)
+        {
+            var dataSource = GetValue(parts, "Data Source", "DataSource", "Filename", "File");
+            if (string.IsNullOrWhiteSpace(dataSource))
+            {
+                return null;
+            }
+
+            try
+            {
+                var fullPath = System.IO.Path.GetFullPath(dataSource);
+                return System.IO.Path.GetFileNameWithoutExtension(fullPath);
+            }
+            catch
+            {
+                return dataSource;
+            }
+        }
+
+        // Other providers: prefer Database / Initial Catalog
+        var database = GetValue(parts, "Database", "Initial Catalog");
+        if (!string.IsNullOrWhiteSpace(database))
+        {
+            return database;
+        }
+
+        // Fallback: try to infer from data source/host
+        var host = GetValue(parts, "Server", "Host", "Data Source", "DataSource");
+        return host;
     }
     private RetrievedSchemaContext BuildFallbackSchema(string targetTable, DatabaseSchema fullSchema)
     {

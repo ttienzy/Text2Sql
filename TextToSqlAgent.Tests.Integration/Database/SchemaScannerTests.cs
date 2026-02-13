@@ -1,7 +1,8 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using TextToSqlAgent.Infrastructure.Configuration;
 using TextToSqlAgent.Infrastructure.Database;
+using TextToSqlAgent.Infrastructure.Database.Adapters.SqlServer;
 using Xunit;
 
 namespace TextToSqlAgent.Tests.Integration.Database;
@@ -18,7 +19,8 @@ public class SchemaScannerTests
             ConnectionString = "Server=.;Database=TextToSqlTest;User Id=TextToSqlReader;Password=@TextToSqlReader!;TrustServerCertificate=True;"
         };
 
-        //_scanner = new SchemaScanner(_config, NullLogger<SchemaScanner>.Instance);
+        var adapter = new SqlServerAdapter(NullLogger<SqlServerAdapter>.Instance);
+        _scanner = new SchemaScanner(_config, adapter, NullLogger<SchemaScanner>.Instance);
     }
 
     [Fact]
