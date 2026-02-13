@@ -26,6 +26,7 @@ public class ConnectionManager
         public string Name { get; set; } = string.Empty;
         public string ConnectionString { get; set; } = string.Empty;
         public DateTime LastUsed { get; set; }
+        public Core.Enums.DatabaseProvider Provider { get; set; } = Core.Enums.DatabaseProvider.SqlServer;
     }
 
     public class ConnectionsData
@@ -79,13 +80,18 @@ public class ConnectionManager
     /// <summary>
     /// Add or update a connection
     /// </summary>
-    public void AddOrUpdateConnection(ConnectionsData data, string name, string connectionString)
+    public void AddOrUpdateConnection(
+        ConnectionsData data, 
+        string name, 
+        string connectionString, 
+        Core.Enums.DatabaseProvider provider = Core.Enums.DatabaseProvider.SqlServer)
     {
         var existing = data.Connections.FirstOrDefault(c => c.Name == name);
         
         if (existing != null)
         {
             existing.ConnectionString = connectionString;
+            existing.Provider = provider;
             existing.LastUsed = DateTime.Now;
         }
         else
@@ -94,6 +100,7 @@ public class ConnectionManager
             {
                 Name = name,
                 ConnectionString = connectionString,
+                Provider = provider,
                 LastUsed = DateTime.Now
             });
         }
@@ -101,6 +108,7 @@ public class ConnectionManager
         data.LastUsedConnectionName = name;
         SaveConnections(data);
     }
+
 
     /// <summary>
     /// Get default built-in connections

@@ -163,6 +163,22 @@ public static class DependencyInjection
             return factory.CreateClient();
         });
 
+        // Database adapters
+        services.AddSingleton<TextToSqlAgent.Infrastructure.Database.Adapters.SqlServer.SqlServerAdapter>();
+        services.AddSingleton<TextToSqlAgent.Infrastructure.Database.Adapters.MySQL.MySqlAdapter>();
+        services.AddSingleton<TextToSqlAgent.Infrastructure.Database.Adapters.PostgreSQL.PostgreSqlAdapter>();
+        services.AddSingleton<TextToSqlAgent.Infrastructure.Database.Adapters.SQLite.SQLiteAdapter>();
+        
+        // Database adapter factory
+        services.AddSingleton<DatabaseAdapterFactory>();
+        
+        // Register IDatabaseAdapter using factory
+        services.AddSingleton<IDatabaseAdapter>(sp =>
+        {
+            var factory = sp.GetRequiredService<DatabaseAdapterFactory>();
+            return factory.CreateAdapter();
+        });
+
         // Database services
         services.AddSingleton<SchemaScanner>();
         services.AddSingleton<SqlExecutor>();
@@ -175,6 +191,7 @@ public static class DependencyInjection
         // Error handlers
         TextToSqlAgent.Infrastructure.ErrorHandling.ErrorHandlerServiceExtensions.AddErrorHandlers(services);
     }
+
 
     private static void RegisterPlugins(IServiceCollection services)
     {

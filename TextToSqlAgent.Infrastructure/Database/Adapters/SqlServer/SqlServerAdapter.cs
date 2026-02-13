@@ -6,7 +6,7 @@ using TextToSqlAgent.Core.Enums;
 using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Models;
 
-namespace TextToSqlAgent.Infrastructure.Database.Adapters;
+namespace TextToSqlAgent.Infrastructure.Database.Adapters.SqlServer;
 
 public class SqlServerAdapter : IDatabaseAdapter
 {

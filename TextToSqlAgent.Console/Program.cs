@@ -80,13 +80,11 @@ public class Program
         using var scope = services.CreateScope();
         var scopedServices = scope.ServiceProvider;
 
-        // Get services
+        // Get configuration services first
         var geminiConfig = scopedServices.GetRequiredService<GeminiConfig>();
         var openAIConfig = scopedServices.GetRequiredService<OpenAIConfig>();
         var dbConfig = scopedServices.GetRequiredService<DatabaseConfig>();
         var agentConfig = scopedServices.GetRequiredService<AgentConfig>();
-        var agent = scopedServices.GetRequiredService<TextToSqlAgentOrchestrator>();
-        var sqlExecutor = scopedServices.GetRequiredService<SqlExecutor>();
         
         // Get LLM provider from configuration
         var configuration = scopedServices.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>();
@@ -119,9 +117,8 @@ public class Program
             // Display configuration
             ConsoleUI.DisplayConfigurationInfo(provider, modelName, temperature, maxTokens, agentConfig);
 
-            // Get database connection
             // Get database connection with error handling
-            (string connectionString, string connectionName)? connectionInfo = null;
+            (string connectionString, string connectionName, TextToSqlAgent.Core.Enums.DatabaseProvider dbProvider)? connectionInfo = null;
 
             try
             {
@@ -141,8 +138,15 @@ public class Program
                 return;
             }
 
-            var (connectionString, connectionName) = connectionInfo.Value;
+            // Configure database
+            var (connectionString, connectionName, selectedDbProvider) = connectionInfo.Value;
             dbConfig.ConnectionString = connectionString;
+            dbConfig.Provider = selectedDbProvider;
+
+            // Resolve heavy services AFTER configuration is set
+            // This ensures DatabaseAdapterFactory creates the correct adapter based on dbConfig.Provider
+            var agent = scopedServices.GetRequiredService<TextToSqlAgentOrchestrator>();
+            var sqlExecutor = scopedServices.GetRequiredService<SqlExecutor>();
 
             // Test connection
             if (!await TestDatabaseConnectionAsync(sqlExecutor))
@@ -151,7 +155,7 @@ public class Program
                 return;
             }
 
-            AnsiConsole.MarkupLine($"[green]✓ Connected to:[/] [cyan]{connectionName}[/]");
+            AnsiConsole.MarkupLine($"[green]✓ Connected to:[/] [cyan]{connectionName}[/] ({selectedDbProvider})");
             AnsiConsole.WriteLine();
 
             // Show help
@@ -167,9 +171,10 @@ public class Program
             AnsiConsole.MarkupLine("[red]❌ DI Configuration Error:[/]");
             AnsiConsole.MarkupLine($"[yellow]{ex.Message}[/]");
             AnsiConsole.MarkupLine("\n[cyan]This is likely a coding error. Please check DependencyInjection.cs[/]");
-            throw; // Re-throw vì đây là lỗi nghiêm trọng
+            throw; 
         }
     }
+
 
     private static async Task RunInteractiveLoopAsync(TextToSqlAgentOrchestrator agent, IServiceProvider services)
     {

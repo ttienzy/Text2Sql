@@ -7,6 +7,7 @@ using TextToSqlAgent.Infrastructure.RAG;
 using TextToSqlAgent.Infrastructure.VectorDB;
 using TextToSqlAgent.Infrastructure.Configuration;
 using Microsoft.Extensions.Configuration;
+using TextToSqlAgent.Console.Configuration;
 
 namespace TextToSqlAgent.Console.Commands;
 
@@ -61,7 +62,7 @@ public class CommandHandler
 
             AnsiConsole.WriteLine();
             var panel = new Panel(
-                new Markup($"[cyan]{Configuration.ConnectionManager.MaskConnectionString(dbConfig.ConnectionString)}[/]"))
+                new Markup($"[cyan]{ConnectionManager.MaskConnectionString(dbConfig.ConnectionString)}[/]"))
             {
                 Header = new PanelHeader("📊 Current Database Connection", Justify.Left),
                 Border = BoxBorder.Rounded,
@@ -88,10 +89,21 @@ public class CommandHandler
             AnsiConsole.MarkupLine("[yellow]🔄 Switching database connection...[/]");
             AnsiConsole.WriteLine();
 
-            var (connectionString, connectionName) = UI.ConsoleUI.PromptDatabaseConnection();
+            var (connectionString, connectionName, provider) = UI.ConsoleUI.PromptDatabaseConnection();
 
             var dbConfig = _serviceProvider.GetRequiredService<Infrastructure.Configuration.DatabaseConfig>();
             var sqlExecutor = _serviceProvider.GetRequiredService<SqlExecutor>();
+
+            // Check if provider changed
+            if (dbConfig.Provider != provider)
+            {
+                dbConfig.ConnectionString = connectionString;
+                dbConfig.Provider = provider;
+
+                AnsiConsole.MarkupLine($"[green]✓ Configuration updated to {provider}.[/]");
+                AnsiConsole.MarkupLine("[red bold]⚠️  Database Provider changed. Please restart the application to apply changes correctly.[/]");
+                return CommandResult.Exit;
+            }
 
             dbConfig.ConnectionString = connectionString;
 
@@ -109,8 +121,8 @@ public class CommandHandler
                 return CommandResult.Handled;
             }
 
-            AnsiConsole.MarkupLine($"[green]✓ Successfully switched to:[/] [cyan]{connectionName}[/]");
-            AnsiConsole.MarkupLine($"[dim]Info:[/] [grey]{Configuration.ConnectionManager.MaskConnectionString(connectionString)}[/]");
+            AnsiConsole.MarkupLine($"[green]✓ Successfully switched to:[/] [cyan]{connectionName}[/] ({provider})");
+            AnsiConsole.MarkupLine($"[dim]Info:[/] [grey]{ConnectionManager.MaskConnectionString(connectionString)}[/]");
 
             _agent.ClearSchemaCache();
             AnsiConsole.MarkupLine("[yellow]⚠️  Schema cache cleared. Will rescan on next query.[/]");
@@ -118,6 +130,7 @@ public class CommandHandler
             AnsiConsole.WriteLine();
             return CommandResult.Handled;
         }
+
         catch (Exception ex)
         {
             AnsiConsole.MarkupLine($"[red]❌ Error switching database: {ex.Message}[/]");

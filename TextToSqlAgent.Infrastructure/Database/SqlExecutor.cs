@@ -1,226 +1,182 @@
 ﻿using System.Data;
+using System.Data.Common;
+using System.Diagnostics;
 using Dapper;
-using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
-using Polly;
-using Polly.Retry;
+using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Models;
 using TextToSqlAgent.Infrastructure.Configuration;
-using TextToSqlAgent.Infrastructure.ErrorHandling;
-using TextToSqlAgent.Infrastructure.Analysis;
 
 namespace TextToSqlAgent.Infrastructure.Database;
 
+/// <summary>
+/// SQL query executor that uses adapters for database-agnostic execution
+/// </summary>
 public class SqlExecutor
 {
     private readonly DatabaseConfig _config;
+    private readonly IDatabaseAdapter _adapter;
     private readonly ILogger<SqlExecutor> _logger;
-    private readonly AsyncRetryPolicy _retryPolicy;
-    private readonly ConnectionErrorHandler? _connectionErrorHandler;
-    private readonly SqlErrorHandler? _sqlErrorHandler;
 
     public SqlExecutor(
-        DatabaseConfig config, 
-        ILogger<SqlExecutor> logger,
-        ConnectionErrorHandler? connectionErrorHandler = null,
-        SqlErrorHandler? sqlErrorHandler = null)
+        DatabaseConfig config,
+        IDatabaseAdapter adapter,
+        ILogger<SqlExecutor> logger)
     {
         _config = config;
+        _adapter = adapter;
         _logger = logger;
-        _connectionErrorHandler = connectionErrorHandler;
-        _sqlErrorHandler = sqlErrorHandler;
-
-        // Setup retry policy with Polly (fallback if handlers not provided)
-        _retryPolicy = Policy
-            .Handle<SqlException>(ex => IsTransient(ex))
-            .WaitAndRetryAsync(
-                retryCount: config.MaxRetryAttempts,
-                sleepDurationProvider: attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt)),
-                onRetry: (exception, timeSpan, retryCount, context) =>
-                {
-                    _logger.LogWarning(
-                        "[Database] Retry {RetryCount}/{MaxRetries} after {Delay}s due to error: {Error}",
-                        retryCount,
-                        config.MaxRetryAttempts,
-                        timeSpan.TotalSeconds,
-                        exception.Message);
-                });
     }
 
     public async Task<SqlExecutionResult> ExecuteAsync(
         string sql,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("[Database] Executing SQL...");
-        _logger.LogDebug("[Database] SQL: {SQL}", sql);
+        _logger.LogDebug("[SqlExecutor] Executing SQL on {Provider}...", _adapter.Provider);
 
-        try
+        var stopwatch = Stopwatch.StartNew();
+        var attempt = 0;
+
+        while (attempt < _config.MaxRetryAttempts)
         {
-            // Execute query directly - no pre-check
-            return await ExecuteQueryInternalAsync(sql, cancellationToken);
-        }
-        catch (SqlException ex)
-        {
-            _logger.LogWarning(ex, "[Database] SQL execution failed, attempting error recovery...");
+            attempt++;
 
-            // Try error recovery if handler available
-            if (_connectionErrorHandler != null)
+            try
             {
-                try
-                {
-                    return await _connectionErrorHandler.HandleConnectionErrorAsync(
-                        async () => await ExecuteQueryInternalAsync(sql, cancellationToken),
-                        ex,
-                        cancellationToken);
-                }
-                catch
-                {
-                    // If recovery fails, proceed to error analysis
-                }
-            }
-
-            _logger.LogError(ex, "[Database] SQL Error: {Message}", ex.Message);
-
-            // Use SQL error handler if available
-            if (_sqlErrorHandler != null)
-            {
-                var sqlError = _sqlErrorHandler.AnalyzeError(ex.Message, sql);
+                using var connection = _adapter.CreateConnection(_config.ConnectionString);
                 
+                // Cast to DbConnection for OpenAsync support
+                if (connection is DbConnection dbConnection)
+                {
+                    await dbConnection.OpenAsync(cancellationToken);
+                }
+                else
+                {
+                    connection.Open();
+                }
+
+                var result = await ExecuteQueryAsync(connection, sql, cancellationToken);
+                stopwatch.Stop();
+
+                result.ExecutionTimeMs = (int)stopwatch.ElapsedMilliseconds;
+
+                _logger.LogInformation(
+                    "[SqlExecutor] Query executed successfully on {Provider} ({Rows} rows, {Time}ms)",
+                    _adapter.Provider,
+                    result.Rows.Count,
+                    result.ExecutionTimeMs);
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                if (_adapter.IsTransientError(ex) && attempt < _config.MaxRetryAttempts)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "[SqlExecutor] Transient error on {Provider}, retrying... (Attempt {Attempt}/{Max})",
+                        _adapter.Provider,
+                        attempt,
+                        _config.MaxRetryAttempts);
+
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt)), cancellationToken);
+                    continue;
+                }
+
+                stopwatch.Stop();
+
+                _logger.LogError(
+                    ex,
+                    "[SqlExecutor] Query failed on {Provider} after {Attempts} attempts: {Message}",
+                    _adapter.Provider,
+                    attempt,
+                    ex.Message);
+
                 return new SqlExecutionResult
                 {
                     Success = false,
                     ErrorMessage = ex.Message,
-                    ErrorDetails = new Dictionary<string, object>
-                    {
-                        ["ErrorType"] = sqlError.Type.ToString(),
-                        ["ErrorCode"] = sqlError.ErrorCode ?? "SQL_ERR",
-                        ["Severity"] = sqlError.Severity.ToString(),
-                        ["IsRecoverable"] = sqlError.IsRecoverable,
-                        ["SuggestedFix"] = sqlError.SuggestedFix ?? "",
-                        ["InvalidElement"] = sqlError.InvalidElement ?? ""
-                    }
+                    ExecutionTimeMs = (int)stopwatch.ElapsedMilliseconds,
+                    Rows = new List<Dictionary<string, object?>>()
                 };
             }
-
-            return new SqlExecutionResult
-            {
-                Success = false,
-                ErrorMessage = ex.Message
-            };
         }
-        catch (Exception ex)
+
+        stopwatch.Stop();
+        return new SqlExecutionResult
         {
-            _logger.LogError(ex, "[Database] Unexpected error executing SQL");
-
-            return new SqlExecutionResult
-            {
-                Success = false,
-                ErrorMessage = $"Unexpected error: {ex.Message}"
-            };
-        }
+            Success = false,
+            ErrorMessage = $"Max retry attempts ({_config.MaxRetryAttempts}) reached",
+            ExecutionTimeMs = (int)stopwatch.ElapsedMilliseconds,
+            Rows = new List<Dictionary<string, object?>>()
+        };
     }
 
-    private async Task<SqlExecutionResult> ExecuteQueryInternalAsync(
+    private async Task<SqlExecutionResult> ExecuteQueryAsync(
+        IDbConnection connection,
         string sql,
         CancellationToken cancellationToken)
     {
-        using var connection = new SqlConnection(_config.ConnectionString);
-        await connection.OpenAsync(cancellationToken);
+        var command = new CommandDefinition(
+            sql,
+            commandTimeout: _config.CommandTimeout,
+            cancellationToken: cancellationToken);
 
-        using var command = new SqlCommand(sql, connection)
+        var reader = await connection.QueryAsync(command);
+
+        var rows = new List<Dictionary<string, object?>>();
+
+        foreach (var row in reader)
         {
-            CommandTimeout = _config.CommandTimeout,
-            CommandType = CommandType.Text
-        };
+            var dict = new Dictionary<string, object?>();
+            var dapperRow = row as IDictionary<string, object>;
 
-        using var reader = await command.ExecuteReaderAsync(cancellationToken);
-
-        var result = new SqlExecutionResult
-        {
-            Success = true,
-            Columns = new List<string>(),
-            Rows = new List<Dictionary<string, object>>()
-        };
-
-        // Get column names
-        for (int i = 0; i < reader.FieldCount; i++)
-        {
-            result.Columns.Add(reader.GetName(i));
-        }
-
-        // Read rows
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            var row = new Dictionary<string, object>();
-
-            for (int i = 0; i < reader.FieldCount; i++)
+            if (dapperRow != null)
             {
-                var columnName = reader.GetName(i);
-                var value = reader.IsDBNull(i) ? null : reader.GetValue(i);
-                row[columnName] = value ?? DBNull.Value;
+                foreach (var kvp in dapperRow)
+                {
+                    dict[kvp.Key] = kvp.Value;
+                }
             }
 
-            result.Rows.Add(row);
+            rows.Add(dict);
         }
 
-        _logger.LogInformation(
-            "[Database] Query completed: {RowCount} rows, {ColumnCount} columns",
-            result.RowCount,
-            result.Columns.Count);
-
-        return result;
-    }
-
-    private static bool IsTransient(SqlException ex)
-    {
-        // SQL Server transient error codes
-        var transientErrors = new[]
+        return new SqlExecutionResult
         {
-            -1,    // Timeout
-            -2,    // Connection broken
-            1205,  // Deadlock
-            4060,  // Cannot open database
-            40197, // Service error
-            40501, // Service busy
-            40613, // Database unavailable
-            49918, // Cannot process request
-            49919, // Too many create/update operations
-            49920  // Too many operations
+            Success = true,
+            Rows = rows,
+            RowsAffected = rows.Count
         };
-
-        return transientErrors.Contains(ex.Number);
     }
 
     public async Task<bool> ValidateConnectionAsync(CancellationToken cancellationToken = default)
     {
-        // Validate connection string first
         if (string.IsNullOrWhiteSpace(_config.ConnectionString))
         {
-            _logger.LogError("[Database] Connection string is null or empty");
+            _logger.LogError("[SqlExecutor] Connection string is null or empty");
             return false;
         }
 
         try
         {
-            using var connection = new SqlConnection(_config.ConnectionString);
-            await connection.OpenAsync(cancellationToken);
-
-            _logger.LogInformation("[Database] Connection validated successfully");
-            return true;
-        }
-        catch (SqlException ex)
-        {
-            _logger.LogError(ex, "[Database] SQL connection failed: {Message}", ex.Message);
-            return false;
-        }
-        catch (ArgumentException ex)
-        {
-            _logger.LogError(ex, "[Database] Invalid connection string format: {Message}", ex.Message);
-            return false;
+            var success = await _adapter.TestConnectionAsync(_config.ConnectionString, cancellationToken);
+            
+            if (success)
+            {
+                _logger.LogInformation("[SqlExecutor] Connection validated successfully for {Provider}", _adapter.Provider);
+            }
+            else
+            {
+                _logger.LogError("[SqlExecutor] Connection validation failed for {Provider}", _adapter.Provider);
+            }
+            
+            return success;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[Database] Connection validation failed: {Message}", ex.Message);
+            _logger.LogError(ex, "[SqlExecutor] Connection validation failed for {Provider}: {Message}", 
+                _adapter.Provider, ex.Message);
             return false;
         }
     }

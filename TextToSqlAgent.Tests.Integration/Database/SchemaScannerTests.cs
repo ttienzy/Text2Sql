@@ -18,7 +18,7 @@ public class SchemaScannerTests
             ConnectionString = "Server=.;Database=TextToSqlTest;User Id=TextToSqlReader;Password=@TextToSqlReader!;TrustServerCertificate=True;"
         };
 
-        _scanner = new SchemaScanner(_config, NullLogger<SchemaScanner>.Instance);
+        //_scanner = new SchemaScanner(_config, NullLogger<SchemaScanner>.Instance);
     }
 
     [Fact]

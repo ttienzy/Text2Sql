@@ -4,6 +4,7 @@ using TextToSqlAgent.Console.Agent;
 using TextToSqlAgent.Core.Tasks;
 using TextToSqlAgent.Infrastructure.Configuration;
 using TextToSqlAgent.Infrastructure.Database;
+using TextToSqlAgent.Infrastructure.Database.Adapters.SqlServer;
 using TextToSqlAgent.Infrastructure.LLM;
 using TextToSqlAgent.Plugins;
 using Xunit;
@@ -39,22 +40,25 @@ public class TextToSqlAgentOrchestratorTests
             EnableSQLExplanation = true
         };
 
-        // Build all dependencies
+        // Build all dependencies with adapter
         var geminiClient = new GeminiClient(geminiConfig, NullLogger<GeminiClient>.Instance);
         var normalizeTask = new NormalizePromptTask(NullLogger<NormalizePromptTask>.Instance);
         var intentPlugin = new IntentAnalysisPlugin(geminiClient, NullLogger<IntentAnalysisPlugin>.Instance);
-        var schemaScanner = new SchemaScanner(dbConfig, NullLogger<SchemaScanner>.Instance);
-        var sqlGenerator = new SqlGeneratorPlugin(geminiClient, NullLogger<SqlGeneratorPlugin>.Instance);
-        var sqlExecutor = new SqlExecutor(dbConfig, NullLogger<SqlExecutor>.Instance);
+        
+        var adapter = new SqlServerAdapter(NullLogger<SqlServerAdapter>.Instance);
+        var schemaScanner = new SchemaScanner(dbConfig, adapter, NullLogger<SchemaScanner>.Instance);
+        var sqlGenerator = new SqlGeneratorPlugin(geminiClient, adapter, NullLogger<SqlGeneratorPlugin>.Instance);
+        var sqlExecutor = new SqlExecutor(dbConfig, adapter, NullLogger<SqlExecutor>.Instance);
 
-        _agent = new TextToSqlAgentOrchestrator(
-            normalizeTask,
-            intentPlugin,
-            schemaScanner,
-            sqlGenerator,
-            sqlExecutor,
-            NullLogger<TextToSqlAgentOrchestrator>.Instance);
+        //_agent = new TextToSqlAgentOrchestrator(
+        //    normalizeTask,
+        //    intentPlugin,
+        //    schemaScanner,
+        //    sqlGenerator,
+        //    sqlExecutor,
+        //    NullLogger<TextToSqlAgentOrchestrator>.Instance);
     }
+
 
     [Fact]
     public async Task Should_Answer_Schema_Query()

@@ -11,13 +11,19 @@ namespace TextToSqlAgent.Plugins;
 public class SqlGeneratorPlugin
 {
     private readonly ILLMClient _llmClient;
+    private readonly IDatabaseAdapter _adapter;
     private readonly ILogger<SqlGeneratorPlugin> _logger;
 
-    public SqlGeneratorPlugin(ILLMClient llmClient, ILogger<SqlGeneratorPlugin> logger)
+    public SqlGeneratorPlugin(
+        ILLMClient llmClient,
+        IDatabaseAdapter adapter,
+        ILogger<SqlGeneratorPlugin> logger)
     {
         _llmClient = llmClient;
+        _adapter = adapter;
         _logger = logger;
     }
+
 
     [KernelFunction, Description("Generate SQL query from intent and schema")]
     public async Task<string> GenerateSqlAsync(
@@ -25,7 +31,7 @@ public class SqlGeneratorPlugin
         DatabaseSchema schema,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("[Agent] Generating SQL query...");
+        _logger.LogDebug("[SqlGenerator] Generating SQL query for {Provider}...", _adapter.Provider);
 
         var schemaContext = BuildSchemaContext(intent.Target, schema);
 
@@ -36,18 +42,22 @@ public class SqlGeneratorPlugin
             intent.Filters.Select(f => $"{f.Field} {f.Operator} {ConvertFilterValue(f.Value)}").ToList(),
             intent.Metrics);
 
+        // Use adapter's database-specific system prompt
+        var systemPrompt = _adapter.GetSystemPrompt();
+        
         var sql = await _llmClient.CompleteWithSystemPromptAsync(
-            SqlGenerationPrompt.SystemPrompt,
+            systemPrompt,
             userPrompt,
             cancellationToken);
 
         // Clean the SQL
         sql = CleanSqlResponse(sql);
 
-        _logger.LogDebug("[Agent] Generated SQL: {SQL}", sql);
+        _logger.LogDebug("[SqlGenerator] Generated SQL for {Provider}: {SQL}", _adapter.Provider, sql);
 
         return sql;
     }
+
 
 
     private string BuildSchemaContext(string targetTable, DatabaseSchema schema)
@@ -206,7 +216,7 @@ public class SqlGeneratorPlugin
     RetrievedSchemaContext schemaContext,
     CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("[Agent] Generating SQL query with RAG context...");
+        _logger.LogDebug("[SqlGenerator] Generating SQL query with RAG context for {Provider}...", _adapter.Provider);
 
         var schemaContextText = BuildEnhancedSchemaContext(schemaContext);
 
@@ -217,17 +227,21 @@ public class SqlGeneratorPlugin
             intent.Filters.Select(f => $"{f.Field} {f.Operator} {ConvertFilterValue(f.Value)}").ToList(),
             intent.Metrics);
 
+        // Use adapter's database-specific system prompt
+        var systemPrompt = _adapter.GetSystemPrompt();
+        
         var sql = await _llmClient.CompleteWithSystemPromptAsync(
-            SqlGenerationPrompt.SystemPrompt,
+            systemPrompt,
             userPrompt,
             cancellationToken);
 
         sql = CleanSqlResponse(sql);
 
-        _logger.LogDebug("[Agent] Generated SQL: {SQL}", sql);
+        _logger.LogDebug("[SqlGenerator] Generated SQL for {Provider}: {SQL}", _adapter.Provider, sql);
 
         return sql;
     }
+
 
 
     private string BuildEnhancedSchemaContext(RetrievedSchemaContext context)

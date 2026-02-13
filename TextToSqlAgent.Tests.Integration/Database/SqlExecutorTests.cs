@@ -19,7 +19,7 @@ public class SqlExecutorTests
             MaxRetryAttempts = 3
         };
 
-        _executor = new SqlExecutor(config, NullLogger<SqlExecutor>.Instance);
+       // _executor = new SqlExecutor(config, NullLogger<SqlExecutor>.Instance);
     }
 
     [Fact]

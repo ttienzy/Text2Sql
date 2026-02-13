@@ -1,6 +1,7 @@
 using Spectre.Console;
 using TextToSqlAgent.Infrastructure.Configuration;
 using TextToSqlAgent.Infrastructure.LLM;
+using TextToSqlAgent.Console.Configuration;
 
 namespace TextToSqlAgent.Console.UI;
 
@@ -54,12 +55,12 @@ public static class ConsoleUI
         AnsiConsole.WriteLine();
     }
 
-    public static (string connectionString, string connectionName) PromptDatabaseConnection()
+    public static (string connectionString, string connectionName, Core.Enums.DatabaseProvider provider) PromptDatabaseConnection()
     {
         AnsiConsole.MarkupLine("[yellow]📊 Database Connection Setup[/]");
         AnsiConsole.WriteLine();
 
-        var connectionManager = new Configuration.ConnectionManager();
+        var connectionManager = new ConnectionManager();
         var data = connectionManager.LoadConnections();
 
         // Build main menu choices
@@ -78,6 +79,12 @@ public static class ConsoleUI
 
         // Add builder option
         choices.Add("[cyan]🔧 Build New Connection (Step-by-Step)[/]");
+        
+        // Add delete option if connections exist
+        if (data.Connections.Any())
+        {
+            choices.Add("[red]🗑️  Delete Saved Connection[/]");
+        }
 
         var selection = AnsiConsole.Prompt(
             new SelectionPrompt<string>()
@@ -87,6 +94,13 @@ public static class ConsoleUI
 
         string connectionString;
         string connectionName;
+        var provider = Core.Enums.DatabaseProvider.SqlServer; // Default
+
+        // Check if user wants to delete a connection
+        if (selection == "[red]🗑️  Delete Saved Connection[/]")
+        {
+            return HandleDeleteConnection(connectionManager, data);
+        }
 
         // Check if user selected an existing saved connection
         if (selection.StartsWith("📁 "))
@@ -100,19 +114,20 @@ public static class ConsoleUI
 
             connectionString = savedConnection.ConnectionString;
             connectionName = savedConnection.Name;
+            provider = savedConnection.Provider; // Load saved provider
 
             // Update last used
             savedConnection.LastUsed = DateTime.Now;
             data.LastUsedConnectionName = selectedName;
             connectionManager.SaveConnections(data);
 
-            AnsiConsole.MarkupLine($"[green]✓ Loaded saved connection[/]");
+            AnsiConsole.MarkupLine($"[green]✓ Loaded saved connection ({provider})[/]");
         }
         else
         {
             // Use interactive builder
             AnsiConsole.WriteLine();
-            var (builtConnection, serverName, databaseName) = ConnectionBuilder.BuildConnectionString();
+            var (builtConnection, serverName, databaseName, selectedProvider) = ConnectionBuilder.BuildConnectionString();
 
             if (string.IsNullOrEmpty(builtConnection))
             {
@@ -123,6 +138,7 @@ public static class ConsoleUI
             }
 
             connectionString = builtConnection;
+            provider = selectedProvider;
 
             var saveOption = AnsiConsole.Confirm(
                 "[yellow]💾 Save this connection for future use?[/]",
@@ -133,26 +149,67 @@ public static class ConsoleUI
                 connectionName = AnsiConsole.Prompt(
                     new TextPrompt<string>("[yellow]Enter a name for this connection:[/]")
                         .PromptStyle("green")
-                        .DefaultValue($"Connection {DateTime.Now:yyyy-MM-dd HH:mm}")
+                        .DefaultValue($"{provider} - {DateTime.Now:yyyy-MM-dd HH:mm}")
                         .ValidationErrorMessage("[red]Name cannot be empty[/]")
                         .Validate(s => !string.IsNullOrWhiteSpace(s)));
 
-                connectionManager.AddOrUpdateConnection(data, connectionName, connectionString);
+                connectionManager.AddOrUpdateConnection(data, connectionName, connectionString, provider);
                 AnsiConsole.MarkupLine("[green]✓ Connection saved![/]");
             }
             else
             {
-                connectionName = $"Temp Connection {DateTime.Now:HH:mm:ss}";
+                connectionName = $"Temp {provider} Connection {DateTime.Now:HH:mm:ss}";
             }
         }
 
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine($"[dim]Selected:[/] [cyan]{connectionName}[/]");
-        AnsiConsole.MarkupLine($"[dim]Info:[/] [grey]{Configuration.ConnectionManager.MaskConnectionString(connectionString)}[/]");
+        AnsiConsole.MarkupLine($"[dim]Provider:[/] [cyan]{provider}[/]");
+        AnsiConsole.MarkupLine($"[dim]Info:[/] [grey]{ConnectionManager.MaskConnectionString(connectionString)}[/]");
         AnsiConsole.WriteLine();
 
-        return (connectionString, connectionName);
+        return (connectionString, connectionName, provider);
     }
+
+    private static (string connectionString, string connectionName, Core.Enums.DatabaseProvider provider) HandleDeleteConnection(
+        ConnectionManager connectionManager, 
+        ConnectionManager.ConnectionsData data)
+    {
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[yellow]🗑️  Delete Saved Connection[/]");
+        AnsiConsole.WriteLine();
+
+        var connectionNames = data.Connections.Select(c => c.Name).ToList();
+        connectionNames.Add("← Cancel");
+
+        var selectedName = AnsiConsole.Prompt(
+            new SelectionPrompt<string>()
+                .Title("[red]Select connection to delete:[/]")
+                .PageSize(15)
+                .AddChoices(connectionNames));
+
+        if (selectedName == "← Cancel")
+        {
+            return PromptDatabaseConnection();
+        }
+
+        var confirm = AnsiConsole.Confirm($"[red]Are you sure you want to delete '{selectedName}'?[/]", false);
+
+        if (confirm)
+        {
+            data.Connections.RemoveAll(c => c.Name == selectedName);
+            connectionManager.SaveConnections(data);
+            AnsiConsole.MarkupLine($"[green]✓ Deleted connection '{selectedName}'[/]");
+        }
+        else
+        {
+            AnsiConsole.MarkupLine("[yellow]Deletion cancelled[/]");
+        }
+
+        AnsiConsole.WriteLine();
+        return PromptDatabaseConnection();
+    }
+
 
     public static void DisplayHelp()
     {

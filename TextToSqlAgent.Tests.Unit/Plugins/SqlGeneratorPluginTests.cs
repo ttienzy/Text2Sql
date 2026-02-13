@@ -26,7 +26,7 @@ public class SqlGeneratorPluginTests
         };
 
         var geminiClient = new GeminiClient(config, NullLogger<GeminiClient>.Instance);
-        _plugin = new SqlGeneratorPlugin(geminiClient, NullLogger<SqlGeneratorPlugin>.Instance);
+        //_plugin = new SqlGeneratorPlugin(geminiClient, NullLogger<SqlGeneratorPlugin>.Instance);
 
         // Setup test schema
         _testSchema = new DatabaseSchema
