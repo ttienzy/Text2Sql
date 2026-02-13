@@ -11,7 +11,7 @@ public class SchemaRetriever
     private readonly QdrantService _qdrant;
     private readonly IEmbeddingClient _embeddingClient;
     private readonly RAGConfig _ragConfig;
-    private readonly DatabaseSchema _cachedSchema;
+
     private readonly ILogger<SchemaRetriever> _logger;
 
     public SchemaRetriever(
