@@ -21,4 +21,6 @@ public interface IDatabaseAdapter
     string GetSystemPrompt();
 
     string GetCorrectionSystemPrompt();
+
+    string ApplyLimit(string sql, int limit);
 }

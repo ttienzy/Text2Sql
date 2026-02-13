@@ -131,7 +131,11 @@ public class SqlCorrectorPlugin
         foreach (var table in context.RelevantTables)
         {
             schemaText += $"\n========================================\n";
-            schemaText += $"Table: [{table.Schema}].[{table.TableName}]\n";
+            var safeSchema = _adapter.GetSafeIdentifier(table.Schema);
+            var safeTable = _adapter.GetSafeIdentifier(table.TableName);
+
+            schemaText += $"\n========================================\n";
+            schemaText += $"Table: {safeSchema}.{safeTable}\n";
             schemaText += $"========================================\n";
             schemaText += "Columns (USE THESE EXACT NAMES):\n";
 
@@ -140,9 +144,10 @@ public class SqlCorrectorPlugin
                 var pk = col.IsPrimaryKey ? " ← PRIMARY KEY" : "";
                 var fk = col.IsForeignKey ? " ← FOREIGN KEY" : "";
                 var nullable = col.IsNullable ? " NULL" : " NOT NULL";
+                var safeCol = _adapter.GetSafeIdentifier(col.ColumnName);
 
                 // Make it very explicit
-                schemaText += $"  [{col.ColumnName}]  ({col.DataType}{nullable}){pk}{fk}\n";
+                schemaText += $"  {safeCol}  ({col.DataType}{nullable}){pk}{fk}\n";
             }
 
             schemaText += "\n";
@@ -157,7 +162,7 @@ public class SqlCorrectorPlugin
 
             foreach (var rel in context.RelevantRelationships)
             {
-                schemaText += $"  [{rel.FromTable}].[{rel.FromColumn}] → [{rel.ToTable}].[{rel.ToColumn}]\n";
+                schemaText += $"  {rel.FromTable}.{rel.FromColumn} → {rel.ToTable}.{rel.ToColumn}\n";
             }
             schemaText += "\n";
         }
@@ -179,7 +184,9 @@ public class SqlCorrectorPlugin
                 schemaText += "Did you mean one of these?\n";
                 foreach (var (table, column) in suggestions)
                 {
-                    schemaText += $"  - [{table}].[{column}]\n";
+                    var safeT = _adapter.GetSafeIdentifier(table);
+                    var safeC = _adapter.GetSafeIdentifier(column);
+                    schemaText += $"  - {safeT}.{safeC}\n";
                 }
             }
         }

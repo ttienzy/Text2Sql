@@ -66,7 +66,11 @@ public class SqlGeneratorPlugin
         if (targetTable.Equals("TABLES", StringComparison.OrdinalIgnoreCase) ||
             targetTable.Equals("SCHEMA", StringComparison.OrdinalIgnoreCase))
         {
-            return "Metadata query - use INFORMATION_SCHEMA.TABLES";
+        if (targetTable.Equals("TABLES", StringComparison.OrdinalIgnoreCase) ||
+            targetTable.Equals("SCHEMA", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Metadata query - list all tables in the database.";
+        }
         }
 
         // Find the target table
@@ -96,14 +100,18 @@ public class SqlGeneratorPlugin
         }
 
         // Build context with columns and relationships
-        var context = $"Table: [{table.Schema}].[{table.TableName}]\n";
+        var safeSchema = _adapter.GetSafeIdentifier(table.Schema);
+        var safeTable = _adapter.GetSafeIdentifier(table.TableName);
+
+        var context = $"Table: {safeSchema}.{safeTable}\n";
         context += "Columns:\n";
 
         foreach (var col in table.Columns)
         {
             var pk = col.IsPrimaryKey ? " (PK)" : "";
             var nullable = col.IsNullable ? " NULL" : " NOT NULL";
-            context += $"  - [{col.ColumnName}] {col.DataType}{nullable}{pk}\n";
+            var safeCol = _adapter.GetSafeIdentifier(col.ColumnName);
+            context += $"  - {safeCol} {col.DataType}{nullable}{pk}\n";
         }
 
         // Add relationships
@@ -178,37 +186,10 @@ public class SqlGeneratorPlugin
         return true;
     }
 
-    [KernelFunction, Description("Add LIMIT if missing")]
+    [KernelFunction, Description("Add LIMIT/TOP if missing")]
     public string EnsureLimit(string sql, int defaultLimit = 100)
     {
-        var upperSql = sql.ToUpper();
-
-        // Check if already has TOP or OFFSET/FETCH
-        if (upperSql.Contains("TOP ") || upperSql.Contains("OFFSET") || upperSql.Contains("FETCH"))
-        {
-            return sql;
-        }
-
-        // Check if it's an aggregate query (has GROUP BY or aggregate functions)
-        if (upperSql.Contains("GROUP BY") ||
-            upperSql.Contains("COUNT(") ||
-            upperSql.Contains("SUM(") ||
-            upperSql.Contains("AVG("))
-        {
-            // Don't add TOP to aggregate queries
-            return sql;
-        }
-
-        // Add TOP after SELECT
-        var modified = Regex.Replace(
-            sql,
-            @"SELECT\s+",
-            $"SELECT TOP {defaultLimit} ",
-            RegexOptions.IgnoreCase);
-
-        _logger.LogDebug("[Agent] Added TOP {Limit}", defaultLimit);
-
-        return modified;
+        return _adapter.ApplyLimit(sql, defaultLimit);
     }
     [KernelFunction, Description("Generate SQL with RAG context")]
     public async Task<string> GenerateSqlWithContextAsync(
@@ -249,9 +230,13 @@ public class SqlGeneratorPlugin
         var schemaText = "";
 
         // All relevant tables with full details
+        // All relevant tables with full details
         foreach (var table in context.RelevantTables)
         {
-            schemaText += $"\nTable: [{table.Schema}].[{table.TableName}]\n";
+            var safeSchema = _adapter.GetSafeIdentifier(table.Schema);
+            var safeTable = _adapter.GetSafeIdentifier(table.TableName);
+            
+            schemaText += $"\nTable: {safeSchema}.{safeTable}\n";
             schemaText += "Columns:\n";
 
             foreach (var col in table.Columns)
@@ -259,8 +244,9 @@ public class SqlGeneratorPlugin
                 var pk = col.IsPrimaryKey ? " (PK)" : "";
                 var fk = col.IsForeignKey ? " (FK)" : "";
                 var nullable = col.IsNullable ? " NULL" : " NOT NULL";
+                var safeCol = _adapter.GetSafeIdentifier(col.ColumnName);
 
-                schemaText += $"  - [{col.ColumnName}] {col.DataType}{nullable}{pk}{fk}\n";
+                schemaText += $"  - {safeCol} {col.DataType}{nullable}{pk}{fk}\n";
             }
         }
 

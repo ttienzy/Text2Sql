@@ -115,6 +115,28 @@ public class SQLiteAdapter : IDatabaseAdapter
         return SqliteCorrectionPrompt.SystemPrompt;
     }
 
+    public string ApplyLimit(string sql, int limit)
+    {
+        if (string.IsNullOrWhiteSpace(sql)) return sql;
+
+        // Check if LIMIT is already present
+        if (sql.IndexOf("LIMIT ", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return sql;
+        }
+
+        // Do not add LIMIT to aggregate queries if not present
+        if (sql.IndexOf("COUNT(", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            sql.IndexOf("SUM(", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            sql.IndexOf("AVG(", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return sql;
+        }
+
+        // Append LIMIT {limit}
+        return $"{sql.TrimEnd(';')} LIMIT {limit};";
+    }
+
     private async Task<List<TableInfo>> ScanTablesAsync(
         IDbConnection connection,
         string schema,

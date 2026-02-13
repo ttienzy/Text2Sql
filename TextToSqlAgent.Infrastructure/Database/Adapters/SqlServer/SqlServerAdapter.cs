@@ -88,6 +88,38 @@ public class SqlServerAdapter : IDatabaseAdapter
         return SqlCorrectionPrompt.SystemPrompt;
     }
 
+    public string ApplyLimit(string sql, int limit)
+    {
+        if (string.IsNullOrWhiteSpace(sql)) return sql;
+
+        // Check if TOP, OFFSET, or FETCH is already present
+        if (sql.IndexOf("TOP ", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            sql.IndexOf("OFFSET ", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            sql.IndexOf("FETCH ", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return sql;
+        }
+
+        // Do not add TOP to aggregate queries if not present
+        if (sql.IndexOf("GROUP BY", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            sql.IndexOf("COUNT(", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            sql.IndexOf("SUM(", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            sql.IndexOf("AVG(", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return sql;
+        }
+
+        // Inject TOP {limit} after SELECT
+        // Simple regex replace for the first SELECT
+        var modified = System.Text.RegularExpressions.Regex.Replace(
+            sql,
+            @"^(\s*SELECT(?:\s+DISTINCT)?)", 
+            $"$1 TOP {limit}", 
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        return modified;
+    }
+
     private async Task<List<TableInfo>> ScanTablesAsync(IDbConnection connection, CancellationToken ct)
     {
         var sql = @"
