@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
-using Spectre.Console;
+
+// Actually, Orchestrator uses AnsiConsole in TryEnsureSchemaIndexedAsync. I need to remove UI logic from here.
 using TextToSqlAgent.Core.Exceptions;
 using TextToSqlAgent.Core.Enums;
 using TextToSqlAgent.Core.Models;
@@ -10,7 +11,7 @@ using TextToSqlAgent.Infrastructure.RAG;
 using TextToSqlAgent.Infrastructure.VectorDB;
 using TextToSqlAgent.Plugins;
 
-namespace TextToSqlAgent.Console.Agent;
+namespace TextToSqlAgent.Application.Services;
 
 public class TextToSqlAgentOrchestrator
 {
@@ -135,9 +136,8 @@ public class TextToSqlAgentOrchestrator
                     // Use TryEnsure instead of Ensure to prevent crash
                     if (!await TryEnsureSchemaIndexedAsync(_cachedSchema, cancellationToken))
                     {
-                        AnsiConsole.MarkupLine("[yellow]⚠️  Warning: RAG is not available. Using full schema.[/]");
-                        AnsiConsole.MarkupLine("[dim]   Reason: Could not connect to Qdrant vector database[/]");
-                        AnsiConsole.MarkupLine("[dim]   Impact: Queries may be slower and less accurate[/]");
+                        // Removed AnsiConsole calls to decouple from Console UI
+                        _logger.LogWarning("⚠️  Warning: RAG is not available. Using full schema. Reason: Could not connect to Qdrant vector database.");
                     }
 
                     _schemaIndexed = true;
@@ -393,7 +393,7 @@ public class TextToSqlAgentOrchestrator
     private async Task<(SqlExecutionResult Result, List<CorrectionAttempt> Corrections)> ExecuteWithSelfCorrectionAsync(
     string initialSql,
     RetrievedSchemaContext schemaContext,
-    IntentAnalysis intent,  // ← ADD
+    IntentAnalysis intent,
     CancellationToken cancellationToken)
     {
         var corrections = new List<CorrectionAttempt>();
@@ -436,7 +436,7 @@ public class TextToSqlAgentOrchestrator
                 currentSql,
                 result.ErrorMessage ?? "Unknown error",
                 schemaContext,
-                intent,  // ← PASS intent
+                intent,
                 attemptNumber,
                 cancellationToken);
 

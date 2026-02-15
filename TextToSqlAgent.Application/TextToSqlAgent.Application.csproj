@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\TextToSqlAgent.Core\TextToSqlAgent.Core.csproj" />
+    <ProjectReference Include="..\TextToSqlAgent.Infrastructure\TextToSqlAgent.Infrastructure.csproj" />
+    <ProjectReference Include="..\TextToSqlAgent.Plugins\TextToSqlAgent.Plugins.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

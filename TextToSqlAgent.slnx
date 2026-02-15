@@ -19,4 +19,6 @@
     <Project Path="TextToSqlAgent.Tests.Integration/TextToSqlAgent.Tests.Integration.csproj" Id="a02891b5-f7ab-486d-8c22-c0900a3d5c3b" />
     <Project Path="TextToSqlAgent.Tests.Unit/TextToSqlAgent.Tests.Unit.csproj" Id="e0d4ca9d-e8f1-4801-8226-b8434210e2b1" />
   </Folder>
+  <Project Path="TextToSqlAgent.API/TextToSqlAgent.API.csproj" />
+  <Project Path="TextToSqlAgent.Application/TextToSqlAgent.Application.csproj" />
 </Solution>

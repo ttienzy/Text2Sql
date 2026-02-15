@@ -3,7 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Serilog;
 using Spectre.Console;
 using System.Text;
-using TextToSqlAgent.Console.Agent;
+using TextToSqlAgent.Application.Services;
 using TextToSqlAgent.Console.Commands;
 using TextToSqlAgent.Console.Setup;
 using TextToSqlAgent.Console.UI;

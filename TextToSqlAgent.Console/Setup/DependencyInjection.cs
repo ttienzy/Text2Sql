@@ -2,10 +2,10 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Serilog;
-using TextToSqlAgent.Console.Agent;
+using TextToSqlAgent.Application.Services;
 using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Tasks;
-using TextToSqlAgent.Infrastructure.Analysis;
+
 using TextToSqlAgent.Infrastructure.Configuration;
 using TextToSqlAgent.Infrastructure.Database;
 using TextToSqlAgent.Infrastructure.Factories;

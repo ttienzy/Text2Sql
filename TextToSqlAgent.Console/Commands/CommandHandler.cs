@@ -1,6 +1,6 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Spectre.Console;
-using TextToSqlAgent.Console.Agent;
+using TextToSqlAgent.Application.Services;
 using TextToSqlAgent.Console.UI;
 using TextToSqlAgent.Infrastructure.Database;
 using TextToSqlAgent.Infrastructure.RAG;
