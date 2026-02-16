@@ -1,4 +1,4 @@
-﻿using System.Data;
+using System.Data;
 using System.Data.Common;
 using System.Diagnostics;
 using Dapper;
@@ -32,6 +32,18 @@ public class SqlExecutor
         string sql,
         CancellationToken cancellationToken = default)
     {
+        // FIX: Validate SQL before execution
+        if (string.IsNullOrWhiteSpace(sql))
+        {
+            _logger.LogError("[SqlExecutor] SQL is null or empty");
+            return new SqlExecutionResult
+            {
+                Success = false,
+                ErrorMessage = "SQL query cannot be empty",
+                Rows = new List<Dictionary<string, object?>>()
+            };
+        }
+
         _logger.LogDebug("[SqlExecutor] Executing SQL on {Provider}...", _adapter.Provider);
 
         var stopwatch = Stopwatch.StartNew();
@@ -41,9 +53,11 @@ public class SqlExecutor
         {
             attempt++;
 
+            DbConnection? connection = null;
             try
             {
-                using var connection = _adapter.CreateConnection(_config.ConnectionString);
+                // FIX: Create connection with proper using statement
+                connection = _adapter.CreateConnection(_config.ConnectionString);
                 
                 // Cast to DbConnection for OpenAsync support
                 if (connection is DbConnection dbConnection)
@@ -67,6 +81,23 @@ public class SqlExecutor
                     result.ExecutionTimeMs);
 
                 return result;
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                // FIX: Handle timeout specifically
+                stopwatch.Stop();
+                _logger.LogWarning(
+                    "[SqlExecutor] Query timeout on {Provider} after {Time}ms",
+                    _adapter.Provider,
+                    stopwatch.ElapsedMilliseconds);
+
+                return new SqlExecutionResult
+                {
+                    Success = false,
+                    ErrorMessage = $"Query execution timed out after {stopwatch.ElapsedMilliseconds}ms",
+                    ExecutionTimeMs = (int)stopwatch.ElapsedMilliseconds,
+                    Rows = new List<Dictionary<string, object?>>()
+                };
             }
             catch (Exception ex)
             {
@@ -92,13 +123,33 @@ public class SqlExecutor
                     attempt,
                     ex.Message);
 
+                // FIX: Return detailed error information
                 return new SqlExecutionResult
                 {
                     Success = false,
-                    ErrorMessage = ex.Message,
+                    ErrorMessage = FormatErrorMessage(ex),
                     ExecutionTimeMs = (int)stopwatch.ElapsedMilliseconds,
                     Rows = new List<Dictionary<string, object?>>()
                 };
+            }
+            finally
+            {
+                // FIX: Ensure connection is always closed
+                if (connection != null)
+                {
+                    try
+                    {
+                        if (connection.State != ConnectionState.Closed)
+                        {
+                            connection.Close();
+                        }
+                        connection.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[SqlExecutor] Error closing connection");
+                    }
+                }
             }
         }
 
@@ -117,9 +168,11 @@ public class SqlExecutor
         string sql,
         CancellationToken cancellationToken)
     {
+        var commandTimeout = _config.CommandTimeout > 0 ? _config.CommandTimeout : 30;
+        
         var command = new CommandDefinition(
             sql,
-            commandTimeout: _config.CommandTimeout,
+            commandTimeout: commandTimeout,
             cancellationToken: cancellationToken);
 
         var reader = await connection.QueryAsync(command);
@@ -135,7 +188,8 @@ public class SqlExecutor
             {
                 foreach (var kvp in dapperRow)
                 {
-                    dict[kvp.Key] = kvp.Value;
+                    // FIX: Handle null values properly
+                    dict[kvp.Key] = kvp.Value == DBNull.Value ? null : kvp.Value;
                 }
             }
 
@@ -158,20 +212,22 @@ public class SqlExecutor
             return false;
         }
 
+        DbConnection? connection = null;
         try
         {
-            var success = await _adapter.TestConnectionAsync(_config.ConnectionString, cancellationToken);
+            connection = _adapter.CreateConnection(_config.ConnectionString);
             
-            if (success)
+            if (connection is DbConnection dbConnection)
             {
-                _logger.LogInformation("[SqlExecutor] Connection validated successfully for {Provider}", _adapter.Provider);
+                await dbConnection.OpenAsync(cancellationToken);
             }
             else
             {
-                _logger.LogError("[SqlExecutor] Connection validation failed for {Provider}", _adapter.Provider);
+                connection.Open();
             }
             
-            return success;
+            _logger.LogInformation("[SqlExecutor] Connection validated successfully for {Provider}", _adapter.Provider);
+            return true;
         }
         catch (Exception ex)
         {
@@ -179,5 +235,57 @@ public class SqlExecutor
                 _adapter.Provider, ex.Message);
             return false;
         }
+        finally
+        {
+            // FIX: Ensure connection is always closed
+            if (connection != null)
+            {
+                try
+                {
+                    if (connection.State != ConnectionState.Closed)
+                    {
+                        connection.Close();
+                    }
+                    connection.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[SqlExecutor] Error closing connection");
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Format error message to be user-friendly
+    /// </summary>
+    private string FormatErrorMessage(Exception ex)
+    {
+        var message = ex.Message;
+
+        // Make error messages more user-friendly
+        if (message.Contains("timeout", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Query execution timed out. Please try again or simplify your query.";
+        }
+
+        if (message.Contains("connection", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Cannot connect to database. Please check your connection settings.";
+        }
+
+        if (message.Contains("permission", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("access", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Insufficient database permissions. Please contact your database administrator.";
+        }
+
+        if (message.Contains("syntax", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("SQL", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"SQL Error: {message}";
+        }
+
+        return $"Error: {message}";
     }
 }
