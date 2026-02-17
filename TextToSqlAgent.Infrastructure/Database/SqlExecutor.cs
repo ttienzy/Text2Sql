@@ -53,7 +53,7 @@ public class SqlExecutor
         {
             attempt++;
 
-            DbConnection? connection = null;
+            IDbConnection? connection = null;
             try
             {
                 // FIX: Create connection with proper using statement
@@ -212,7 +212,7 @@ public class SqlExecutor
             return false;
         }
 
-        DbConnection? connection = null;
+        IDbConnection? connection = null;
         try
         {
             connection = _adapter.CreateConnection(_config.ConnectionString);

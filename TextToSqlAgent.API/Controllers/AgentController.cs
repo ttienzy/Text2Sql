@@ -131,7 +131,7 @@ public class AgentController : ControllerBase
                 Tables = schema.Tables.Select(t => new 
                 {
                     t.TableName,
-                    t.SchemaName,
+                    Schema = t.Schema,
                     ColumnCount = t.Columns.Count,
                     Columns = t.Columns.Select(c => new 
                     {
