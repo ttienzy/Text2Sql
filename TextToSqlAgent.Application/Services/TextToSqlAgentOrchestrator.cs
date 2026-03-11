@@ -164,38 +164,43 @@ public class TextToSqlAgentOrchestrator
                 relevantSchema.RelevantRelationships.Count);
 
             // ====================================
-            // STEP 4: Intent Analysis (với RAG context)
+            // STEP 4: Intent Analysis (with RAG context)
             // ====================================
+            steps.Add("Step 4: Analyze intent");
 
             // ========================================
-            // FALLBACK: Nếu RAG không tìm thấy gì
+            // FALLBACK: If RAG found nothing, use full schema
             // ========================================
+            IntentAnalysis intent;
             if (relevantSchema.RelevantTables.Count == 0)
             {
                 _logger.LogWarning("[Agent] RAG found 0 results, falling back to full schema");
 
-                // Get table names for intent analysis
-                var tableNamess = _cachedSchema.Tables.Select(t => t.TableName).ToList();
+                // Use all table names for intent analysis
+                var allTableNames = _cachedSchema.Tables.Select(t => t.TableName).ToList();
 
-                // Continue with intent analysis...
-                var intents = await _intentPlugin.AnalyzeIntentAsync(
+                // Single intent analysis call (reuse the result)
+                intent = await _intentPlugin.AnalyzeIntentAsync(
                     normalized.NormalizedText,
-                    tableNamess,
+                    allTableNames,
                     cancellationToken);
 
                 // Build relevant schema based on intent target
-                relevantSchema = BuildFallbackSchema(intents.Target, _cachedSchema);
+                relevantSchema = BuildFallbackSchema(intent.Target, _cachedSchema);
 
                 _logger.LogInformation(
                     "[Agent] Fallback schema: {Tables} tables",
                     relevantSchema.RelevantTables.Count);
             }
-            steps.Add("Step 4: Analyze intent");
-            var tableNames = relevantSchema.RelevantTables.Select(t => t.TableName).ToList();
-            var intent = await _intentPlugin.AnalyzeIntentAsync(
-                normalized.NormalizedText,
-                tableNames,
-                cancellationToken);
+            else
+            {
+                // Normal path: use RAG-retrieved tables for intent analysis
+                var tableNames = relevantSchema.RelevantTables.Select(t => t.TableName).ToList();
+                intent = await _intentPlugin.AnalyzeIntentAsync(
+                    normalized.NormalizedText,
+                    tableNames,
+                    cancellationToken);
+            }
 
             if (intent.NeedsClarification)
             {
@@ -206,12 +211,13 @@ public class TextToSqlAgentOrchestrator
             }
 
             // ====================================
-            // STEP 5: Generate SQL (với RAG context)
+            // STEP 5: Generate SQL (with RAG context + original question)
             // ====================================
             steps.Add("Step 5: Generate SQL with RAG context");
             var sql = await _sqlGenerator.GenerateSqlWithContextAsync(
                 intent,
                 relevantSchema,
+                normalized.NormalizedText,  // Pass original question to LLM
                 cancellationToken);
 
             // ====================================
@@ -227,10 +233,8 @@ public class TextToSqlAgentOrchestrator
                 return response;
             }
 
-            sql = _sqlGenerator.EnsureLimit(sql);
-
             // ====================================
-            // STEP 7: Execute SQL với Self-Correction
+            // STEP 7: Execute SQL with Self-Correction
             // ====================================
             steps.Add("Step 7: Execute SQL with self-correction");
             var (executionResult, corrections) = await ExecuteWithSelfCorrectionAsync(
@@ -253,15 +257,19 @@ public class TextToSqlAgentOrchestrator
                 return response;
             }
 
+            // Apply EnsureLimit on the final executed SQL (after correction)
+            var finalSql = corrections.Any() ? corrections.Last().CorrectedSql : sql;
+            finalSql = _sqlGenerator.EnsureLimit(finalSql);
+
             // ====================================
             // STEP 8: Format Answer
             // ====================================
             steps.Add("Step 8: Interpret results");
-            var answer = FormatAnswer(intent, executionResult, corrections);
+            var answer = FormatAnswer(intent, executionResult, corrections, normalized.NormalizedText);
 
             response.Success = true;
             response.Answer = answer;
-            response.SqlGenerated = corrections.Any() ? corrections.Last().CorrectedSql : sql;
+            response.SqlGenerated = finalSql;
             response.QueryResult = executionResult;
             response.ProcessingSteps = steps;
 
@@ -447,7 +455,8 @@ public class TextToSqlAgentOrchestrator
     private string FormatAnswer(
         IntentAnalysis intent,
         SqlExecutionResult result,
-        List<CorrectionAttempt> corrections)
+        List<CorrectionAttempt> corrections,
+        string? originalQuestion = null)
     {
         var answer = "";
 
@@ -460,16 +469,234 @@ public class TextToSqlAgentOrchestrator
         {
             return answer + "No results found.";
         }
+
+        // Build rich answer based on intent type
         answer += intent.Intent switch
         {
-            QueryIntent.COUNT => $"Count: {result.Rows[0].Values.First()} records.",
-            QueryIntent.LIST => $"Found {result.RowCount} results.",
+            QueryIntent.COUNT => FormatCountAnswer(result),
+            QueryIntent.LIST => FormatListAnswer(result, intent),
             QueryIntent.SCHEMA when intent.Target.Equals("TABLES", StringComparison.OrdinalIgnoreCase) =>
-                $"Database contains {result.RowCount} tables.",
-            QueryIntent.AGGREGATE => $"Analysis result: {result.RowCount} groups.",
-            QueryIntent.DETAIL => $"Detail info: {result.RowCount} records.",
-            _ => $"Query successful, returned {result.RowCount} results."
-        }; return answer;
+                FormatSchemaAnswer(result),
+            QueryIntent.AGGREGATE or QueryIntent.SUM or QueryIntent.AVG or QueryIntent.GROUP_BY =>
+                FormatAggregateAnswer(result, intent),
+            QueryIntent.TOP_N => FormatTopNAnswer(result, intent),
+            QueryIntent.DETAIL => FormatDetailAnswer(result),
+            QueryIntent.RANKING => FormatRankingAnswer(result, intent),
+            QueryIntent.COMPARISON => FormatComparisonAnswer(result),
+            _ => FormatGenericAnswer(result)
+        };
+
+        return answer;
+    }
+
+    private static string FormatCountAnswer(SqlExecutionResult result)
+    {
+        var firstRow = result.Rows[0];
+        var countValue = firstRow.Values.First();
+        return $"Count: {countValue} records.";
+    }
+
+    private static string FormatListAnswer(SqlExecutionResult result, IntentAnalysis intent)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"Found {result.RowCount} results.");
+
+        // Show preview of first 3 rows with key columns
+        var previewCount = Math.Min(result.RowCount, 3);
+        if (result.Columns.Count > 0 && previewCount > 0)
+        {
+            sb.AppendLine("Preview:");
+            // Pick the most meaningful columns (skip IDs)
+            var displayCols = result.Columns
+                .Where(c => !c.EndsWith("Id", StringComparison.OrdinalIgnoreCase)
+                         || result.Columns.Count <= 3)
+                .Take(4)
+                .ToList();
+
+            if (!displayCols.Any()) displayCols = result.Columns.Take(4).ToList();
+
+            for (int i = 0; i < previewCount; i++)
+            {
+                var row = result.Rows[i];
+                var vals = displayCols
+                    .Where(c => row.ContainsKey(c) && row[c] != null && row[c] != DBNull.Value)
+                    .Select(c => $"{c}: {FormatValue(row[c])}")
+                    .ToList();
+                sb.AppendLine($"  • {string.Join(" | ", vals)}");
+            }
+
+            if (result.RowCount > previewCount)
+                sb.AppendLine($"  ... and {result.RowCount - previewCount} more.");
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private static string FormatSchemaAnswer(SqlExecutionResult result)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"Database contains {result.RowCount} tables:");
+
+        foreach (var row in result.Rows.Take(20))
+        {
+            var tableName = row.Values.FirstOrDefault()?.ToString() ?? "Unknown";
+            sb.AppendLine($"  • {tableName}");
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private static string FormatAggregateAnswer(SqlExecutionResult result, IntentAnalysis intent)
+    {
+        var sb = new System.Text.StringBuilder();
+
+        if (result.RowCount == 1)
+        {
+            // Single aggregate result
+            var row = result.Rows[0];
+            var parts = result.Columns
+                .Where(c => row.ContainsKey(c) && row[c] != null && row[c] != DBNull.Value)
+                .Select(c => $"{c}: {FormatValue(row[c])}")
+                .ToList();
+            sb.AppendLine(string.Join(" | ", parts));
+        }
+        else
+        {
+            // Grouped results
+            sb.AppendLine($"Analysis result: {result.RowCount} groups.");
+            var previewCount = Math.Min(result.RowCount, 5);
+            for (int i = 0; i < previewCount; i++)
+            {
+                var row = result.Rows[i];
+                var vals = result.Columns
+                    .Where(c => row.ContainsKey(c) && row[c] != null && row[c] != DBNull.Value)
+                    .Select(c => $"{c}: {FormatValue(row[c])}")
+                    .ToList();
+                sb.AppendLine($"  • {string.Join(" | ", vals)}");
+            }
+            if (result.RowCount > previewCount)
+                sb.AppendLine($"  ... and {result.RowCount - previewCount} more groups.");
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private static string FormatTopNAnswer(SqlExecutionResult result, IntentAnalysis intent)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"Top {result.RowCount} results:");
+
+        for (int i = 0; i < result.RowCount; i++)
+        {
+            var row = result.Rows[i];
+            var displayCols = result.Columns
+                .Where(c => !c.EndsWith("Id", StringComparison.OrdinalIgnoreCase))
+                .Take(4)
+                .ToList();
+            if (!displayCols.Any()) displayCols = result.Columns.Take(4).ToList();
+
+            var vals = displayCols
+                .Where(c => row.ContainsKey(c) && row[c] != null && row[c] != DBNull.Value)
+                .Select(c => $"{FormatValue(row[c])}")
+                .ToList();
+            sb.AppendLine($"  #{i + 1}: {string.Join(" | ", vals)}");
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private static string FormatDetailAnswer(SqlExecutionResult result)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"Detail info ({result.RowCount} record{(result.RowCount > 1 ? "s" : "")}):");
+
+        foreach (var row in result.Rows.Take(5))
+        {
+            foreach (var col in result.Columns)
+            {
+                if (row.ContainsKey(col) && row[col] != null && row[col] != DBNull.Value)
+                {
+                    sb.AppendLine($"  {col}: {FormatValue(row[col])}");
+                }
+            }
+            sb.AppendLine();
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private static string FormatRankingAnswer(SqlExecutionResult result, IntentAnalysis intent)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"Ranking ({result.RowCount} entries):");
+
+        for (int i = 0; i < Math.Min(result.RowCount, 10); i++)
+        {
+            var row = result.Rows[i];
+            var vals = result.Columns
+                .Where(c => row.ContainsKey(c) && row[c] != null && row[c] != DBNull.Value)
+                .Take(4)
+                .Select(c => $"{FormatValue(row[c])}")
+                .ToList();
+            sb.AppendLine($"  #{i + 1}: {string.Join(" | ", vals)}");
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private static string FormatComparisonAnswer(SqlExecutionResult result)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"Comparison result ({result.RowCount} periods):");
+
+        foreach (var row in result.Rows.Take(12))
+        {
+            var vals = result.Columns
+                .Where(c => row.ContainsKey(c) && row[c] != null && row[c] != DBNull.Value)
+                .Select(c => $"{c}: {FormatValue(row[c])}")
+                .ToList();
+            sb.AppendLine($"  • {string.Join(" | ", vals)}");
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private static string FormatGenericAnswer(SqlExecutionResult result)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"Query successful, returned {result.RowCount} results.");
+
+        // Show preview
+        var previewCount = Math.Min(result.RowCount, 3);
+        if (previewCount > 0 && result.Columns.Count > 0)
+        {
+            var displayCols = result.Columns.Take(5).ToList();
+            for (int i = 0; i < previewCount; i++)
+            {
+                var row = result.Rows[i];
+                var vals = displayCols
+                    .Where(c => row.ContainsKey(c) && row[c] != null && row[c] != DBNull.Value)
+                    .Select(c => $"{FormatValue(row[c])}")
+                    .ToList();
+                sb.AppendLine($"  • {string.Join(" | ", vals)}");
+            }
+            if (result.RowCount > previewCount)
+                sb.AppendLine($"  ... and {result.RowCount - previewCount} more.");
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private static string FormatValue(object value)
+    {
+        return value switch
+        {
+            DateTime dt => dt.ToString("yyyy-MM-dd"),
+            decimal d => d.ToString("N2"),
+            double d => d.ToString("N2"),
+            float f => f.ToString("N2"),
+            _ => value.ToString() ?? ""
+        };
     }
     public void ClearSchemaCache()
     {

@@ -29,6 +29,7 @@ public class SqlGeneratorPlugin
     public async Task<string> GenerateSqlAsync(
         IntentAnalysis intent,
         DatabaseSchema schema,
+        string? originalQuestion = null,
         CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("[SqlGenerator] Generating SQL query for {Provider}...", _adapter.Provider);
@@ -40,7 +41,9 @@ public class SqlGeneratorPlugin
             intent.Target,
             schemaContext,
             intent.Filters.Select(f => $"{f.Field} {f.Operator} {ConvertFilterValue(f.Value)}").ToList(),
-            intent.Metrics.Select(m => $"{m.Alias}: {m.Calculation}").ToList());
+            intent.Metrics.Select(m => $"{m.Alias}: {m.Calculation}").ToList(),
+            originalQuestion,
+            intent.SelectColumns);
 
         // Use adapter's database-specific system prompt
         var systemPrompt = _adapter.GetSystemPrompt();
@@ -184,6 +187,7 @@ public class SqlGeneratorPlugin
     public async Task<string> GenerateSqlWithContextAsync(
     IntentAnalysis intent,
     RetrievedSchemaContext schemaContext,
+    string? originalQuestion = null,
     CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("[SqlGenerator] Generating SQL query with RAG context for {Provider}...", _adapter.Provider);
@@ -195,7 +199,9 @@ public class SqlGeneratorPlugin
             intent.Target,
             schemaContextText,
             intent.Filters.Select(f => $"{f.Field} {f.Operator} {ConvertFilterValue(f.Value)}").ToList(),
-            intent.Metrics.Select(m => $"{m.Alias}: {m.Calculation}").ToList());
+            intent.Metrics.Select(m => $"{m.Alias}: {m.Calculation}").ToList(),
+            originalQuestion,
+            intent.SelectColumns);
 
         // Use adapter's database-specific system prompt
         var systemPrompt = _adapter.GetSystemPrompt();

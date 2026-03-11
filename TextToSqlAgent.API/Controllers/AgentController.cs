@@ -10,6 +10,10 @@ using TextToSqlAgent.Infrastructure.Database;
 using TextToSqlAgent.Infrastructure.RAG;
 using TextToSqlAgent.Plugins;
 
+// Resolve ambiguity between API DTOs and Core Models
+using QueryRequest = TextToSqlAgent.API.DTOs.QueryRequest;
+using QueryResponse = TextToSqlAgent.API.DTOs.QueryResponse;
+
 namespace TextToSqlAgent.API.Controllers;
 
 [Authorize]

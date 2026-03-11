@@ -639,13 +639,29 @@ Return ONLY the SQL query, properly formatted and ready to execute.
         string target,
         string schemaContext,
         List<string>? filters = null,
-        List<string>? metrics = null)
+        List<string>? metrics = null,
+        string? originalQuestion = null,
+        List<string>? selectColumns = null)
     {
-        var prompt = $@"Intent: {intent}
+        var prompt = "";
+
+        // Include original question so LLM knows exactly what user wants
+        if (!string.IsNullOrWhiteSpace(originalQuestion))
+        {
+            prompt += $"User Question: \"{originalQuestion}\"\n\n";
+        }
+
+        prompt += $@"Intent: {intent}
 Target: {target}
 
 Schema Context:
 {schemaContext}";
+
+        // Desired columns from intent analysis
+        if (selectColumns?.Any() == true)
+        {
+            prompt += $"\n\nDesired Columns: {string.Join(", ", selectColumns)}";
+        }
 
         if (filters?.Any() == true)
         {
@@ -658,6 +674,7 @@ Schema Context:
         }
 
         prompt += "\n\nGenerate SQL query (query only, no explanation, NO PARAMETERS):";
+        prompt += "\nIMPORTANT: Select ONLY the columns that are relevant to the user's question. Do NOT use SELECT * unless the user explicitly asks for all columns.";
 
         return prompt;
     }

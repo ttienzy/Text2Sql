@@ -37,6 +37,9 @@ public class IntentAnalysis
     [JsonPropertyName("timeRange")]
     public TimeRangeFilter TimeRange { get; set; } = new();
 
+    [JsonPropertyName("selectColumns")]
+    public List<string> SelectColumns { get; set; } = new();
+
     [JsonPropertyName("needsClarification")]
     public bool NeedsClarification { get; set; }
 

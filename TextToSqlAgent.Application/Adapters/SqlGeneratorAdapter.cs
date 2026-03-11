@@ -16,6 +16,7 @@ public class SqlGeneratorAdapter : ISqlGenerator
     public async Task<string> GenerateAsync(
         IntentAnalysisResult intent,
         RetrievedSchemaContext schema,
+        string? originalQuestion = null,
         CancellationToken ct = default)
     {
         // Map back to old IntentAnalysis model
@@ -30,11 +31,12 @@ public class SqlGeneratorAdapter : ISqlGenerator
                 Operator = f.Operator,
                 Value = f.Value
             }).ToList(),
+            SelectColumns = intent.SelectColumns ?? new List<string>(),
             NeedsClarification = intent.NeedsClarification,
             ClarificationQuestion = intent.ClarificationQuestion
         };
 
-        return await _plugin.GenerateSqlWithContextAsync(oldIntent, schema, ct);
+        return await _plugin.GenerateSqlWithContextAsync(oldIntent, schema, originalQuestion, ct);
     }
 
     public bool ValidateSafety(string sql)

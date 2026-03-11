@@ -53,6 +53,7 @@ public interface ISqlGenerator
     Task<string> GenerateAsync(
         IntentAnalysisResult intent,
         RetrievedSchemaContext schema,
+        string? originalQuestion = null,
         CancellationToken ct = default);
 
     bool ValidateSafety(string sql);

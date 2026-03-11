@@ -48,6 +48,7 @@ public class IntentAnalysisResult
     public List<string> GroupBy { get; set; } = new();
     public List<OrderByDefinition> OrderBy { get; set; } = new();
     public int? Limit { get; set; }
+    public List<string> SelectColumns { get; set; } = new();
     public bool NeedsClarification { get; set; }
     public string? ClarificationQuestion { get; set; }
 }

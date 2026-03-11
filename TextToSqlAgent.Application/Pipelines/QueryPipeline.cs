@@ -124,7 +124,7 @@ public class QueryPipeline
 
             // Step 6: Generate SQL
             steps.Add("Generate SQL");
-            var sql = await _sqlGenerator.GenerateAsync(intent, relevantSchema, ct);
+            var sql = await _sqlGenerator.GenerateAsync(intent, relevantSchema, enrichedQuestion, ct);
 
             // Step 7: Validate safety
             steps.Add("Validate SQL safety");
@@ -136,8 +136,6 @@ public class QueryPipeline
                 response.ProcessingSteps = steps;
                 return response;
             }
-
-            sql = _sqlGenerator.EnsureLimit(sql, request.Options?.MaxRows ?? 1000);
 
             // Step 8: Execute with self-correction
             steps.Add("Execute SQL with self-correction");
@@ -155,13 +153,17 @@ public class QueryPipeline
                 return response;
             }
 
+            // Apply EnsureLimit on the final executed SQL (after correction)
+            var finalSql = corrections.Any() ? corrections.Last().CorrectedSql : sql;
+            finalSql = _sqlGenerator.EnsureLimit(finalSql, request.Options?.MaxRows ?? 1000);
+
             // Step 9: Format answer
             steps.Add("Format intelligent answer");
             var answer = _resultFormatter.FormatAnswer(intent, result, context);
 
             response.Success = true;
             response.Answer = answer;
-            response.SqlGenerated = corrections.Any() ? corrections.Last().CorrectedSql : sql;
+            response.SqlGenerated = finalSql;
             response.QueryResult = result;
             response.CorrectionHistory = corrections;
             response.ProcessingSteps = steps;

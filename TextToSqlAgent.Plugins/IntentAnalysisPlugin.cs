@@ -84,6 +84,7 @@ Return ONLY valid JSON without any markdown formatting or explanations:
   ""complexity"": ""Simple|Medium|Complex|Advanced"",
   ""target"": ""<primary_table>"",
   ""relatedEntities"": [""table1"", ""table2""],
+  ""selectColumns"": [""table.column1"", ""table.column2""],
   ""metrics"": [
     {
       ""name"": ""<metric_name>"",
@@ -117,6 +118,13 @@ Return ONLY valid JSON without any markdown formatting or explanations:
     ""absoluteEnd"": ""yyyy-MM-dd""
   }
 }
+
+## selectColumns Rules
+- For LIST/DETAIL queries: extract the SPECIFIC columns the user mentions
+- If user says ""show all"" or ""*"": leave selectColumns as empty array []
+- If user says ""get customer code, full name, email"": populate [""Customers.CustomerCode"", ""Customers.FullName"", ""Customers.Email""]
+- For AGGREGATE queries: leave empty (metrics define the output)
+- Always use Table.Column format when possible
 
 # INTENT TYPES (Hierarchical)
 
@@ -202,6 +210,7 @@ Output:
   ""complexity"": ""Simple"",
   ""target"": ""Customers"",
   ""relatedEntities"": [],
+  ""selectColumns"": [],
   ""metrics"": [
     {
       ""name"": ""TotalCustomers"",
@@ -231,6 +240,7 @@ Output:
   ""complexity"": ""Medium"",
   ""target"": ""Customers"",
   ""relatedEntities"": [""Orders""],
+  ""selectColumns"": [""Customers.Name""],
   ""metrics"": [
     {
       ""name"": ""TotalRevenue"",
@@ -273,6 +283,7 @@ Output:
   ""complexity"": ""Advanced"",
   ""target"": ""Customers"",
   ""relatedEntities"": [""Orders""],
+  ""selectColumns"": [""Customers.Name""],
   ""metrics"": [
     {
       ""name"": ""TotalRevenue"",
@@ -327,6 +338,7 @@ Output:
   ""complexity"": ""Advanced"",
   ""target"": ""Orders"",
   ""relatedEntities"": [],
+  ""selectColumns"": [],
   ""metrics"": [
     {
       ""name"": ""CurrentYearRevenue"",
@@ -379,6 +391,7 @@ Output:
   ""complexity"": ""Simple"",
   ""target"": ""Customers"",
   ""relatedEntities"": [],
+  ""selectColumns"": [],
   ""metrics"": [],
   ""filters"": [
     {
@@ -410,6 +423,7 @@ Output:
   ""complexity"": ""Advanced"",
   ""target"": ""Orders"",
   ""relatedEntities"": [""Customers""],
+  ""selectColumns"": [],
   ""metrics"": [
     {
       ""name"": ""OrderAmount"",
