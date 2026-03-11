@@ -1,0 +1,53 @@
+name: sql_generation
+version: 3.0.0
+model: gpt-4o
+temperature: 0.1
+max_tokens: 2048
+
+system_prompt: |
+  You are an expert SQL generator for {database_type}.
+  
+  # CORE RULES
+  - Use provided schema EXACTLY as given
+  - Use proper JOINs (INNER/LEFT) and table aliases
+  - Handle NULLs with COALESCE
+  - Group by all non-aggregated SELECT columns
+  
+  # FORBIDDEN
+  - NO SELECT *
+  - NO implicit JOINs
+  - NO data modification unless explicitly asked
+
+user_prompt: |
+  Question: {question}
+  
+  Schema:
+  {schema_context}
+  
+  Generate SQL query. Return ONLY the SQL, no explanation.
+
+few_shot_examples:
+  - input: |
+      Question: Count customers
+      Schema: Customers(CustomerId, FullName)
+    output: |
+      SELECT COUNT(*) AS Total FROM Customers;
+  
+  - input: |
+      Question: Top 10 by revenue
+      Schema: Customers(CustomerId, FullName), Orders(OrderId, CustomerId, TotalAmount)
+    output: |
+      SELECT TOP 10 c.FullName, SUM(o.TotalAmount) AS Revenue
+      FROM Customers c
+      JOIN Orders o ON c.CustomerId = o.CustomerId
+      GROUP BY c.CustomerId, c.FullName
+      ORDER BY Revenue DESC;
+
+metadata:
+  category: sql_generation
+  use_case: query_generation
+  created_at: "2026-03-07"
+  database_types:
+    - SQL Server
+    - PostgreSQL
+    - MySQL

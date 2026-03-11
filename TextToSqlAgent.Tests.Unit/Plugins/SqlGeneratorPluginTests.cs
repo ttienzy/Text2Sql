@@ -1,25 +1,27 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using TextToSqlAgent.Core.Models;
-using TextToSqlAgent.Infrastructure.Configuration;
-using TextToSqlAgent.Infrastructure.LLM;
 using TextToSqlAgent.Plugins;
+using TextToSqlAgent.Tests.Unit.Mocks;
 using Xunit;
-using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Infrastructure.Database.Adapters.SqlServer;
 
 namespace TextToSqlAgent.Tests.Unit.Plugins;
 
+/// <summary>
+/// P1-06: Refactored unit tests using mock LLM client (no real API calls)
+/// </summary>
 public class SqlGeneratorPluginTests
 {
+    private readonly MockLLMClient _mockLlm;
     private readonly SqlGeneratorPlugin _plugin;
     private readonly DatabaseSchema _testSchema;
 
     public SqlGeneratorPluginTests()
     {
-        var fakeLlm = new FakeLlmClient();
+        _mockLlm = new MockLLMClient();
         var adapter = new SqlServerAdapter(NullLogger<SqlServerAdapter>.Instance);
-        _plugin = new SqlGeneratorPlugin(fakeLlm, adapter, NullLogger<SqlGeneratorPlugin>.Instance);
+        _plugin = new SqlGeneratorPlugin(_mockLlm, adapter, NullLogger<SqlGeneratorPlugin>.Instance);
 
         // Setup test schema
         _testSchema = new DatabaseSchema
@@ -65,35 +67,6 @@ public class SqlGeneratorPluginTests
         };
     }
 
-    private sealed class FakeLlmClient : ILLMClient
-    {
-        public Task<string> CompleteAsync(string prompt, CancellationToken cancellationToken = default)
-        {
-            // Not used in these tests
-            return Task.FromResult("SELECT 1");
-        }
-
-        public Task<string> CompleteWithSystemPromptAsync(
-            string systemPrompt,
-            string userPrompt,
-            CancellationToken cancellationToken = default)
-        {
-            // Very lightweight routing based on intent/target markers in the user prompt
-            if (userPrompt.Contains("Intent: COUNT", StringComparison.OrdinalIgnoreCase))
-            {
-                return Task.FromResult("SELECT COUNT(*) FROM Customers");
-            }
-
-            if (userPrompt.Contains("Intent: SCHEMA", StringComparison.OrdinalIgnoreCase) &&
-                userPrompt.Contains("Target: TABLES", StringComparison.OrdinalIgnoreCase))
-            {
-                return Task.FromResult("SELECT * FROM INFORMATION_SCHEMA.TABLES");
-            }
-
-            return Task.FromResult("SELECT * FROM Customers");
-        }
-    }
-
     [Fact]
     public async Task Should_Generate_SQL_For_Count_Intent()
     {
@@ -103,6 +76,7 @@ public class SqlGeneratorPluginTests
             Intent = QueryIntent.COUNT,
             Target = "Customers"
         };
+        _mockLlm.SetResponse("COUNT", "SELECT COUNT(*) AS Total FROM Customers");
 
         // Act
         var sql = await _plugin.GenerateSqlAsync(intent, _testSchema);
@@ -123,6 +97,7 @@ public class SqlGeneratorPluginTests
             Intent = QueryIntent.LIST,
             Target = "Customers"
         };
+        _mockLlm.SetResponse("LIST", "SELECT * FROM Customers");
 
         // Act
         var sql = await _plugin.GenerateSqlAsync(intent, _testSchema);
@@ -142,6 +117,7 @@ public class SqlGeneratorPluginTests
             Intent = QueryIntent.SCHEMA,
             Target = "TABLES"
         };
+        _mockLlm.SetResponse("SCHEMA", "SELECT * FROM INFORMATION_SCHEMA.TABLES");
 
         // Act
         var sql = await _plugin.GenerateSqlAsync(intent, _testSchema);

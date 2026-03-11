@@ -2,25 +2,31 @@
 using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Models;
 using TextToSqlAgent.Infrastructure.Configuration;
-using TextToSqlAgent.Infrastructure.VectorDB;
 
 namespace TextToSqlAgent.Infrastructure.RAG;
 
+/// <summary>
+/// Schema retriever with fallback strategy:
+/// 1. Try vector search (Qdrant or in-memory)
+/// 2. Fallback to keyword-based search if vector search fails or returns 0 results
+/// </summary>
 public class SchemaRetriever
 {
-    private readonly QdrantService _qdrant;
+    private readonly IVectorStore _vectorStore;
+    private readonly KeywordSchemaRetriever _keywordRetriever;
     private readonly IEmbeddingClient _embeddingClient;
     private readonly RAGConfig _ragConfig;
-
     private readonly ILogger<SchemaRetriever> _logger;
 
     public SchemaRetriever(
-        QdrantService qdrant,
+        IVectorStore vectorStore,
+        KeywordSchemaRetriever keywordRetriever,
         IEmbeddingClient embeddingClient,
         RAGConfig ragConfig,
         ILogger<SchemaRetriever> logger)
     {
-        _qdrant = qdrant;
+        _vectorStore = vectorStore;
+        _keywordRetriever = keywordRetriever;
         _embeddingClient = embeddingClient;
         _ragConfig = ragConfig;
         _logger = logger;
@@ -31,33 +37,59 @@ public class SchemaRetriever
         DatabaseSchema fullSchema,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("[Schema Retriever] Retrieving schema for question...");
+        _logger.LogDebug("[SchemaRetriever] Retrieving schema for question...");
 
-        // 1. Generate query embedding
-        var queryEmbedding = await _embeddingClient.GenerateEmbeddingAsync(question, cancellationToken);
+        // Try vector search first
+        if (await _vectorStore.IsAvailableAsync(cancellationToken))
+        {
+            try
+            {
+                _logger.LogDebug("[SchemaRetriever] Attempting vector search...");
 
-        // 2. Search vector DB
-        var searchResults = await _qdrant.SearchAsync(
-            queryVector: queryEmbedding,
-            limit: (ulong)_ragConfig.TopK,
-            scoreThreshold: _ragConfig.MinimumScore,
-            cancellationToken: cancellationToken);
+                // 1. Generate query embedding
+                var queryEmbedding = await _embeddingClient.GenerateEmbeddingAsync(question, cancellationToken);
 
-        _logger.LogDebug("[Schema Retriever] Found {Count} relevant schema elements", searchResults.Count);
+                // 2. Search vector DB
+                var searchResults = await _vectorStore.SearchAsync(
+                    queryVector: queryEmbedding,
+                    limit: _ragConfig.TopK,
+                    scoreThreshold: (float)_ragConfig.MinimumScore,
+                    cancellationToken: cancellationToken);
 
-        // 3. Build context from results
-        var context = BuildSchemaContext(searchResults, fullSchema);
+                _logger.LogDebug("[SchemaRetriever] Vector search found {Count} results", searchResults.Count);
 
-        _logger.LogDebug(
-            "[Schema Retriever] Context: {Tables} tables, {Relationships} relationships",
-            context.RelevantTables.Count,
-            context.RelevantRelationships.Count);
+                // 3. If we got results, use them
+                if (searchResults.Count > 0)
+                {
+                    var context = BuildSchemaContext(searchResults, fullSchema);
 
-        return context;
+                    _logger.LogInformation(
+                        "[SchemaRetriever] ✓ Vector search: {Tables} tables, {Rels} relationships",
+                        context.RelevantTables.Count,
+                        context.RelevantRelationships.Count);
+
+                    return context;
+                }
+
+                _logger.LogWarning("[SchemaRetriever] Vector search returned 0 results, falling back to keywords");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[SchemaRetriever] Vector search failed, falling back to keywords");
+            }
+        }
+        else
+        {
+            _logger.LogWarning("[SchemaRetriever] Vector store unavailable, using keyword fallback");
+        }
+
+        // Fallback to keyword-based search
+        _logger.LogInformation("[SchemaRetriever] Using keyword-based retrieval");
+        return _keywordRetriever.RetrieveByKeywords(question, fullSchema, _ragConfig.MaxContextTables);
     }
 
     private RetrievedSchemaContext BuildSchemaContext(
-        List<Qdrant.Client.Grpc.ScoredPoint> searchResults,
+        List<VectorSearchResult> searchResults,
         DatabaseSchema fullSchema)
     {
         var context = new RetrievedSchemaContext();
@@ -68,7 +100,7 @@ public class SchemaRetriever
         foreach (var result in searchResults)
         {
             var payload = result.Payload;
-            var type = payload["type"].StringValue;
+            var type = GetPayloadString(payload, "type");
             var score = result.Score;
 
             // Add to matches
@@ -76,36 +108,36 @@ public class SchemaRetriever
             {
                 Type = type,
                 Score = score,
-                Content = payload["content"].StringValue
+                Content = GetPayloadString(payload, "content")
             };
 
             if (type == "table")
             {
-                var tableName = payload["table_name"].StringValue;
+                var tableName = GetPayloadString(payload, "table_name");
                 match.TableName = tableName;
                 tableNames.Add(tableName);
             }
             else if (type == "column")
             {
-                var tableName = payload["table_name"].StringValue;
-                var columnName = payload["column_name"].StringValue;
+                var tableName = GetPayloadString(payload, "table_name");
+                var columnName = GetPayloadString(payload, "column_name");
                 match.TableName = tableName;
                 match.ColumnName = columnName;
                 tableNames.Add(tableName);
             }
             else if (type == "relationship")
             {
-                var fromTable = payload["from_table"].StringValue;
-                var toTable = payload["to_table"].StringValue;
+                var fromTable = GetPayloadString(payload, "from_table");
+                var toTable = GetPayloadString(payload, "to_table");
                 tableNames.Add(fromTable);
                 tableNames.Add(toTable);
 
                 var rel = new RelationshipInfo
                 {
                     FromTable = fromTable,
-                    FromColumn = payload["from_column"].StringValue,
+                    FromColumn = GetPayloadString(payload, "from_column"),
                     ToTable = toTable,
-                    ToColumn = payload["to_column"].StringValue
+                    ToColumn = GetPayloadString(payload, "to_column")
                 };
                 relationships.Add(rel);
             }
@@ -160,7 +192,16 @@ public class SchemaRetriever
         return context;
     }
 
-    private string ExtractTableName(string fullName)
+    private static string GetPayloadString(Dictionary<string, object> payload, string key)
+    {
+        if (payload.TryGetValue(key, out var value))
+        {
+            return value?.ToString() ?? string.Empty;
+        }
+        return string.Empty;
+    }
+
+    private static string ExtractTableName(string fullName)
     {
         // Handle "schema.table" format
         var parts = fullName.Split('.');

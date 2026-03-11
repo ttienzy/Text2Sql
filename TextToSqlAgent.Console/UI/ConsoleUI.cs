@@ -79,7 +79,7 @@ public static class ConsoleUI
 
         // Add builder option
         choices.Add("[cyan]🔧 Build New Connection (Step-by-Step)[/]");
-        
+
         // Add delete option if connections exist
         if (data.Connections.Any())
         {
@@ -172,7 +172,7 @@ public static class ConsoleUI
     }
 
     private static (string connectionString, string connectionName, Core.Enums.DatabaseProvider provider) HandleDeleteConnection(
-        ConnectionManager connectionManager, 
+        ConnectionManager connectionManager,
         ConnectionManager.ConnectionsData data)
     {
         AnsiConsole.WriteLine();
@@ -227,6 +227,21 @@ public static class ConsoleUI
 
         table.AddEmptyRow();
 
+        // ═══ CONVERSATION (NEW) ═══
+        table.AddRow("[blue bold]═══ CONVERSATION ═══[/]", "");
+        table.AddRow("[cyan]/new[/]", "Start new conversation (clear context)");
+        table.AddRow("[cyan]/context[/]", "Show conversation history");
+
+        table.AddEmptyRow();
+
+        // ═══ CONFIGURATION ═══
+        table.AddRow("[yellow bold]═══ CONFIGURATION ═══[/]", "");
+        table.AddRow("[cyan]/config[/]", "View and update configuration");
+        table.AddRow("[cyan]/api-key[/]", "Update OpenAI API key");
+        table.AddRow("[cyan]/reset[/]", "Reset all configuration");
+
+        table.AddEmptyRow();
+
         // ═══ SCHEMA & INDEX ═══
         table.AddRow("[green bold]═══ SCHEMA & INDEX ═══[/]", "");
         table.AddRow("[cyan]index[/]", "Index database schema into vector DB");
@@ -267,6 +282,8 @@ public static class ConsoleUI
         var tipsPanel = new Panel(
             new Markup(
                 "[dim]💡 Tips:[/]\n" +
+                "  • Use [cyan]/new[/] to start fresh conversation without context\n" +
+                "  • Agent shows reasoning steps and self-corrections\n" +
                 "  • If answers are inaccurate, try [cyan]'reindex'[/] to refresh schema\n" +
                 "  • If Qdrant connection fails, run [cyan]'debug'[/] to diagnose\n" +
                 "  • Vector size mismatch? Run [cyan]'recreate'[/] then [cyan]'index'[/]"))

@@ -5,8 +5,10 @@ using Spectre.Console;
 using System.Text;
 using TextToSqlAgent.Application.Services;
 using TextToSqlAgent.Console.Commands;
+using TextToSqlAgent.Console.Configuration;
 using TextToSqlAgent.Console.Setup;
 using TextToSqlAgent.Console.UI;
+using TextToSqlAgent.Core.Models;
 using TextToSqlAgent.Infrastructure.Configuration;
 using TextToSqlAgent.Infrastructure.Database;
 
@@ -21,13 +23,16 @@ public class Program
 
         // Setup Serilog
         Log.Logger = new LoggerConfiguration()
-            .MinimumLevel.Debug()
+            .MinimumLevel.Information()
             .WriteTo.Console(
                 outputTemplate: "[{Timestamp:HH:mm:ss}] [{Level:u3}] {Message:lj}{NewLine}{Exception}")
             .CreateLogger();
 
         try
         {
+            // ✅ PHASE 0 FIX: Don't force setup wizard at startup
+            // Let user enter command loop first, validate on first query
+
             IHost host;
             try
             {
@@ -40,8 +45,7 @@ public class Program
                 AnsiConsole.MarkupLine($"[yellow]{ex.Message}[/]");
                 AnsiConsole.MarkupLine("\n[cyan]Please check:[/]");
                 AnsiConsole.MarkupLine("  • appsettings.json exists and is valid");
-                AnsiConsole.MarkupLine("  • User secrets are configured (dotnet user-secrets set ...)");
-                AnsiConsole.MarkupLine("  • All required config values are present");
+                AnsiConsole.MarkupLine("  • Run /config to configure API key and database");
                 return 1;
             }
 
@@ -80,89 +84,43 @@ public class Program
         using var scope = services.CreateScope();
         var scopedServices = scope.ServiceProvider;
 
-        // Get configuration services first
-        var geminiConfig = scopedServices.GetRequiredService<GeminiConfig>();
+        // Get configuration services
         var openAIConfig = scopedServices.GetRequiredService<OpenAIConfig>();
         var dbConfig = scopedServices.GetRequiredService<DatabaseConfig>();
         var agentConfig = scopedServices.GetRequiredService<AgentConfig>();
-        
-        // Get LLM provider from configuration
-        var configuration = scopedServices.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>();
-        var providerString = configuration["LLMProvider"] ?? "Gemini";
-        var provider = Enum.Parse<LLMProvider>(providerString, ignoreCase: true);
-        
-        // Get provider-specific config
-        string modelName;
-        double temperature;
-        int maxTokens;
-        
-        if (provider == LLMProvider.OpenAI)
-        {
-            modelName = openAIConfig.Model;
-            temperature = openAIConfig.Temperature;
-            maxTokens = openAIConfig.MaxTokens;
-        }
-        else
-        {
-            modelName = geminiConfig.Model;
-            temperature = geminiConfig.Temperature;
-            maxTokens = geminiConfig.MaxTokens;
-        }
-        
+
         try
         {
-            // Display welcome banner with correct provider
-            ConsoleUI.DisplayWelcomeBanner(provider, modelName);
-            
-            // Display configuration
-            ConsoleUI.DisplayConfigurationInfo(provider, modelName, temperature, maxTokens, agentConfig);
+            // ✅ Display welcome banner immediately
+            ConsoleUI.DisplayWelcomeBanner(LLMProvider.OpenAI, openAIConfig.Model);
 
-            // Get database connection with error handling
-            (string connectionString, string connectionName, TextToSqlAgent.Core.Enums.DatabaseProvider dbProvider)? connectionInfo = null;
+            // ✅ Check if configuration is complete
+            var secureStore = new SecureConfigStore();
+            var isConfigured = secureStore.IsConfigured() &&
+                              !string.IsNullOrWhiteSpace(openAIConfig.ApiKey);
 
-            try
+            if (!isConfigured)
             {
-                connectionInfo = ConsoleUI.PromptDatabaseConnection();
+                AnsiConsole.MarkupLine("[yellow]⚠️  Configuration incomplete[/]");
+                AnsiConsole.MarkupLine("[dim]Run [cyan]/config[/] to set up API key and database[/]");
+                AnsiConsole.WriteLine();
             }
-            catch (Exception ex)
+            else
             {
-                Log.Error(ex, "Failed to get database connection");
-                AnsiConsole.MarkupLine("[red]❌ Error getting database connection:[/]");
-                AnsiConsole.MarkupLine($"[yellow]{ex.Message}[/]");
-                return;
-            }
-
-            if (connectionInfo == null)
-            {
-                AnsiConsole.MarkupLine("[red]❌ No connection string provided. Exiting...[/]");
-                return;
+                // Display configuration info if configured
+                ConsoleUI.DisplayConfigurationInfo(
+                    LLMProvider.OpenAI,
+                    openAIConfig.Model,
+                    openAIConfig.Temperature,
+                    openAIConfig.MaxTokens,
+                    agentConfig);
             }
 
-            // Configure database
-            var (connectionString, connectionName, selectedDbProvider) = connectionInfo.Value;
-            dbConfig.ConnectionString = connectionString;
-            dbConfig.Provider = selectedDbProvider;
-
-            // Resolve heavy services AFTER configuration is set
-            // This ensures DatabaseAdapterFactory creates the correct adapter based on dbConfig.Provider
-            var agent = scopedServices.GetRequiredService<TextToSqlAgentOrchestrator>();
-            var sqlExecutor = scopedServices.GetRequiredService<SqlExecutor>();
-
-            // Test connection
-            if (!await TestDatabaseConnectionAsync(sqlExecutor))
-            {
-                AnsiConsole.MarkupLine("[red]❌ Cannot connect to database. Exiting...[/]");
-                return;
-            }
-
-            AnsiConsole.MarkupLine($"[green]✓ Connected to:[/] [cyan]{connectionName}[/] ({selectedDbProvider})");
-            AnsiConsole.WriteLine();
-
-            // Show help
+            // ✅ Show help immediately - don't wait for DB
             ConsoleUI.DisplayHelp();
 
-            // Start interactive loop
-            await RunInteractiveLoopAsync(agent, scopedServices);
+            // ✅ Start interactive loop - validation happens on first query
+            await RunInteractiveLoopAsync(scopedServices, isConfigured);
 
         }
         catch (InvalidOperationException ex)
@@ -171,15 +129,25 @@ public class Program
             AnsiConsole.MarkupLine("[red]❌ DI Configuration Error:[/]");
             AnsiConsole.MarkupLine($"[yellow]{ex.Message}[/]");
             AnsiConsole.MarkupLine("\n[cyan]This is likely a coding error. Please check DependencyInjection.cs[/]");
-            throw; 
+            throw;
         }
     }
 
 
-    private static async Task RunInteractiveLoopAsync(TextToSqlAgentOrchestrator agent, IServiceProvider services)
+    private static async Task RunInteractiveLoopAsync(IServiceProvider services, bool isConfigured)
     {
-        var commandHandler = new CommandHandler(agent, services);
+        var metrics = new Observability.ConsoleMetrics();
         var queryCount = 0;
+        bool dbConfigured = false;
+        EnhancedAgentOrchestrator? agent = null;
+        CommandHandler? commandHandler = null;
+        Console.Services.ConsoleRequestProcessor? requestProcessor = null;
+
+        // PHASE 2: Create conversation at session start
+        string conversationId = Guid.NewGuid().ToString();
+
+        AnsiConsole.MarkupLine($"[dim]💬 Session ID: {conversationId[..8]}...[/]");
+        AnsiConsole.WriteLine();
 
         while (true)
         {
@@ -193,8 +161,76 @@ public class Program
                 continue;
             }
 
-            // Handle commands
-            var commandResult = await commandHandler.HandleAsync(question);
+            // ✅ PHASE 0 FIX: Lazy validation on first real query
+            if (!dbConfigured && !IsCommandOnly(question))
+            {
+                // Check if we need to configure
+                if (!isConfigured)
+                {
+                    AnsiConsole.MarkupLine("[yellow]⚠️  Please configure API key and database first[/]");
+                    AnsiConsole.MarkupLine("[cyan]Run: /config[/]");
+                    AnsiConsole.WriteLine();
+                    continue;
+                }
+
+                // Prompt for database connection
+                var dbConfig = services.GetRequiredService<DatabaseConfig>();
+
+                if (string.IsNullOrWhiteSpace(dbConfig.ConnectionString))
+                {
+                    AnsiConsole.MarkupLine("[yellow]Setting up database connection...[/]");
+                    AnsiConsole.WriteLine();
+
+                    // ✅ PromptDatabaseConnection returns non-nullable tuple
+                    var (connectionString, connectionName, selectedDbProvider) = ConsoleUI.PromptDatabaseConnection();
+
+                    if (string.IsNullOrWhiteSpace(connectionString))
+                    {
+                        AnsiConsole.MarkupLine("[red]❌ No connection string provided[/]");
+                        AnsiConsole.WriteLine();
+                        continue;
+                    }
+
+                    dbConfig.ConnectionString = connectionString;
+                    dbConfig.Provider = selectedDbProvider;
+
+                    Log.Information("[Program] Database configured: {Provider}", selectedDbProvider);
+                }
+
+                // Test connection
+                var sqlExecutor = services.GetRequiredService<SqlExecutor>();
+                if (!await TestDatabaseConnectionAsync(sqlExecutor))
+                {
+                    AnsiConsole.MarkupLine("[red]❌ Cannot connect to database[/]");
+                    AnsiConsole.MarkupLine("[cyan]Please check your connection string and try again[/]");
+                    AnsiConsole.WriteLine();
+                    continue;
+                }
+
+                AnsiConsole.MarkupLine($"[green]✓ Database connected successfully[/]");
+                AnsiConsole.WriteLine();
+
+                // Initialize agent and services
+                Log.Information("[Program] Initializing agent...");
+                agent = services.GetRequiredService<EnhancedAgentOrchestrator>();
+                commandHandler = new CommandHandler(agent, services);
+                requestProcessor = services.GetRequiredService<Console.Services.ConsoleRequestProcessor>();
+
+                dbConfigured = true;
+                AnsiConsole.MarkupLine("[green]✓ Agent ready[/]");
+                AnsiConsole.WriteLine();
+            }
+
+            // Handle commands (some work without DB)
+            if (commandHandler == null)
+            {
+                // Initialize minimal command handler for /config, /help, /exit
+                agent = services.GetRequiredService<EnhancedAgentOrchestrator>();
+                commandHandler = new CommandHandler(agent, services);
+            }
+
+            var (commandResult, newConversationId) = await commandHandler.HandleAsync(question, conversationId);
+            conversationId = newConversationId;
 
             if (commandResult == CommandResult.Exit)
             {
@@ -203,46 +239,152 @@ public class Program
 
             if (commandResult == CommandResult.Handled)
             {
+                // Check if /config was run and now we're configured
+                if (question.Trim().Equals("/config", StringComparison.OrdinalIgnoreCase))
+                {
+                    var secureStore = new SecureConfigStore();
+                    isConfigured = secureStore.IsConfigured();
+                }
                 continue;
             }
 
-            // Process query
+            // Process query - requires DB
+            if (!dbConfigured)
+            {
+                AnsiConsole.MarkupLine("[yellow]⚠️  Database not configured yet[/]");
+                AnsiConsole.WriteLine();
+                continue;
+            }
+
             queryCount++;
-            await ProcessQueryAsync(agent, question, queryCount);
+            await ProcessQueryAsync(requestProcessor!, question, queryCount, conversationId, metrics);
 
             AnsiConsole.WriteLine();
             AnsiConsole.WriteLine();
         }
+
+        // Display session summary
+        DisplaySessionSummary(metrics);
 
         ConsoleUI.DisplayGoodbye();
     }
 
     private static async Task ProcessQueryAsync(
-        TextToSqlAgentOrchestrator agent,
+        Console.Services.ConsoleRequestProcessor processor,
         string question,
-        int queryNumber)
+        int queryNumber,
+        string? conversationId,
+        Observability.ConsoleMetrics metrics)
     {
+        var startTime = DateTime.UtcNow;
+
         try
         {
+            AgentResponse? response = null;
+
+            // Use cleaner progress indicator - minimal output
             await AnsiConsole.Status()
                 .Spinner(Spinner.Known.Dots)
-                .SpinnerStyle(Style.Parse("green bold"))
-                .StartAsync("[yellow]Processing...[/]", async ctx =>
+                .SpinnerStyle(Style.Parse("cyan bold"))
+                .StartAsync("[cyan]Processing...[/]", async ctx =>
                 {
-                    var response = await agent.ProcessQueryAsync(question);
-                    ctx.Status("[green]Done[/]");
-                    await Task.Delay(500);
-
-                    AnsiConsole.WriteLine();
-                    ResponseFormatter.Display(response, queryNumber);
+                    response = await processor.ProcessAsync(question, conversationId);
                 });
+
+            var processingTime = DateTime.UtcNow - startTime;
+
+            AnsiConsole.WriteLine();
+
+            // Display agent reasoning steps
+            if (response!.ProcessingSteps != null && response.ProcessingSteps.Count > 0)
+            {
+                AgentStepRenderer.DisplayProcessingSteps(response.ProcessingSteps);
+            }
+
+            // Display query explanation if available
+            if (!string.IsNullOrEmpty(response.QueryExplanation))
+            {
+                AgentStepRenderer.DisplayQueryExplanation(response.QueryExplanation);
+            }
+
+            // Display self-correction attempts
+            if (response.CorrectionHistory != null && response.CorrectionHistory.Count > 0)
+            {
+                AgentStepRenderer.DisplayCorrectionAttempts(response.CorrectionHistory);
+            }
+
+            // Display main response
+            ResponseFormatter.Display(response, queryNumber);
+
+            // Display metrics summary
+            AgentStepRenderer.DisplayMetricsSummary(
+                processingTime,
+                response.ProcessingSteps?.Count ?? 0,
+                response.CorrectionAttempts,
+                response.Success);
+
+            // Record metrics
+            metrics.RecordQuery(
+                response.Success,
+                processingTime,
+                response.CorrectionAttempts,
+                response.ProcessingSteps?.Count ?? 0);
         }
         catch (Exception ex)
         {
+            var processingTime = DateTime.UtcNow - startTime;
+            metrics.RecordQuery(false, processingTime, 0, 0);
+
             AnsiConsole.WriteLine();
             ConsoleUI.DisplayError(ex);
         }
     }
+
+    private static void DisplaySessionSummary(Observability.ConsoleMetrics metrics)
+    {
+        var summary = metrics.GetSummary();
+
+        if (summary.TotalQueries == 0)
+        {
+            return;
+        }
+
+        AnsiConsole.WriteLine();
+        AnsiConsole.Write(new Rule("[yellow bold]📊 SESSION SUMMARY[/]").RuleStyle("yellow"));
+        AnsiConsole.WriteLine();
+
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .BorderColor(Color.Yellow)
+            .AddColumn("[bold]Metric[/]")
+            .AddColumn("[bold]Value[/]");
+
+        table.AddRow("Total Queries", summary.TotalQueries.ToString());
+        table.AddRow("Successful", $"[green]{summary.SuccessfulQueries}[/]");
+        table.AddRow("Failed", summary.FailedQueries > 0 ? $"[red]{summary.FailedQueries}[/]" : "0");
+        table.AddRow("Success Rate", $"{summary.SuccessRate:P0}");
+        table.AddRow("Avg Processing Time", $"{summary.AverageProcessingTime.TotalSeconds:F2}s");
+        table.AddRow("Max Processing Time", $"{summary.MaxProcessingTime.TotalSeconds:F2}s");
+        table.AddRow("Avg Corrections", $"{summary.AverageCorrectionAttempts:F1}");
+        table.AddRow("Avg Steps", $"{summary.AverageSteps:F1}");
+
+        AnsiConsole.Write(table);
+        AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
+    /// Check if input is a command that doesn't require database
+    /// </summary>
+    private static bool IsCommandOnly(string input)
+    {
+        var trimmed = input.Trim().ToLowerInvariant();
+        return trimmed.StartsWith("/help") ||
+               trimmed.StartsWith("/exit") ||
+               trimmed.StartsWith("/quit") ||
+               trimmed.StartsWith("/config") ||
+               trimmed.StartsWith("/clear");
+    }
+
     /// <summary>
     /// Set up Vietnamese language support in the console.
     /// </summary>
@@ -283,11 +425,37 @@ public class Program
 
     private static async Task<bool> TestDatabaseConnectionAsync(SqlExecutor executor)
     {
-        return await AnsiConsole.Status()
-            .Spinner(Spinner.Known.Dots)
-            .StartAsync("[yellow]Testing database connection...[/]", async ctx =>
+        Log.Information("[Program] Starting database connection test...");
+        AnsiConsole.MarkupLine("[yellow]Testing database connection...[/]");
+
+        try
+        {
+            var result = await AnsiConsole.Status()
+                .Spinner(Spinner.Known.Dots)
+                .StartAsync("[yellow]Connecting to database...[/]", async ctx =>
+                {
+                    Log.Debug("[Program] Calling executor.ValidateConnectionAsync()...");
+                    var connectionResult = await executor.ValidateConnectionAsync();
+                    Log.Information("[Program] Connection test result: {Result}", connectionResult);
+                    return connectionResult;
+                });
+
+            if (result)
             {
-                return await executor.ValidateConnectionAsync();
-            });
+                Log.Information("[Program] Database connection successful");
+            }
+            else
+            {
+                Log.Warning("[Program] Database connection failed");
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "[Program] Database connection test failed with exception");
+            AnsiConsole.MarkupLine($"[red]❌ Connection test failed: {ex.Message}[/]");
+            return false;
+        }
     }
 }

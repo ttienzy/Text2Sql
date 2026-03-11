@@ -1,4 +1,9 @@
-﻿using FluentAssertions;
+﻿// DEPRECATED: This test file is for the old TextToSqlAgentOrchestrator
+// which has been replaced by the ReAct Agent architecture.
+// See TextToSqlAgent.Evaluation/Tests/ReActAgentEvaluationTests.cs for new tests
+
+/*
+using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using TextToSqlAgent.Console.Agent;
 using TextToSqlAgent.Core.Tasks;
@@ -143,3 +148,4 @@ public class TextToSqlAgentOrchestratorTests
         }
     }
 }
+*/

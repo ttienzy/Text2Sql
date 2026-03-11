@@ -29,13 +29,10 @@ public static class ConnectionBuilder
 
         AnsiConsole.WriteLine();
 
-        // Build connection string based on provider
+        // Build connection string based on provider (SQL Server only)
         return provider.Value switch
         {
             DatabaseProvider.SqlServer => BuildSqlServerConnection(),
-            DatabaseProvider.MySQL => BuildMySqlConnection(),
-            DatabaseProvider.PostgreSQL => BuildPostgreSqlConnection(),
-            DatabaseProvider.SQLite => BuildSQLiteConnection(),
             _ => (string.Empty, string.Empty, string.Empty, DatabaseProvider.SqlServer)
         };
     }
@@ -63,9 +60,6 @@ public static class ConnectionBuilder
         return choice switch
         {
             "🗄️  SQL Server" => DatabaseProvider.SqlServer,
-            "🐬 MySQL" => DatabaseProvider.MySQL,
-            "🐘 PostgreSQL" => DatabaseProvider.PostgreSQL,
-            "📦 SQLite" => DatabaseProvider.SQLite,
             _ => null
         };
     }
@@ -76,14 +70,14 @@ public static class ConnectionBuilder
         AnsiConsole.MarkupLine($"[yellow]⚠️  {provider} support is coming soon![/]");
         AnsiConsole.MarkupLine("[grey]Currently only SQL Server is fully implemented.[/]");
         AnsiConsole.WriteLine();
-        
+
         var retry = AnsiConsole.Confirm("[cyan]Would you like to select a different provider?[/]");
-        
+
         if (retry)
         {
             return PromptDatabaseProvider();
         }
-        
+
         return null;
     }
 
@@ -220,10 +214,10 @@ public static class ConnectionBuilder
     }
 
     private static string BuildSqlServerConnectionString(
-        string server, 
-        string database, 
-        string userId, 
-        string password, 
+        string server,
+        string database,
+        string userId,
+        string password,
         bool useSqlAuth)
     {
         if (useSqlAuth)
@@ -270,192 +264,6 @@ public static class ConnectionBuilder
 
         AnsiConsole.Write(table);
         AnsiConsole.WriteLine();
-    }
-
-    #endregion
-
-    #region MySQL Connection Builder
-
-    private static (string connectionString, string serverName, string databaseName, DatabaseProvider provider) BuildMySqlConnection()
-    {
-        AnsiConsole.MarkupLine("[bold cyan]╔══════════════════════════════════════════════╗[/]");
-        AnsiConsole.MarkupLine("[bold cyan]║[/]  [bold white]🐬  MySQL Connection[/]                    [bold cyan]║[/]");
-        AnsiConsole.MarkupLine("[bold cyan]╚══════════════════════════════════════════════╝[/]");
-        AnsiConsole.WriteLine();
-
-        var host = AnsiConsole.Prompt(
-            new TextPrompt<string>("[cyan]Server/Host:[/]")
-                .DefaultValue("localhost")
-                .AllowEmpty());
-
-        if (string.IsNullOrWhiteSpace(host))
-        {
-            AnsiConsole.MarkupLine("[yellow]← Operation cancelled[/]");
-            return (string.Empty, string.Empty, string.Empty, DatabaseProvider.MySQL);
-        }
-
-        var port = AnsiConsole.Prompt(
-            new TextPrompt<int>("[cyan]Port:[/]")
-                .DefaultValue(3306));
-
-        var database = AnsiConsole.Prompt(
-            new TextPrompt<string>("[cyan]Database name:[/]")
-                .AllowEmpty());
-
-        if (string.IsNullOrWhiteSpace(database))
-        {
-            AnsiConsole.MarkupLine("[yellow]← Operation cancelled[/]");
-            return (string.Empty, string.Empty, string.Empty, DatabaseProvider.MySQL);
-        }
-
-        var userId = AnsiConsole.Prompt(
-            new TextPrompt<string>("[cyan]User ID:[/]")
-                .AllowEmpty());
-
-        if (string.IsNullOrWhiteSpace(userId))
-        {
-            AnsiConsole.MarkupLine("[yellow]← Operation cancelled[/]");
-            return (string.Empty, string.Empty, string.Empty, DatabaseProvider.MySQL);
-        }
-
-        var password = AnsiConsole.Prompt(
-            new TextPrompt<string>("[cyan]Password:[/]")
-                .Secret()
-                .AllowEmpty());
-
-        if (string.IsNullOrWhiteSpace(password))
-        {
-            AnsiConsole.MarkupLine("[yellow]← Operation cancelled[/]");
-            return (string.Empty, string.Empty, string.Empty, DatabaseProvider.MySQL);
-        }
-
-        var connectionString =
-            $"Server={host};Port={port};Database={database};User Id={userId};Password={password};SslMode=Preferred;";
-
-        AnsiConsole.WriteLine();
-        AnsiConsole.Status()
-            .Spinner(Spinner.Known.Dots)
-            .Start("[yellow]Preparing connection...[/]", _ =>
-            {
-                System.Threading.Thread.Sleep(300);
-            });
-
-        DisplayConnectionSummary(host, database, userId, useSqlAuth: true, DatabaseProvider.MySQL);
-
-        return (connectionString, host, database, DatabaseProvider.MySQL);
-    }
-
-    #endregion
-
-    #region PostgreSQL Connection Builder
-
-    private static (string connectionString, string serverName, string databaseName, DatabaseProvider provider) BuildPostgreSqlConnection()
-    {
-        AnsiConsole.MarkupLine("[bold cyan]╔══════════════════════════════════════════════╗[/]");
-        AnsiConsole.MarkupLine("[bold cyan]║[/]  [bold white]🐘  PostgreSQL Connection[/]                [bold cyan]║[/]");
-        AnsiConsole.MarkupLine("[bold cyan]╚══════════════════════════════════════════════╝[/]");
-        AnsiConsole.WriteLine();
-
-        var host = AnsiConsole.Prompt(
-            new TextPrompt<string>("[cyan]Host:[/]")
-                .DefaultValue("localhost")
-                .AllowEmpty());
-
-        if (string.IsNullOrWhiteSpace(host))
-        {
-            AnsiConsole.MarkupLine("[yellow]← Operation cancelled[/]");
-            return (string.Empty, string.Empty, string.Empty, DatabaseProvider.PostgreSQL);
-        }
-
-        var port = AnsiConsole.Prompt(
-            new TextPrompt<int>("[cyan]Port:[/]")
-                .DefaultValue(5432));
-
-        var database = AnsiConsole.Prompt(
-            new TextPrompt<string>("[cyan]Database name:[/]")
-                .AllowEmpty());
-
-        if (string.IsNullOrWhiteSpace(database))
-        {
-            AnsiConsole.MarkupLine("[yellow]← Operation cancelled[/]");
-            return (string.Empty, string.Empty, string.Empty, DatabaseProvider.PostgreSQL);
-        }
-
-        var userId = AnsiConsole.Prompt(
-            new TextPrompt<string>("[cyan]Username:[/]")
-                .AllowEmpty());
-
-        if (string.IsNullOrWhiteSpace(userId))
-        {
-            AnsiConsole.MarkupLine("[yellow]← Operation cancelled[/]");
-            return (string.Empty, string.Empty, string.Empty, DatabaseProvider.PostgreSQL);
-        }
-
-        var password = AnsiConsole.Prompt(
-            new TextPrompt<string>("[cyan]Password:[/]")
-                .Secret()
-                .AllowEmpty());
-
-        if (string.IsNullOrWhiteSpace(password))
-        {
-            AnsiConsole.MarkupLine("[yellow]← Operation cancelled[/]");
-            return (string.Empty, string.Empty, string.Empty, DatabaseProvider.PostgreSQL);
-        }
-
-        var connectionString =
-            $"Host={host};Port={port};Database={database};Username={userId};Password={password};";
-
-        AnsiConsole.WriteLine();
-        AnsiConsole.Status()
-            .Spinner(Spinner.Known.Dots)
-            .Start("[yellow]Preparing connection...[/]", _ =>
-            {
-                System.Threading.Thread.Sleep(300);
-            });
-
-        DisplayConnectionSummary(host, database, userId, useSqlAuth: true, DatabaseProvider.PostgreSQL);
-
-        return (connectionString, host, database, DatabaseProvider.PostgreSQL);
-    }
-
-    #endregion
-
-    #region SQLite Connection Builder
-
-    private static (string connectionString, string serverName, string databaseName, DatabaseProvider provider) BuildSQLiteConnection()
-    {
-        AnsiConsole.MarkupLine("[bold cyan]╔══════════════════════════════════════════════╗[/]");
-        AnsiConsole.MarkupLine("[bold cyan]║[/]  [bold white]📦  SQLite Connection[/]                  [bold cyan]║[/]");
-        AnsiConsole.MarkupLine("[bold cyan]╚══════════════════════════════════════════════╝[/]");
-        AnsiConsole.WriteLine();
-
-        var filePath = AnsiConsole.Prompt(
-            new TextPrompt<string>("[cyan]Database file path (.db/.sqlite):[/]")
-                .DefaultValue("data.db")
-                .AllowEmpty());
-
-        if (string.IsNullOrWhiteSpace(filePath))
-        {
-            AnsiConsole.MarkupLine("[yellow]← Operation cancelled[/]");
-            return (string.Empty, string.Empty, string.Empty, DatabaseProvider.SQLite);
-        }
-
-        var fullPath = Path.GetFullPath(filePath);
-        var dbName = Path.GetFileNameWithoutExtension(fullPath);
-
-        var connectionString = $"Data Source={fullPath};";
-
-        AnsiConsole.WriteLine();
-        AnsiConsole.Status()
-            .Spinner(Spinner.Known.Dots)
-            .Start("[yellow]Preparing connection...[/]", _ =>
-            {
-                System.Threading.Thread.Sleep(300);
-            });
-
-        DisplayConnectionSummary(fullPath, dbName, userId: string.Empty, useSqlAuth: false, DatabaseProvider.SQLite);
-
-        return (connectionString, fullPath, dbName, DatabaseProvider.SQLite);
     }
 
     #endregion

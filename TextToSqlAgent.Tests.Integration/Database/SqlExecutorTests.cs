@@ -13,12 +13,8 @@ public class SqlExecutorTests
 
     public SqlExecutorTests()
     {
-        var config = new DatabaseConfig
-        {
-            ConnectionString = "Server=.;Database=TextToSqlTest;User Id=TextToSqlReader;Password=@TextToSqlReader!;TrustServerCertificate=True;",
-            CommandTimeout = 30,
-            MaxRetryAttempts = 3
-        };
+        // P1-07: Use docker-compose connection string from environment
+        var config = TestConfiguration.CreateDatabaseConfig();
 
         var adapter = new SqlServerAdapter(NullLogger<SqlServerAdapter>.Instance);
         _executor = new SqlExecutor(config, adapter, NullLogger<SqlExecutor>.Instance);
@@ -53,14 +49,14 @@ public class SqlExecutorTests
     public async Task Should_Execute_Multi_Column_Query()
     {
         // Arrange
-        var sql = "SELECT TOP 5 Name, Email, City FROM Customers";
+        var sql = "SELECT TOP 5 FullName, Email, City FROM Customers";
 
         // Act
         var result = await _executor.ExecuteAsync(sql);
 
         // Assert
         result.Success.Should().BeTrue();
-        result.Columns.Should().Contain(new[] { "Name", "Email", "City" });
+        result.Columns.Should().Contain(new[] { "FullName", "Email", "City" });
         result.Rows.Should().NotBeEmpty();
         result.Rows.Should().HaveCountLessThanOrEqualTo(5);
     }
@@ -97,7 +93,7 @@ public class SqlExecutorTests
     public async Task Should_Return_Empty_Result_For_No_Rows()
     {
         // Arrange
-        var sql = "SELECT * FROM Customers WHERE Id = -999999";
+        var sql = "SELECT * FROM Customers WHERE CustomerId = -999999";
 
         // Act
         var result = await _executor.ExecuteAsync(sql);

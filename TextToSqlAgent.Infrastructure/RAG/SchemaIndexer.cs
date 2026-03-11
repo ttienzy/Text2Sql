@@ -1,23 +1,25 @@
 ﻿using Microsoft.Extensions.Logging;
-using Qdrant.Client.Grpc;
 using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Models;
-using TextToSqlAgent.Infrastructure.VectorDB;
 
 namespace TextToSqlAgent.Infrastructure.RAG;
 
+/// <summary>
+/// Schema indexer using abstracted vector store
+/// Supports any IVectorStore implementation (Qdrant, in-memory, etc.)
+/// </summary>
 public class SchemaIndexer
 {
-    private readonly QdrantService _qdrant;
+    private readonly IVectorStore _vectorStore;
     private readonly IEmbeddingClient _embeddingClient;
     private readonly ILogger<SchemaIndexer> _logger;
 
     public SchemaIndexer(
-        QdrantService qdrant,
+        IVectorStore vectorStore,
         IEmbeddingClient embeddingClient,
         ILogger<SchemaIndexer> logger)
     {
-        _qdrant = qdrant;
+        _vectorStore = vectorStore;
         _embeddingClient = embeddingClient;
         _logger = logger;
     }
@@ -26,22 +28,22 @@ public class SchemaIndexer
         DatabaseSchema schema,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("[Schema Indexer] Starting schema indexing...");
+        _logger.LogDebug("[SchemaIndexer] Starting schema indexing...");
 
-        // 1. Ensure collection exists with correct vector size (will recreate if size mismatch)
-        await _qdrant.EnsureCollectionAsync(cancellationToken);
+        // 1. Ensure collection exists
+        await _vectorStore.EnsureCollectionAsync(cancellationToken);
 
         // 2. Build documents
         var documents = BuildSchemaDocuments(schema);
-        _logger.LogDebug("[Schema Indexer] Created {Count} documents", documents.Count);
+        _logger.LogDebug("[SchemaIndexer] Created {Count} documents", documents.Count);
 
-        // 3. Generate embeddings
+        // 3. Generate embeddings and create points
         var points = await GeneratePointsAsync(documents, cancellationToken);
 
-        // 4. Upsert to Qdrant
-        await _qdrant.UpsertPointsAsync(points, cancellationToken);
+        // 4. Upsert to vector store
+        await _vectorStore.UpsertPointsAsync(points, cancellationToken);
 
-        _logger.LogInformation("[Schema Indexer] Schema indexing complete");
+        _logger.LogInformation("[SchemaIndexer] ✓ Schema indexing complete: {Count} points", points.Count);
     }
 
     private List<SchemaDocument> BuildSchemaDocuments(DatabaseSchema schema)
@@ -169,45 +171,45 @@ public class SchemaIndexer
         return columnName.ToLower();
     }
 
-    private async Task<List<PointStruct>> GeneratePointsAsync(
+    private async Task<List<VectorPoint>> GeneratePointsAsync(
         List<SchemaDocument> documents,
         CancellationToken cancellationToken)
     {
-        var points = new List<PointStruct>();
+        var points = new List<VectorPoint>();
 
-        _logger.LogInformation("[Schema Indexer] Generating embeddings for {Count} documents", documents.Count);
+        _logger.LogInformation("[SchemaIndexer] Generating embeddings for {Count} documents", documents.Count);
 
         var batchSize = 10;
         var batches = documents.Chunk(batchSize).ToList();
-        
-        ulong pointId = 1; // Start from 1 for numeric IDs
 
         for (int i = 0; i < batches.Count; i++)
         {
             var batch = batches[i];
-            _logger.LogDebug("[Schema Indexer] Processing batch {Current}/{Total}", i + 1, batches.Count);
+            _logger.LogDebug("[SchemaIndexer] Processing batch {Current}/{Total}", i + 1, batches.Count);
 
             foreach (var doc in batch)
             {
                 var embedding = await _embeddingClient.GenerateEmbeddingAsync(doc.Content, cancellationToken);
 
-                var point = new PointStruct
+                var payload = new Dictionary<string, object>
                 {
-                    Id = new PointId { Num = pointId++ }, // Use numeric ID for REST API compatibility
-                    Vectors = new Vectors { Vector = new Vector { Data = { embedding } } },
-                    Payload =
-                    {
-                        ["id"] = doc.Id,
-                        ["type"] = doc.Type.ToString(),
-                        ["content"] = doc.Content
-                    }
+                    ["id"] = doc.Id,
+                    ["type"] = doc.Type.ToString(),
+                    ["content"] = doc.Content
                 };
 
                 // Add metadata
                 foreach (var (key, value) in doc.Metadata)
                 {
-                    point.Payload[key] = value;
+                    payload[key] = value;
                 }
+
+                var point = new VectorPoint
+                {
+                    Id = doc.Id,
+                    Vector = embedding,
+                    Payload = payload
+                };
 
                 points.Add(point);
 
@@ -216,21 +218,21 @@ public class SchemaIndexer
             }
         }
 
-        _logger.LogDebug("[Schema Indexer] Generated {Count} embeddings", points.Count);
+        _logger.LogDebug("[SchemaIndexer] Generated {Count} embeddings", points.Count);
 
         return points;
     }
 
     public async Task ClearIndexAsync(CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("[Schema Indexer] Clearing index...");
+        _logger.LogInformation("[SchemaIndexer] Clearing index...");
 
-        var exists = await _qdrant.CollectionExistsAsync(cancellationToken);
+        var exists = await _vectorStore.CollectionExistsAsync(cancellationToken);
         if (exists)
         {
-            await _qdrant.DeleteCollectionAsync(cancellationToken);
+            await _vectorStore.DeleteCollectionAsync(cancellationToken);
         }
 
-        _logger.LogInformation("[Schema Indexer] Index cleared");
+        _logger.LogInformation("[SchemaIndexer] Index cleared");
     }
 }

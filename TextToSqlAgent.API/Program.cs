@@ -1,15 +1,23 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
 using Serilog;
 using System.Text.Json.Serialization;
+using TextToSqlAgent.API.Middleware;
 using TextToSqlAgent.Application.Services;
 using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Tasks;
+using TextToSqlAgent.Infrastructure.Analysis;
+using TextToSqlAgent.Infrastructure.Caching;
 using TextToSqlAgent.Infrastructure.Configuration;
 using TextToSqlAgent.Infrastructure.Database;
+using TextToSqlAgent.Infrastructure.Extensions;
 using TextToSqlAgent.Infrastructure.Factories;
 using TextToSqlAgent.Infrastructure.LLM;
+using TextToSqlAgent.Infrastructure.Observability;
 using TextToSqlAgent.Infrastructure.RAG;
+using TextToSqlAgent.Infrastructure.Security;
+using TextToSqlAgent.Infrastructure.Verification;
 using TextToSqlAgent.Infrastructure.VectorDB;
 using TextToSqlAgent.Plugins;
 
@@ -35,7 +43,7 @@ try
     // 1. CONFIGURATION VALIDATION
     // ============================================
     var configuration = builder.Configuration;
-    
+
     // Validate required configuration
     var jwtKey = configuration["Jwt:Key"];
     if (string.IsNullOrEmpty(jwtKey) || jwtKey == "SUPER_SECRET_KEY_FOR_DEV_ONLY_12345678")
@@ -61,6 +69,13 @@ try
 
     var ragConfig = new RAGConfig();
     configuration.GetSection("RAG").Bind(ragConfig);
+
+    var rateLimitOptions = new RateLimitOptions
+    {
+        EnableRateLimiting = configuration.GetValue("Production:EnableRateLimiting", true),
+        MaxRequests = configuration.GetValue<int?>("Production:RateLimitMaxRequests") ?? 100,
+        Window = TimeSpan.FromMinutes(configuration.GetValue<int?>("Production:RateLimitWindowMinutes") ?? 1)
+    };
 
     // Validate LLM Provider
     var providerString = configuration["LLMProvider"] ?? "OpenAI";
@@ -108,32 +123,76 @@ try
     builder.Services.AddSingleton<ILLMClient>(sp => sp.GetRequiredService<LLMClientFactory>().CreateClient());
     builder.Services.AddSingleton<IEmbeddingClient>(sp => sp.GetRequiredService<EmbeddingClientFactory>().CreateClient());
 
-    // Infrastructure - Database
+    // Infrastructure - Database (SQL Server only)
     builder.Services.AddSingleton<TextToSqlAgent.Infrastructure.Database.Adapters.SqlServer.SqlServerAdapter>();
-    builder.Services.AddSingleton<TextToSqlAgent.Infrastructure.Database.Adapters.MySQL.MySqlAdapter>();
-    builder.Services.AddSingleton<TextToSqlAgent.Infrastructure.Database.Adapters.PostgreSQL.PostgreSqlAdapter>();
-    builder.Services.AddSingleton<TextToSqlAgent.Infrastructure.Database.Adapters.SQLite.SQLiteAdapter>();
     builder.Services.AddSingleton<DatabaseAdapterFactory>();
-
     builder.Services.AddSingleton<IDatabaseAdapter>(sp => sp.GetRequiredService<DatabaseAdapterFactory>().CreateAdapter());
     builder.Services.AddSingleton<SchemaScanner>();
     builder.Services.AddSingleton<SqlExecutor>();
 
     // Infrastructure - RAG
     builder.Services.AddSingleton<QdrantService>();
+
+    // ✅ NEW: Vector Store Abstraction with Fallback Strategy
+    builder.Services.AddSingleton<QdrantVectorStore>();
+    builder.Services.AddSingleton<InMemoryVectorStore>();
+    builder.Services.AddSingleton<KeywordSchemaRetriever>();
+
+    // ✅ NEW: Fallback Vector Store (Qdrant → In-Memory)
+    builder.Services.AddSingleton<IVectorStore>(sp =>
+    {
+        var qdrantService = sp.GetRequiredService<QdrantService>();
+        var qdrantLogger = sp.GetRequiredService<ILogger<QdrantVectorStore>>();
+        var qdrantStore = new QdrantVectorStore(qdrantService, qdrantLogger);
+
+        var inMemoryLogger = sp.GetRequiredService<ILogger<InMemoryVectorStore>>();
+        var inMemoryStore = new InMemoryVectorStore(inMemoryLogger);
+
+        var fallbackLogger = sp.GetRequiredService<ILogger<FallbackVectorStore>>();
+        return new FallbackVectorStore(qdrantStore, inMemoryStore, fallbackLogger);
+    });
+
     builder.Services.AddSingleton<SchemaIndexer>();
     builder.Services.AddSingleton<SchemaRetriever>();
+
+    // ✅ NEW: Schema Auto-Sync Background Service
+    builder.Services.AddHostedService<TextToSqlAgent.API.Services.SchemaSyncBackgroundService>();
+
+    // Infrastructure - Analysis (for legacy orchestrator)
+    builder.Services.AddSingleton<SqlErrorAnalyzer>();
 
     // Error Handlers
     TextToSqlAgent.Infrastructure.ErrorHandling.ErrorHandlerServiceExtensions.AddErrorHandlers(builder.Services);
 
-    // Plugins
+    // Plugins (Legacy - for backward compatibility)
     builder.Services.AddTransient<IntentAnalysisPlugin>();
     builder.Services.AddTransient<SqlGeneratorPlugin>();
     builder.Services.AddTransient<SqlCorrectorPlugin>();
+    builder.Services.AddTransient<QueryValidatorPlugin>();
+    builder.Services.AddTransient<QueryExplainerPlugin>();
 
-    // Agent
+    // ✅ NEW: Query Routing
+    builder.Services.AddSingleton<TextToSqlAgent.Application.Routing.IQueryRouter, TextToSqlAgent.Application.Routing.QueryRouter>();
+
+    // Legacy Orchestrator (for backward compatibility)
     builder.Services.AddSingleton<TextToSqlAgentOrchestrator>();
+
+    // ============================================
+    // REACT AGENT SYSTEM (Phase 7)
+    // ============================================
+
+    // Production Services
+    builder.Services.AddSingleton<IDistributedCache>(sp => new SimpleMemoryCache());
+    builder.Services.AddSingleton<CacheService>();
+    builder.Services.AddSingleton(new CacheOptions());
+    builder.Services.AddSingleton(rateLimitOptions);
+    builder.Services.AddSingleton<SqlInjectionPrevention>();
+    builder.Services.AddSingleton<QueryCostEstimator>();
+    builder.Services.AddSingleton<RateLimiter>();
+
+    // Register ReAct Agent with full production features
+    // This includes: Base Agent, Tools, RAG, Advanced Features, Observability
+    builder.Services.AddReActAgentProduction();
 
     // ============================================
     // 3. API SERVICES
@@ -160,7 +219,7 @@ try
         options.Password.RequireUppercase = false;
         options.Password.RequireNonAlphanumeric = false;
         options.Password.RequiredLength = 6;
-        
+
         // ✅ SECURITY: Configure user settings
         options.User.RequireUniqueEmail = true;
         options.SignIn.RequireConfirmedEmail = false;
@@ -190,7 +249,7 @@ try
             IssuerSigningKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(
                 System.Text.Encoding.UTF8.GetBytes(jwtKey!))
         };
-        
+
         // ✅ SECURITY: Configure JWT events for better error handling
         options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
         {
@@ -243,7 +302,7 @@ try
     {
         var dbContext = scope.ServiceProvider.GetRequiredService<TextToSqlAgent.API.Data.AppDbContext>();
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-        
+
         try
         {
             await dbContext.Database.EnsureCreatedAsync();
@@ -258,7 +317,23 @@ try
     // Configure Pipeline
     app.UseHttpsRedirection();
     app.UseCors();
-    
+
+    // P1-05: Security headers
+    app.UseSecurityHeaders();
+
+    // P1-05: Rate limiting (enabled by default in production)
+    if (rateLimitOptions.EnableRateLimiting)
+    {
+        app.UseRateLimiting();
+        Log.Information("✅ Rate limiting enabled: {MaxRequests} requests per {Window}",
+            rateLimitOptions.MaxRequests,
+            rateLimitOptions.Window);
+    }
+    else
+    {
+        Log.Warning("⚠️  Rate limiting is DISABLED by configuration - not recommended for production!");
+    }
+
     app.UseAuthentication();
     app.UseAuthorization();
 

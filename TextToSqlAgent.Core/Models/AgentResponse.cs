@@ -9,8 +9,29 @@ public class AgentResponse
     public string? ErrorMessage { get; set; }
     public List<string> ProcessingSteps { get; set; } = new();
 
-    // NEW: Self-correction tracking
+    // Self-correction tracking
     public List<CorrectionAttempt> CorrectionHistory { get; set; } = new();
     public bool WasCorrected { get; set; }
     public int CorrectionAttempts { get; set; }
+
+    // NEW: Agentic AI enhancements
+    /// <summary>
+    /// Natural language explanation of the SQL query
+    /// </summary>
+    public string? QueryExplanation { get; set; }
+
+    /// <summary>
+    /// Query validation result
+    /// </summary>
+    public QueryValidationResult? ValidationResult { get; set; }
+
+    /// <summary>
+    /// Conversation ID for multi-turn support
+    /// </summary>
+    public string? ConversationId { get; set; }
+
+    /// <summary>
+    /// Whether this was a follow-up question
+    /// </summary>
+    public bool IsFollowUp { get; set; }
 }

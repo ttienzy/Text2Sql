@@ -2,10 +2,11 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Serilog;
+using Spectre.Console;
 using TextToSqlAgent.Application.Services;
+using TextToSqlAgent.Console.Configuration;
 using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Tasks;
-
 using TextToSqlAgent.Infrastructure.Configuration;
 using TextToSqlAgent.Infrastructure.Database;
 using TextToSqlAgent.Infrastructure.Factories;
@@ -20,45 +21,88 @@ public static class DependencyInjection
 {
     public static void ConfigureServices(IConfiguration configuration, IServiceCollection services)
     {
-        // Load configurations
-        var geminiConfig = LoadGeminiConfig(configuration);
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[cyan]═══ Configuration Loading ═══[/]");
+        AnsiConsole.WriteLine();
+
+        // Step 1: Load API Key with explicit priority
+        var configManager = new AppConfigurationManager(configuration);
+        var (apiKey, source) = configManager.LoadOpenAIApiKey();
+
+        // ✅ PHASE 0 FIX: Don't throw if API key missing, just warn
+        if (string.IsNullOrEmpty(apiKey))
+        {
+            AnsiConsole.MarkupLine("[yellow]⚠ OpenAI API Key not found[/]");
+            AnsiConsole.MarkupLine("[dim]  You can configure it later using /config command[/]");
+            AnsiConsole.WriteLine();
+            apiKey = "not-configured"; // Placeholder to prevent null errors
+            source = "not configured";
+        }
+        else
+        {
+            // Step 2: Validate API Key
+            if (!configManager.ValidateApiKeyFormat(apiKey, out var validationError))
+            {
+                AnsiConsole.MarkupLine($"[yellow]⚠ API Key Validation Warning: {validationError}[/]");
+                AnsiConsole.WriteLine();
+            }
+
+            AnsiConsole.MarkupLine($"[green]✓ API Key loaded from:[/] [cyan]{source}[/]");
+            AnsiConsole.MarkupLine($"[dim]  Key: {MaskApiKey(apiKey)}[/]");
+            AnsiConsole.WriteLine();
+        }
+
+        // Step 3: Load other configurations
         var openAIConfig = LoadOpenAIConfig(configuration);
+        openAIConfig.ApiKey = apiKey; // Set API key explicitly
+
         var databaseConfig = LoadDatabaseConfig(configuration);
         var agentConfig = LoadAgentConfig(configuration);
         var qdrantConfig = LoadQdrantConfig(configuration);
         var ragConfig = LoadRAGConfig(configuration);
 
-        // Validate based on selected provider
-        ValidateConfiguration(configuration, geminiConfig, openAIConfig);
+        // Step 4: Final validation (warn only, don't throw)
+        if (!openAIConfig.IsValid(out var configError))
+        {
+            AnsiConsole.MarkupLine($"[yellow]⚠ OpenAI Configuration Warning: {configError}[/]");
+            AnsiConsole.MarkupLine($"[dim]  You can configure it later using /config command[/]");
+            AnsiConsole.WriteLine();
+        }
+        else
+        {
+            AnsiConsole.MarkupLine($"[green]✓ OpenAI Configuration:[/]");
+            AnsiConsole.MarkupLine($"[dim]  Model: {openAIConfig.Model}[/]");
+            AnsiConsole.MarkupLine($"[dim]  Embedding: {openAIConfig.EmbeddingModel}[/]");
+            AnsiConsole.MarkupLine($"[dim]  Temperature: {openAIConfig.Temperature}[/]");
+            AnsiConsole.WriteLine();
+        }
 
-        // Register configurations
-        services.AddSingleton(geminiConfig);
+        // Step 5: Register configurations
         services.AddSingleton(openAIConfig);
         services.AddSingleton(databaseConfig);
         services.AddSingleton(agentConfig);
         services.AddSingleton(qdrantConfig);
         services.AddSingleton(ragConfig);
 
+        // Step 6: Register ConfigurationManager for runtime use
+        services.AddSingleton(configManager);
 
-        // Register services
+        // Step 7: Register services
         RegisterCoreServices(services);
         RegisterInfrastructureServices(services);
         RegisterPlugins(services);
         RegisterAgent(services);
         ConfigureLogging(services);
-    }
 
-    private static GeminiConfig LoadGeminiConfig(IConfiguration configuration)
-    {
-        var config = new GeminiConfig();
-        configuration.GetSection("Gemini").Bind(config);
-        return config;
+        AnsiConsole.MarkupLine("[green]✓ All services registered successfully[/]");
+        AnsiConsole.WriteLine();
     }
 
     private static OpenAIConfig LoadOpenAIConfig(IConfiguration configuration)
     {
         var config = new OpenAIConfig();
         configuration.GetSection("OpenAI").Bind(config);
+        // Note: ApiKey will be set explicitly after loading from secure store/env
         return config;
     }
 
@@ -75,12 +119,14 @@ public static class DependencyInjection
         configuration.GetSection("Agent").Bind(config);
         return config;
     }
+
     private static QdrantConfig LoadQdrantConfig(IConfiguration configuration)
     {
         var config = new QdrantConfig();
         configuration.GetSection("Qdrant").Bind(config);
         return config;
     }
+
     private static RAGConfig LoadRAGConfig(IConfiguration configuration)
     {
         var config = new RAGConfig();
@@ -88,49 +134,12 @@ public static class DependencyInjection
         return config;
     }
 
-    private static void ValidateConfiguration(IConfiguration configuration, GeminiConfig geminiConfig, OpenAIConfig openAIConfig)
+    private static string MaskApiKey(string apiKey)
     {
-        var providerString = configuration["LLMProvider"] ?? "Gemini";
-        
-        if (!Enum.TryParse<LLMProvider>(providerString, ignoreCase: true, out var provider))
-        {
-            throw new InvalidOperationException(
-                $"❌ Invalid LLMProvider '{providerString}'!\n\n" +
-                "Valid values: 'Gemini' or 'OpenAI'\n" +
-                "Set it in appsettings.json: \"LLMProvider\": \"Gemini\" or \"OpenAI\"");
-        }
+        if (string.IsNullOrEmpty(apiKey) || apiKey.Length < 8)
+            return "***";
 
-        switch (provider)
-        {
-            case LLMProvider.Gemini:
-                if (string.IsNullOrEmpty(geminiConfig.ApiKey))
-                {
-                    throw new InvalidOperationException(
-                        "❌ Gemini API Key not found!\n\n" +
-                        "Please set it using one of these methods:\n" +
-                        "1. User Secrets: dotnet user-secrets set \"Gemini:ApiKey\" \"YOUR_KEY\"\n" +
-                        "2. Environment Variable: GEMINI_API_KEY=YOUR_KEY\n" +
-                        "3. appsettings.Development.json (not recommended for production)");
-                }
-                System.Console.WriteLine($"✅ Using Gemini Provider - Model: {geminiConfig.Model}, Embedding: {geminiConfig.EmbeddingModel}");
-                break;
-
-            case LLMProvider.OpenAI:
-                if (string.IsNullOrEmpty(openAIConfig.ApiKey))
-                {
-                    throw new InvalidOperationException(
-                        "❌ OpenAI API Key not found!\n\n" +
-                        "Please set it using one of these methods:\n" +
-                        "1. User Secrets: dotnet user-secrets set \"OpenAI:ApiKey\" \"YOUR_KEY\"\n" +
-                        "2. Environment Variable: OPENAI_API_KEY=YOUR_KEY\n" +
-                        "3. appsettings.Development.json (not recommended for production)");
-                }
-                System.Console.WriteLine($"✅ Using OpenAI Provider - Model: {openAIConfig.Model}, Embedding: {openAIConfig.EmbeddingModel}");
-                break;
-
-            default:
-                throw new InvalidOperationException($"Unsupported LLM provider: {provider}");
-        }
+        return $"{apiKey.Substring(0, 7)}...{apiKey.Substring(apiKey.Length - 4)}";
     }
 
     private static void RegisterCoreServices(IServiceCollection services)
@@ -140,38 +149,20 @@ public static class DependencyInjection
 
     private static void RegisterInfrastructureServices(IServiceCollection services)
     {
-        // Register concrete implementations (still available for direct use if needed)
-        services.AddSingleton<GeminiClient>();
-        services.AddSingleton<GeminiEmbeddingClient>();
+        // Register OpenAI clients only
         services.AddSingleton<OpenAIClient>();
         services.AddSingleton<OpenAIEmbeddingClient>();
 
-        // Register factories
-        services.AddSingleton<LLMClientFactory>();
-        services.AddSingleton<EmbeddingClientFactory>();
+        // Register interfaces directly to OpenAI implementations
+        services.AddSingleton<ILLMClient, OpenAIClient>();
+        services.AddSingleton<IEmbeddingClient, OpenAIEmbeddingClient>();
 
-        // Register interfaces using factories
-        services.AddSingleton<ILLMClient>(sp =>
-        {
-            var factory = sp.GetRequiredService<LLMClientFactory>();
-            return factory.CreateClient();
-        });
-
-        services.AddSingleton<IEmbeddingClient>(sp =>
-        {
-            var factory = sp.GetRequiredService<EmbeddingClientFactory>();
-            return factory.CreateClient();
-        });
-
-        // Database adapters
+        // Database adapters (SQL Server only)
         services.AddSingleton<TextToSqlAgent.Infrastructure.Database.Adapters.SqlServer.SqlServerAdapter>();
-        services.AddSingleton<TextToSqlAgent.Infrastructure.Database.Adapters.MySQL.MySqlAdapter>();
-        services.AddSingleton<TextToSqlAgent.Infrastructure.Database.Adapters.PostgreSQL.PostgreSqlAdapter>();
-        services.AddSingleton<TextToSqlAgent.Infrastructure.Database.Adapters.SQLite.SQLiteAdapter>();
-        
+
         // Database adapter factory
         services.AddSingleton<DatabaseAdapterFactory>();
-        
+
         // Register IDatabaseAdapter using factory
         services.AddSingleton<IDatabaseAdapter>(sp =>
         {
@@ -183,26 +174,110 @@ public static class DependencyInjection
         services.AddSingleton<SchemaScanner>();
         services.AddSingleton<SqlExecutor>();
 
-        // RAG services
+        // Vector Store - Fix circular dependency with named registrations
+        // Register concrete implementations first
         services.AddSingleton<QdrantService>();
+        services.AddSingleton<QdrantVectorStore>(); // ✅ Register QdrantVectorStore
+        services.AddSingleton<InMemoryVectorStore>();
+
+        // Register IVectorStore with FallbackVectorStore that uses concrete types
+        services.AddSingleton<IVectorStore>(sp =>
+        {
+            var qdrant = sp.GetRequiredService<QdrantVectorStore>(); // ✅ Use QdrantVectorStore
+            var inMemory = sp.GetRequiredService<InMemoryVectorStore>();
+            var logger = sp.GetRequiredService<ILogger<FallbackVectorStore>>();
+            return new FallbackVectorStore(qdrant, inMemory, logger);
+        });
+
+        // RAG services
         services.AddSingleton<SchemaIndexer>();
+        services.AddSingleton<KeywordSchemaRetriever>();
         services.AddSingleton<SchemaRetriever>();
 
         // Error handlers
         TextToSqlAgent.Infrastructure.ErrorHandling.ErrorHandlerServiceExtensions.AddErrorHandlers(services);
     }
 
-
     private static void RegisterPlugins(IServiceCollection services)
     {
         services.AddTransient<IntentAnalysisPlugin>();
         services.AddTransient<SqlGeneratorPlugin>();
         services.AddTransient<SqlCorrectorPlugin>();
+
+        // NEW: Agentic AI plugins
+        services.AddTransient<QueryValidatorPlugin>();
+        services.AddTransient<QueryExplainerPlugin>();
     }
 
     private static void RegisterAgent(IServiceCollection services)
     {
+        // PHASE 1: Query Routing (fast-path for greetings/out-of-scope)
+        services.AddSingleton<IQueryRouter, FastPathQueryRouter>();
+        services.AddSingleton<Console.Services.ConsoleRequestProcessor>();
+
+        // LAZY LOADING: Register factory for on-demand service creation
+        services.AddSingleton<IAgentServiceFactory, LazyAgentServiceFactory>();
+
+        // PRIMARY: Enhanced Agentic AI Orchestrator (now lightweight with lazy loading!)
+        services.AddSingleton<EnhancedAgentOrchestrator>();
+
+        // LEGACY: Keep for backward compatibility (not used in Console)
         services.AddSingleton<TextToSqlAgentOrchestrator>();
+
+        // Conversation Manager - required by CommandHandler and LazyAgentServiceFactory
+        services.AddSingleton<ConversationManager>();
+
+        // PHASE 1: Register Core Ports with Adapters
+        RegisterCorePorts(services);
+
+        // Production services for ReAct Agent
+        services.AddSingleton<Microsoft.Extensions.Caching.Distributed.IDistributedCache>(sp =>
+            new Infrastructure.Caching.SimpleMemoryCache());
+        services.AddSingleton<Infrastructure.Caching.CacheService>();
+        services.AddSingleton(new Infrastructure.Caching.CacheOptions());
+        services.AddSingleton<Infrastructure.Security.SqlInjectionPrevention>();
+        services.AddSingleton<Infrastructure.Security.QueryCostEstimator>();
+        services.AddSingleton<Infrastructure.Security.RateLimiter>();
+
+        // ReAct Agent with full production features
+        Infrastructure.Extensions.ServiceCollectionExtensions.AddReActAgentProduction(services);
+    }
+
+    private static void RegisterCorePorts(IServiceCollection services)
+    {
+        // Register adapters
+        services.AddSingleton<Application.Adapters.CachedSchemaProvider>();
+        services.AddSingleton<Application.Adapters.QueryValidatorAdapter>();
+        services.AddSingleton<Application.Adapters.IntentAnalyzerAdapter>();
+        services.AddSingleton<Application.Adapters.SchemaRetrieverAdapter>();
+        services.AddSingleton<Application.Adapters.SqlGeneratorAdapter>();
+        services.AddSingleton<Application.Adapters.SqlExecutorAdapter>();
+        services.AddSingleton<Application.Adapters.SqlCorrectorAdapter>();
+        services.AddSingleton<Application.Adapters.ConversationStoreAdapter>();
+        services.AddSingleton<Application.Adapters.IntelligentResultFormatter>();
+
+        // Register ports
+        services.AddSingleton<Core.Ports.ISchemaProvider>(sp =>
+            sp.GetRequiredService<Application.Adapters.CachedSchemaProvider>());
+        services.AddSingleton<Core.Ports.IQueryValidator>(sp =>
+            sp.GetRequiredService<Application.Adapters.QueryValidatorAdapter>());
+        services.AddSingleton<Core.Ports.IIntentAnalyzer>(sp =>
+            sp.GetRequiredService<Application.Adapters.IntentAnalyzerAdapter>());
+        services.AddSingleton<Core.Ports.ISchemaRetriever>(sp =>
+            sp.GetRequiredService<Application.Adapters.SchemaRetrieverAdapter>());
+        services.AddSingleton<Core.Ports.ISqlGenerator>(sp =>
+            sp.GetRequiredService<Application.Adapters.SqlGeneratorAdapter>());
+        services.AddSingleton<Core.Ports.ISqlExecutor>(sp =>
+            sp.GetRequiredService<Application.Adapters.SqlExecutorAdapter>());
+        services.AddSingleton<Core.Ports.ISqlCorrector>(sp =>
+            sp.GetRequiredService<Application.Adapters.SqlCorrectorAdapter>());
+        services.AddSingleton<Core.Ports.IConversationStore>(sp =>
+            sp.GetRequiredService<Application.Adapters.ConversationStoreAdapter>());
+        services.AddSingleton<Core.Ports.IResultFormatter>(sp =>
+            sp.GetRequiredService<Application.Adapters.IntelligentResultFormatter>());
+
+        // PHASE 2: Register QueryPipeline
+        services.AddSingleton<Application.Pipelines.QueryPipeline>();
     }
 
     private static void ConfigureLogging(IServiceCollection services)

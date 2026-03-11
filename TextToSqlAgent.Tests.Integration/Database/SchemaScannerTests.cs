@@ -14,10 +14,8 @@ public class SchemaScannerTests
 
     public SchemaScannerTests()
     {
-        _config = new DatabaseConfig
-        {
-            ConnectionString = "Server=.;Database=TextToSqlTest;User Id=TextToSqlReader;Password=@TextToSqlReader!;TrustServerCertificate=True;"
-        };
+        // P1-07: Use docker-compose connection string from environment
+        _config = TestConfiguration.CreateDatabaseConfig();
 
         var adapter = new SqlServerAdapter(NullLogger<SqlServerAdapter>.Instance);
         _scanner = new SchemaScanner(_config, adapter, NullLogger<SchemaScanner>.Instance);
@@ -55,8 +53,8 @@ public class SchemaScannerTests
 
         // Assert
         customersTable.Columns.Should().NotBeEmpty();
-        customersTable.Columns.Should().Contain(c => c.ColumnName == "Id");
-        customersTable.Columns.Should().Contain(c => c.ColumnName == "Name");
+        customersTable.Columns.Should().Contain(c => c.ColumnName == "CustomerId");
+        customersTable.Columns.Should().Contain(c => c.ColumnName == "FullName");
         customersTable.Columns.Should().Contain(c => c.ColumnName == "Email");
     }
 
@@ -68,9 +66,9 @@ public class SchemaScannerTests
         var customersTable = schema.Tables.First(t => t.TableName == "Customers");
 
         // Assert
-        customersTable.PrimaryKeys.Should().Contain("Id");
+        customersTable.PrimaryKeys.Should().Contain("CustomerId");
 
-        var idColumn = customersTable.Columns.First(c => c.ColumnName == "Id");
+        var idColumn = customersTable.Columns.First(c => c.ColumnName == "CustomerId");
         idColumn.IsPrimaryKey.Should().BeTrue();
     }
 
@@ -94,7 +92,7 @@ public class SchemaScannerTests
         // Act
         var schema = await _scanner.ScanAsync();
         var customersTable = schema.Tables.First(t => t.TableName == "Customers");
-        var idColumn = customersTable.Columns.First(c => c.ColumnName == "Id");
+        var idColumn = customersTable.Columns.First(c => c.ColumnName == "CustomerId");
 
         // Assert
         idColumn.DataType.Should().Be("int");

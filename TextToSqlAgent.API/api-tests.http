@@ -1,0 +1,185 @@
+### TextToSqlAgent API Tests
+### Base URL
+@baseUrl = http://localhost:5251
+@token = {{login.response.body.token}}
+
+###############################################################################
+# AUTHENTICATION
+###############################################################################
+
+### 1. Register New User
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "test@example.com",
+  "password": "Test123!",
+  "fullName": "Test User"
+}
+
+### 2. Login (Get JWT Token)
+# @name login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "test@example.com",
+  "password": "Test123!"
+}
+
+###############################################################################
+# AGENT ENDPOINTS (No Auth Required)
+###############################################################################
+
+### 3. Health Check (No Auth)
+GET {{baseUrl}}/api/agent/health
+
+###############################################################################
+# AGENT ENDPOINTS (Auth Required)
+###############################################################################
+
+### 4. Get Agent Mode (Requires Auth)
+GET {{baseUrl}}/api/agent/mode
+Authorization: Bearer {{token}}
+
+### 5. Simple Query - All Customers (Requires Auth)
+POST {{baseUrl}}/api/agent/query
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "Show me all customers"
+}
+
+### 6. Complex Query - Top 10 Customers by Revenue (Requires Auth)
+POST {{baseUrl}}/api/agent/query
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "Show me top 10 customers by revenue"
+}
+
+### 7. Query with JOIN - Customers with Orders (Requires Auth)
+POST {{baseUrl}}/api/agent/query
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "Show me customers who have placed orders in the last month"
+}
+
+### 8. Aggregation Query - Total Revenue by Product (Requires Auth)
+POST {{baseUrl}}/api/agent/query
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "What is the total revenue for each product?"
+}
+
+### 9. Get Database Schema (Requires Auth)
+GET {{baseUrl}}/api/agent/schema
+Authorization: Bearer {{token}}
+
+### 10. Refresh Schema Cache (Requires Auth)
+POST {{baseUrl}}/api/agent/schema/refresh
+Authorization: Bearer {{token}}
+
+###############################################################################
+# PRODUCTION AGENT ENDPOINTS (If Available)
+###############################################################################
+
+### 11. Production Query (Requires Auth)
+POST {{baseUrl}}/api/v2/ProductionAgent/query
+Content-Type: application/json
+Authorization: Bearer {{token}}
+X-User-Id: testuser
+
+{
+  "question": "Show me top 5 products by sales"
+}
+
+### 12. Validate SQL (Requires Auth)
+POST {{baseUrl}}/api/v2/ProductionAgent/validate
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "sql": "SELECT * FROM Customers WHERE CustomerId = 1"
+}
+
+### 13. Estimate Query Cost (Requires Auth)
+POST {{baseUrl}}/api/v2/ProductionAgent/estimate-cost
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "sql": "SELECT c.*, SUM(o.TotalAmount) FROM Customers c JOIN Orders o ON c.CustomerId = o.CustomerId GROUP BY c.CustomerId"
+}
+
+###############################################################################
+# OBSERVABILITY ENDPOINTS (If Available)
+###############################################################################
+
+### 14. Observability Health Check
+GET {{baseUrl}}/api/observability/health
+
+### 15. Get Metrics
+GET {{baseUrl}}/api/observability/metrics
+Authorization: Bearer {{token}}
+
+### 16. Ping
+GET {{baseUrl}}/api/observability/ping
+
+###############################################################################
+# ERROR CASES
+###############################################################################
+
+### 17. Query without Auth (Should Fail)
+POST {{baseUrl}}/api/agent/query
+Content-Type: application/json
+
+{
+  "question": "Show me all customers"
+}
+
+### 18. Empty Question (Should Fail)
+POST {{baseUrl}}/api/agent/query
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": ""
+}
+
+### 19. Invalid SQL Injection Attempt (Should Be Blocked)
+POST {{baseUrl}}/api/agent/query
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "Show me all customers; DROP TABLE Customers;"
+}
+
+###############################################################################
+# NOTES
+###############################################################################
+
+# How to use this file:
+# 1. First, run "Register New User" (request #1)
+# 2. Then run "Login" (request #2) to get JWT token
+# 3. The token will be automatically saved and used in subsequent requests
+# 4. Run any other requests with the token
+#
+# If you get 401 Unauthorized:
+# - Make sure you ran the Login request first
+# - Check if the token is valid (tokens expire after 60 minutes by default)
+# - Re-run the Login request to get a new token
+#
+# Endpoints without auth:
+# - GET /api/agent/health
+# - GET /api/observability/health (if available)
+# - GET /api/observability/ping (if available)
+#
+# All other endpoints require authentication!

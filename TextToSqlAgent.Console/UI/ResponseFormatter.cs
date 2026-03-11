@@ -23,8 +23,8 @@ public static class ResponseFormatter
         {
             DisplayCorrectionInfo(response.CorrectionHistory);
         }
-        // Answer panel
-        var answerPanel = new Panel(new Markup($"[green]{response.Answer}[/]"))
+        // Answer panel - ✅ Escape markup
+        var answerPanel = new Panel(new Markup($"[green]{Markup.Escape(response.Answer ?? "")}[/]"))
         {
             Header = new PanelHeader($"🤖 Answer (Query #{queryNumber})", Justify.Left),
             Border = BoxBorder.Rounded,
@@ -34,10 +34,10 @@ public static class ResponseFormatter
         AnsiConsole.Write(answerPanel);
         AnsiConsole.WriteLine();
 
-        // SQL panel
+        // SQL panel - ✅ Escape markup
         if (!string.IsNullOrEmpty(response.SqlGenerated))
         {
-            var sqlPanel = new Panel(response.SqlGenerated)
+            var sqlPanel = new Panel(Markup.Escape(response.SqlGenerated))
             {
                 Header = new PanelHeader("📝 Generated SQL", Justify.Left),
                 Border = BoxBorder.Rounded,

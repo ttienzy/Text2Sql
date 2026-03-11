@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  # SQL Server for integration tests
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: texttosql-test-db
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=Test@Pass123!
+      - MSSQL_PID=Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      - ./test-data/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P Test@Pass123! -Q "SELECT 1" || exit 1
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - test-network
+
+  # Qdrant vector database for integration tests
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: texttosql-test-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-test-data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - test-network
+
+  # Optional: Redis for caching tests
+  redis:
+    image: redis:7-alpine
+    container_name: texttosql-test-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - test-network
+
+volumes:
+  qdrant-test-data:
+    driver: local
+
+networks:
+  test-network:
+    driver: bridge

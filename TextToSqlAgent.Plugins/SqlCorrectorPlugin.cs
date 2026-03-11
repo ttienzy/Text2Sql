@@ -69,21 +69,7 @@ public class SqlCorrectorPlugin
             var schemaContextText = BuildSchemaContextForCorrection(schemaContext, error);
 
             // 4. Extract filter value from intent (for parameter replacement)
-            // FIX: Convert object? to string? (handle array case)
-            var filterObj = intent.Filters.FirstOrDefault()?.Value;
-
-            var filterValue = filterObj switch
-            {
-                string s => s,
-
-                JsonElement je when je.ValueKind == JsonValueKind.Array
-                    => je.GetArrayLength().ToString(),
-
-                JsonElement je
-                    => je.ToString(),
-
-                _ => filterObj?.ToString()
-            };
+            var filterValue = intent.Filters.FirstOrDefault()?.Value;
 
 
 

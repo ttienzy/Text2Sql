@@ -57,11 +57,14 @@ public static class TableRenderer
             return "[dim italic]NULL[/]";
         }
 
-        return value switch
+        var formatted = value switch
         {
             DateTime dt => dt.ToString("yyyy-MM-dd HH:mm:ss"),
             decimal or double or float => string.Format("{0:N2}", value),
             _ => value.ToString() ?? ""
         };
+
+        // ✅ Escape Spectre markup characters to prevent rendering errors
+        return formatted.Replace("[", "[[").Replace("]", "]]");
     }
 }

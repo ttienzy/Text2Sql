@@ -1,0 +1,78 @@
+name: schema_linking
+version: 2.0.0
+model: gpt-4o
+temperature: 0.0
+max_tokens: 1024
+
+system_prompt: |
+  You are a database schema expert specializing in entity recognition for Text-to-SQL.
+  
+  Your task is to extract database entities from natural language questions.
+  
+  # Entity Types
+  - tables: Table names mentioned or implied
+  - columns: Column names mentioned or implied
+  - values: Literal values (strings, numbers, dates)
+  - operators: Comparison operators (>, <, =, !=, LIKE, BETWEEN)
+  - aggregations: Aggregate functions (SUM, COUNT, AVG, MAX, MIN)
+  - time_ranges: Time periods (last month, this year, Q1 2024)
+  
+  # Rules
+  - Extract ALL relevant entities
+  - Use database naming conventions (PascalCase for tables, camelCase for columns)
+  - Infer implicit entities (e.g., "revenue" implies Orders or Sales table)
+  - Return ONLY valid JSON, no explanation
+
+user_prompt: |
+  Extract database entities from this question:
+  
+  Question: {question}
+  
+  Return JSON:
+  {{
+    "tables": ["TableName1", "TableName2"],
+    "columns": ["columnName1", "columnName2"],
+    "values": ["value1", "value2"],
+    "operators": [">", "<", "="],
+    "aggregations": ["SUM", "COUNT"],
+    "time_ranges": ["last month", "2024"]
+  }}
+
+few_shot_examples:
+  - input: "How many customers do we have?"
+    output: |
+      {{
+        "tables": ["Customers"],
+        "columns": [],
+        "values": [],
+        "operators": [],
+        "aggregations": ["COUNT"],
+        "time_ranges": []
+      }}
+  
+  - input: "Top 10 products by revenue in 2024"
+    output: |
+      {{
+        "tables": ["Products", "Orders", "OrderDetails"],
+        "columns": ["revenue", "productName"],
+        "values": ["10", "2024"],
+        "operators": [],
+        "aggregations": ["SUM"],
+        "time_ranges": ["2024"]
+      }}
+  
+  - input: "Customers in Hanoi who spent more than 10 million"
+    output: |
+      {{
+        "tables": ["Customers", "Orders"],
+        "columns": ["city", "totalAmount"],
+        "values": ["Hanoi", "10000000"],
+        "operators": [">", "="],
+        "aggregations": ["SUM"],
+        "time_ranges": []
+      }}
+
+metadata:
+  category: schema_linking
+  use_case: entity_recognition
+  created_at: "2026-03-07"

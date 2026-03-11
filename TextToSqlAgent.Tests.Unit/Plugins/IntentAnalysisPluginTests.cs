@@ -1,15 +1,18 @@
 ﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using TextToSqlAgent.Core.Models;
-using TextToSqlAgent.Infrastructure.Configuration;
-using TextToSqlAgent.Infrastructure.LLM;
 using TextToSqlAgent.Plugins;
+using TextToSqlAgent.Tests.Unit.Mocks;
 using Xunit;
 
 namespace TextToSqlAgent.Tests.Unit.Plugins;
 
+/// <summary>
+/// P1-06: Refactored unit tests using mock LLM client (no real API calls)
+/// </summary>
 public class IntentAnalysisPluginTests
 {
+    private readonly MockLLMClient _mockLlm;
     private readonly IntentAnalysisPlugin _plugin;
     private readonly List<string> _testTables = new()
     {
@@ -22,20 +25,8 @@ public class IntentAnalysisPluginTests
 
     public IntentAnalysisPluginTests()
     {
-        // Get API key from environment variable
-        var apiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY")
-            ?? throw new InvalidOperationException("GEMINI_API_KEY not set");
-
-        var config = new GeminiConfig
-        {
-            ApiKey = apiKey,
-            Model = "gemini-2.5-flash",
-            Temperature = 0.1,
-            MaxTokens = 2048
-        };
-
-        var geminiClient = new GeminiClient(config, NullLogger<GeminiClient>.Instance);
-        _plugin = new IntentAnalysisPlugin(geminiClient, NullLogger<IntentAnalysisPlugin>.Instance);
+        _mockLlm = new MockLLMClient();
+        _plugin = new IntentAnalysisPlugin(_mockLlm, NullLogger<IntentAnalysisPlugin>.Instance);
     }
 
     [Theory]
@@ -47,6 +38,15 @@ public class IntentAnalysisPluginTests
         QueryIntent expectedIntent,
         string expectedTarget)
     {
+        // Arrange
+        _mockLlm.SetDefaultResponse(@"{
+            ""intent"": ""SCHEMA"",
+            ""target"": ""TABLES"",
+            ""filters"": [],
+            ""metrics"": [],
+            ""needsClarification"": false
+        }");
+
         // Act
         var result = await _plugin.AnalyzeIntentAsync(question, _testTables);
 
@@ -65,6 +65,16 @@ public class IntentAnalysisPluginTests
         QueryIntent expectedIntent,
         string expectedTarget)
     {
+        // Arrange
+        var targetTable = expectedTarget;
+        _mockLlm.SetDefaultResponse($@"{{
+            ""intent"": ""COUNT"",
+            ""target"": ""{targetTable}"",
+            ""filters"": [],
+            ""metrics"": [],
+            ""needsClarification"": false
+        }}");
+
         // Act
         var result = await _plugin.AnalyzeIntentAsync(question, _testTables);
 
@@ -82,6 +92,16 @@ public class IntentAnalysisPluginTests
         QueryIntent expectedIntent,
         string expectedTarget)
     {
+        // Arrange
+        var targetTable = expectedTarget;
+        _mockLlm.SetDefaultResponse($@"{{
+            ""intent"": ""LIST"",
+            ""target"": ""{targetTable}"",
+            ""filters"": [],
+            ""metrics"": [],
+            ""needsClarification"": false
+        }}");
+
         // Act
         var result = await _plugin.AnalyzeIntentAsync(question, _testTables);
 
@@ -95,6 +115,13 @@ public class IntentAnalysisPluginTests
     {
         // Arrange
         var question = "Top 10 khách hàng mua nhiều nhất";
+        _mockLlm.SetDefaultResponse(@"{
+            ""intent"": ""AGGREGATE"",
+            ""target"": ""Customers"",
+            ""filters"": [],
+            ""metrics"": [""COUNT"", ""SUM""],
+            ""needsClarification"": false
+        }");
 
         // Act
         var result = await _plugin.AnalyzeIntentAsync(question, _testTables);
@@ -109,6 +136,19 @@ public class IntentAnalysisPluginTests
     {
         // Arrange
         var question = "Khách hàng ở Hà Nội";
+        _mockLlm.SetDefaultResponse(@"{
+            ""intent"": ""LIST"",
+            ""target"": ""Customers"",
+            ""filters"": [
+                {
+                    ""field"": ""City"",
+                    ""operator"": ""="",
+                    ""value"": ""Hà Nội""
+                }
+            ],
+            ""metrics"": [],
+            ""needsClarification"": false
+        }");
 
         // Act
         var result = await _plugin.AnalyzeIntentAsync(question, _testTables);
@@ -117,5 +157,27 @@ public class IntentAnalysisPluginTests
         result.Intent.Should().Be(QueryIntent.LIST);
         result.Target.Should().Be("Customers");
         result.Filters.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public async Task Should_Handle_Ambiguous_Queries()
+    {
+        // Arrange
+        var question = "Cho tôi thông tin";
+        _mockLlm.SetDefaultResponse(@"{
+            ""intent"": ""DETAIL"",
+            ""target"": """",
+            ""filters"": [],
+            ""metrics"": [],
+            ""needsClarification"": true,
+            ""clarificationQuestion"": ""Bạn muốn xem thông tin về bảng nào?""
+        }");
+
+        // Act
+        var result = await _plugin.AnalyzeIntentAsync(question, _testTables);
+
+        // Assert
+        result.NeedsClarification.Should().BeTrue();
+        result.ClarificationQuestion.Should().NotBeNullOrEmpty();
     }
 }

@@ -1,0 +1,136 @@
+### Quick Test - TextToSqlAgent API
+### For development only - requires disabling [Authorize] attribute temporarily
+### Base URL
+@baseUrl = http://localhost:5251
+
+###############################################################################
+# QUICK TESTS (No Auth - Development Only)
+###############################################################################
+
+### 1. Health Check (Always works - has [AllowAnonymous])
+GET {{baseUrl}}/api/agent/health
+
+### 2. Dev Query - No Auth Required (Development Only!)
+POST {{baseUrl}}/api/agent/dev/query
+Content-Type: application/json
+
+{
+  "question": "Show me all customers"
+}
+
+### 3. Dev Query - Top 10 Customers (No Auth)
+POST {{baseUrl}}/api/agent/dev/query
+Content-Type: application/json
+
+{
+  "question": "Show me top 10 customers by revenue"
+}
+
+### 4. Dev Query - Complex Query (No Auth)
+POST {{baseUrl}}/api/agent/dev/query
+Content-Type: application/json
+
+{
+  "question": "Show me customers who have placed orders with total amount greater than 1000"
+}
+
+###############################################################################
+# AUTHENTICATION FLOW (Use this for production testing)
+###############################################################################
+
+### 5. Register User
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "dev@test.com",
+  "password": "Dev123!",
+  "fullName": "Dev User"
+}
+
+### 6. Login and Get Token
+# @name login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "dev@test.com",
+  "password": "Dev123!"
+}
+
+###############################################################################
+# AGENT TESTS (With Auth)
+###############################################################################
+
+### 7. Check Agent Mode
+GET {{baseUrl}}/api/agent/mode
+Authorization: Bearer {{login.response.body.token}}
+
+### 8. Simple Query (With Auth)
+POST {{baseUrl}}/api/agent/query
+Content-Type: application/json
+Authorization: Bearer {{login.response.body.token}}
+
+{
+  "question": "Show me all customers"
+}
+
+### 9. Top 10 Customers by Revenue (With Auth)
+POST {{baseUrl}}/api/agent/query
+Content-Type: application/json
+Authorization: Bearer {{login.response.body.token}}
+
+{
+  "question": "Show me top 10 customers by revenue"
+}
+
+### 10. Get Schema (With Auth)
+GET {{baseUrl}}/api/agent/schema
+Authorization: Bearer {{login.response.body.token}}
+
+###############################################################################
+# INSTRUCTIONS
+###############################################################################
+
+# HOW TO USE FOR QUICK TESTING (No Auth):
+# 
+# 1. Start the API: dotnet run --project TextToSqlAgent.API
+# 
+# 2. Run development endpoints (no auth needed):
+#    - Request #1: Health Check
+#    - Request #2-4: Dev Query endpoints (no authentication required!)
+#
+# ⚠️  WARNING: /api/agent/dev/query is for DEVELOPMENT ONLY!
+#     Remove or secure this endpoint before deploying to production!
+#
+# HOW TO USE WITH AUTHENTICATION (Production):
+# 
+# 1. Start the API: dotnet run --project TextToSqlAgent.API
+# 
+# 2. Run requests in order:
+#    - Request #5: Register User (first time only)
+#    - Request #6: Login (get JWT token)
+#    - Request #7-10: Use the token from login
+#
+# 3. The token is automatically captured from login response
+#    and used in subsequent requests via {{login.response.body.token}}
+#
+# 4. If you get 401 Unauthorized:
+#    - Re-run the Login request (#6) to get a fresh token
+#    - Tokens expire after 3 hours
+#
+# ENDPOINTS WITHOUT AUTH:
+# - GET /api/agent/health (always available)
+# - POST /api/agent/dev/query (development only!)
+#
+# ENDPOINTS WITH AUTH:
+# - GET /api/agent/mode
+# - POST /api/agent/query
+# - GET /api/agent/schema
+# - POST /api/agent/schema/refresh
+#
+# PRODUCTION DEPLOYMENT:
+# Before deploying to production, you should:
+# 1. Remove the /api/agent/dev/query endpoint
+# 2. Or add environment check to disable it in production
+# 3. Ensure all sensitive endpoints require authentication

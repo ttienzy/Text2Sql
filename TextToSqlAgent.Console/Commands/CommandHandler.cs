@@ -1,32 +1,41 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Spectre.Console;
 using TextToSqlAgent.Application.Services;
+using TextToSqlAgent.Console.Configuration;
 using TextToSqlAgent.Console.UI;
 using TextToSqlAgent.Infrastructure.Database;
 using TextToSqlAgent.Infrastructure.RAG;
 using TextToSqlAgent.Infrastructure.VectorDB;
 using TextToSqlAgent.Infrastructure.Configuration;
 using Microsoft.Extensions.Configuration;
-using TextToSqlAgent.Console.Configuration;
+using TextToSqlAgent.Core.Models;
 
 namespace TextToSqlAgent.Console.Commands;
 
 public class CommandHandler
 {
-    private readonly TextToSqlAgentOrchestrator _agent;
+    private readonly EnhancedAgentOrchestrator _agent;
     private readonly IServiceProvider _serviceProvider;
 
-    public CommandHandler(TextToSqlAgentOrchestrator agent, IServiceProvider serviceProvider)
+    public CommandHandler(EnhancedAgentOrchestrator agent, IServiceProvider serviceProvider)
     {
         _agent = agent;
         _serviceProvider = serviceProvider;
     }
 
-    public async Task<CommandResult> HandleAsync(string input)
+    public async Task<(CommandResult Result, string? NewConversationId)> HandleAsync(string input, string? conversationId)
     {
         var command = input.Trim().ToLowerInvariant();
 
-        return command switch
+        // Handle /new command specially since it returns a new conversation ID
+        if (command is "/new" or "new conversation" or "new chat" or "hoi thoai moi" or "hội thoại mới")
+        {
+            HandleNewConversation(out var newId);
+            return (CommandResult.Handled, newId);
+        }
+
+        // All other commands keep the same conversation ID
+        var result = command switch
         {
             "help" or "?" or "trogiup" or "trợ giúp" => HandleHelp(),
             "clear" or "cls" or "xoa" or "xóa" => HandleClear(),
@@ -35,11 +44,24 @@ public class CommandHandler
             "examples" or "vd" or "vi du" or "ví dụ" or "mau" or "mẫu"
                 => HandleExamples(),
 
+            // Configuration commands
+            "/config" or "config" or "configure" or "setup" => HandleConfig(),
+            "/api-key" or "api-key" or "apikey" => HandleApiKey(),
+            "/reset" or "reset" or "reset-config" => HandleResetConfig(),
+
+            // Conversation commands
+            "/context" or "show context" or "conversation" or "hien thi context" or "hiển thị context"
+                => HandleShowContext(conversationId),
+
+            // Schema commands
+            "/validate-schema" or "validate-schema" or "validate schema" => await HandleValidateSchemaAsync(),
+            "/refresh-schema" or "refresh-schema" => await HandleRefreshSchemaAsync(),
+
             "index" or "index schema" => await HandleIndexSchemaAsync(),
             "reindex" or "reindex schema" => await HandleReindexSchemaAsync(),
             "check index" => await HandleCheckIndexAsync(),
 
-            // ✅ Debug commands
+            // Debug commands
             "debug" or "debug qdrant" or "/debug-qdrant" => await HandleDebugQdrantAsync(),
             "recreate" or "recreate collection" => await HandleRecreateCollectionAsync(),
 
@@ -52,6 +74,42 @@ public class CommandHandler
             "exit" or "quit" or "bye" or "thoat" or "q" => CommandResult.Exit,
             _ => CommandResult.NotHandled
         };
+
+        return (result, conversationId);
+    }
+
+    private CommandResult HandleConfig()
+    {
+        var wizard = new SetupWizard();
+        wizard.DisplayCurrentConfig();
+
+        var reconfigure = AnsiConsole.Confirm(
+            "[yellow]Do you want to reconfigure?[/]",
+            defaultValue: false);
+
+        if (reconfigure)
+        {
+            wizard.Run(isReconfigure: true);
+        }
+
+        return CommandResult.Handled;
+    }
+
+    private CommandResult HandleApiKey()
+    {
+        var wizard = new SetupWizard();
+        wizard.Run(isReconfigure: true);
+        return CommandResult.Handled;
+    }
+
+    private CommandResult HandleResetConfig()
+    {
+        var wizard = new SetupWizard();
+        if (wizard.ResetConfig())
+        {
+            AnsiConsole.MarkupLine("[yellow]Please restart the application to apply changes.[/]");
+        }
+        return CommandResult.Handled;
     }
 
     private CommandResult HandleShowCurrentDatabase()
@@ -406,35 +464,22 @@ public class CommandHandler
     private CommandResult HandleClear()
     {
         AnsiConsole.Clear();
-        
+
         try
         {
-            var configuration = _serviceProvider.GetRequiredService<IConfiguration>();
-            var providerString = configuration["LLMProvider"] ?? "Gemini";
-            var provider = Enum.Parse<LLMProvider>(providerString, ignoreCase: true);
-            
-            string modelName;
-            if (provider == LLMProvider.OpenAI)
-            {
-                var openAIConfig = _serviceProvider.GetRequiredService<OpenAIConfig>();
-                modelName = openAIConfig.Model;
-            }
-            else
-            {
-                var geminiConfig = _serviceProvider.GetRequiredService<GeminiConfig>();
-                modelName = geminiConfig.Model;
-            }
-
-            ConsoleUI.DisplayWelcomeBanner(provider, modelName);
+            var openAIConfig = _serviceProvider.GetRequiredService<OpenAIConfig>();
+            ConsoleUI.DisplayWelcomeBanner(LLMProvider.OpenAI, openAIConfig.Model);
         }
         catch
         {
             // Fallback if something goes wrong
-            ConsoleUI.DisplayWelcomeBanner(LLMProvider.Gemini, "Unknown");
+            ConsoleUI.DisplayWelcomeBanner(LLMProvider.OpenAI, "gpt-4o");
         }
-        
+
         return CommandResult.Handled;
     }
+
+
 
     private CommandResult HandleClearCache()
     {
@@ -447,6 +492,79 @@ public class CommandHandler
     {
         ConsoleUI.DisplayExamples();
         return CommandResult.Handled;
+    }
+
+    private bool HandleNewConversation(out string? conversationId)
+    {
+        conversationId = Guid.NewGuid().ToString();
+
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[green]✓ Started new conversation[/]");
+        AnsiConsole.MarkupLine($"[dim]ID: {conversationId}[/]");
+        AnsiConsole.WriteLine();
+
+        return true;
+    }
+
+    private CommandResult HandleShowContext(string? conversationId)
+    {
+        if (string.IsNullOrEmpty(conversationId))
+        {
+            AnsiConsole.MarkupLine("[yellow]No active conversation. Start one with /new[/]");
+            return CommandResult.Handled;
+        }
+
+        try
+        {
+            var conversationManager = _serviceProvider.GetRequiredService<ConversationManager>();
+            var context = conversationManager.GetOrCreateContext(conversationId);
+
+            AnsiConsole.WriteLine();
+            var panel = new Panel(
+                new Markup(
+                    $"[cyan]Conversation ID:[/] {conversationId}\n" +
+                    $"[cyan]Turn Count:[/] {context.TurnCount}\n" +
+                    $"[cyan]Started:[/] {context.StartedAt:yyyy-MM-dd HH:mm:ss}\n" +
+                    $"[cyan]Last Activity:[/] {context.LastActivityAt:yyyy-MM-dd HH:mm:ss}"))
+            {
+                Header = new PanelHeader("💬 Conversation Context", Justify.Left),
+                Border = BoxBorder.Rounded,
+                BorderStyle = new Style(Color.Cyan)
+            };
+
+            AnsiConsole.Write(panel);
+
+            if (context.History.Any())
+            {
+                AnsiConsole.WriteLine();
+                AnsiConsole.MarkupLine("[yellow]Recent History:[/]");
+
+                var recentTurns = context.History.TakeLast(3).ToList();
+                foreach (var turn in recentTurns)
+                {
+                    var statusIcon = turn.Success ? "[green]✓[/]" : "[red]✗[/]";
+                    AnsiConsole.MarkupLine($"{statusIcon} [dim]{turn.Timestamp:HH:mm:ss}[/] Q: {TruncateText(turn.UserQuestion, 60)}");
+                }
+            }
+
+            AnsiConsole.WriteLine();
+            return CommandResult.Handled;
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[red]❌ Error: {ex.Message}[/]");
+            return CommandResult.Handled;
+        }
+    }
+
+    private static string TruncateText(string text, int maxLength)
+    {
+        if (string.IsNullOrEmpty(text) || text.Length <= maxLength)
+        {
+            return text;
+        }
+
+        return text.Substring(0, maxLength - 3) + "...";
     }
 
     private async Task<CommandResult> HandleIndexSchemaAsync()
@@ -478,5 +596,153 @@ public class CommandHandler
             AnsiConsole.WriteException(ex);
             return CommandResult.Handled;
         }
+    }
+
+    private async Task<CommandResult> HandleValidateSchemaAsync()
+    {
+        try
+        {
+            var scanner = _serviceProvider.GetRequiredService<SchemaScanner>();
+
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("[yellow]🔍 Validating schema cache...[/]");
+
+            var cached = scanner.GetCachedSchema();
+            if (cached == null)
+            {
+                AnsiConsole.MarkupLine("[yellow]⚠ No cached schema found. Run a query first or use /refresh-schema.[/]");
+                return CommandResult.Handled;
+            }
+
+            var fresh = await AnsiConsole.Status()
+                .Spinner(Spinner.Known.Dots)
+                .StartAsync("[yellow]Fetching fresh schema from database...[/]", async ctx =>
+                {
+                    return await scanner.GetFreshSchemaAsync(bypassCache: true);
+                });
+
+            // Compare schemas
+            var differences = CompareSchemas(cached, fresh);
+
+            if (differences.Any())
+            {
+                AnsiConsole.MarkupLine("[yellow]⚠ Schema differences found:[/]");
+                foreach (var diff in differences)
+                {
+                    AnsiConsole.MarkupLine($"  [red]•[/] {diff}");
+                }
+                AnsiConsole.MarkupLine("[cyan]Run /refresh-schema to update[/]");
+            }
+            else
+            {
+                AnsiConsole.MarkupLine("[green]✓ Schema is up to date[/]");
+            }
+
+            AnsiConsole.WriteLine();
+            return CommandResult.Handled;
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[red]❌ Error validating schema: {ex.Message}[/]");
+            return CommandResult.Handled;
+        }
+    }
+
+    private async Task<CommandResult> HandleRefreshSchemaAsync()
+    {
+        try
+        {
+            var scanner = _serviceProvider.GetRequiredService<SchemaScanner>();
+
+            AnsiConsole.WriteLine();
+
+            var schema = await AnsiConsole.Status()
+                .Spinner(Spinner.Known.Dots)
+                .StartAsync("[yellow]Refreshing schema from database...[/]", async ctx =>
+                {
+                    scanner.ClearCache();
+                    return await scanner.GetFreshSchemaAsync(bypassCache: true);
+                });
+
+            AnsiConsole.MarkupLine($"[green]✓ Schema refreshed successfully![/]");
+            AnsiConsole.MarkupLine($"[cyan]Tables: {schema.Tables.Count}, Relationships: {schema.Relationships.Count}[/]");
+
+            // Ask if user wants to reindex
+            var reindex = AnsiConsole.Confirm(
+                "[yellow]Do you want to reindex the schema in vector database?[/]",
+                defaultValue: true);
+
+            if (reindex)
+            {
+                await AnsiConsole.Status()
+                    .Spinner(Spinner.Known.Dots)
+                    .StartAsync("[yellow]Reindexing schema...[/]", async ctx =>
+                    {
+                        var indexer = _serviceProvider.GetRequiredService<SchemaIndexer>();
+                        await indexer.ClearIndexAsync();
+                        await indexer.IndexSchemaAsync(schema);
+                    });
+
+                AnsiConsole.MarkupLine("[green]✓ Schema reindexed successfully![/]");
+            }
+
+            AnsiConsole.WriteLine();
+            return CommandResult.Handled;
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[red]❌ Error refreshing schema: {ex.Message}[/]");
+            return CommandResult.Handled;
+        }
+    }
+
+    private List<string> CompareSchemas(DatabaseSchema cached, DatabaseSchema fresh)
+    {
+        var differences = new List<string>();
+
+        // Compare table count
+        if (cached.Tables.Count != fresh.Tables.Count)
+        {
+            differences.Add($"Table count changed: {cached.Tables.Count} → {fresh.Tables.Count}");
+        }
+
+        // Check for new tables
+        var newTables = fresh.Tables
+            .Where(t => !cached.Tables.Any(ct => ct.TableName.Equals(t.TableName, StringComparison.OrdinalIgnoreCase)))
+            .Select(t => t.TableName)
+            .ToList();
+
+        if (newTables.Any())
+        {
+            differences.Add($"New tables: {string.Join(", ", newTables)}");
+        }
+
+        // Check for removed tables
+        var removedTables = cached.Tables
+            .Where(t => !fresh.Tables.Any(ft => ft.TableName.Equals(t.TableName, StringComparison.OrdinalIgnoreCase)))
+            .Select(t => t.TableName)
+            .ToList();
+
+        if (removedTables.Any())
+        {
+            differences.Add($"Removed tables: {string.Join(", ", removedTables)}");
+        }
+
+        // Check for column changes in existing tables
+        foreach (var cachedTable in cached.Tables)
+        {
+            var freshTable = fresh.Tables.FirstOrDefault(t =>
+                t.TableName.Equals(cachedTable.TableName, StringComparison.OrdinalIgnoreCase));
+
+            if (freshTable != null)
+            {
+                if (cachedTable.Columns.Count != freshTable.Columns.Count)
+                {
+                    differences.Add($"Table '{cachedTable.TableName}': Column count changed {cachedTable.Columns.Count} → {freshTable.Columns.Count}");
+                }
+            }
+        }
+
+        return differences;
     }
 }

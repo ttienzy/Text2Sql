@@ -309,27 +309,7 @@ public class TextToSqlAgentOrchestrator
             return null;
         }
 
-        // SQLite: use file name (without extension) as logical database/collection name
-        if (config.Provider == DatabaseProvider.SQLite)
-        {
-            var dataSource = GetValue(parts, "Data Source", "DataSource", "Filename", "File");
-            if (string.IsNullOrWhiteSpace(dataSource))
-            {
-                return null;
-            }
-
-            try
-            {
-                var fullPath = System.IO.Path.GetFullPath(dataSource);
-                return System.IO.Path.GetFileNameWithoutExtension(fullPath);
-            }
-            catch
-            {
-                return dataSource;
-            }
-        }
-
-        // Other providers: prefer Database / Initial Catalog
+        // SQL Server only: use database name from connection string
         var database = GetValue(parts, "Database", "Initial Catalog");
         if (!string.IsNullOrWhiteSpace(database))
         {
@@ -506,21 +486,33 @@ public class TextToSqlAgentOrchestrator
         {
             _logger.LogInformation("[Agent] Checking Qdrant collection...");
 
-            await _qdrantService.EnsureCollectionAsync(cancellationToken);
-            var pointCount = await _qdrantService.GetPointCountAsync(cancellationToken);
+            // Use timeout to avoid hanging when Qdrant is not available
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(10)); // 10 second timeout
 
-            if (pointCount == 0)
+            try
             {
-                _logger.LogInformation("[Agent] Indexing schema to Qdrant...");
-                await _schemaIndexer.IndexSchemaAsync(schema, cancellationToken);
-                _logger.LogInformation("[Agent] ✓ Schema indexed");
+                await _qdrantService.EnsureCollectionAsync(cts.Token);
+                var pointCount = await _qdrantService.GetPointCountAsync(cts.Token);
+
+                if (pointCount == 0)
+                {
+                    _logger.LogInformation("[Agent] Indexing schema to Qdrant...");
+                    await _schemaIndexer.IndexSchemaAsync(schema, cts.Token);
+                    _logger.LogInformation("[Agent] ✓ Schema indexed");
+                }
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning("[Agent] Qdrant not available or timeout - skipping vector indexing");
+                return false; // Continue without Qdrant
             }
 
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "[Agent] Error indexing schema");
+            _logger.LogWarning(ex, "[Agent] Error indexing schema to Qdrant - continuing without it");
             return false;
         }
     }

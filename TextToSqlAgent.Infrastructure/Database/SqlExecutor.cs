@@ -58,7 +58,7 @@ public class SqlExecutor
             {
                 // FIX: Create connection with proper using statement
                 connection = _adapter.CreateConnection(_config.ConnectionString);
-                
+
                 // Cast to DbConnection for OpenAsync support
                 if (connection is DbConnection dbConnection)
                 {
@@ -169,7 +169,7 @@ public class SqlExecutor
         CancellationToken cancellationToken)
     {
         var commandTimeout = _config.CommandTimeout > 0 ? _config.CommandTimeout : 30;
-        
+
         var command = new CommandDefinition(
             sql,
             commandTimeout: commandTimeout,
@@ -178,6 +178,7 @@ public class SqlExecutor
         var reader = await connection.QueryAsync(command);
 
         var rows = new List<Dictionary<string, object?>>();
+        var columns = new List<string>(); // ✅ Track columns
 
         foreach (var row in reader)
         {
@@ -186,6 +187,12 @@ public class SqlExecutor
 
             if (dapperRow != null)
             {
+                // ✅ Extract columns from first row
+                if (columns.Count == 0)
+                {
+                    columns.AddRange(dapperRow.Keys);
+                }
+
                 foreach (var kvp in dapperRow)
                 {
                     // FIX: Handle null values properly
@@ -199,6 +206,7 @@ public class SqlExecutor
         return new SqlExecutionResult
         {
             Success = true,
+            Columns = columns,  // ✅ Set columns
             Rows = rows,
             RowsAffected = rows.Count
         };
@@ -216,7 +224,7 @@ public class SqlExecutor
         try
         {
             connection = _adapter.CreateConnection(_config.ConnectionString);
-            
+
             if (connection is DbConnection dbConnection)
             {
                 await dbConnection.OpenAsync(cancellationToken);
@@ -225,13 +233,13 @@ public class SqlExecutor
             {
                 connection.Open();
             }
-            
+
             _logger.LogInformation("[SqlExecutor] Connection validated successfully for {Provider}", _adapter.Provider);
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[SqlExecutor] Connection validation failed for {Provider}: {Message}", 
+            _logger.LogError(ex, "[SqlExecutor] Connection validation failed for {Provider}: {Message}",
                 _adapter.Provider, ex.Message);
             return false;
         }

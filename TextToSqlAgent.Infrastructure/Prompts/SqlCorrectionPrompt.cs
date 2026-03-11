@@ -4,7 +4,7 @@ public static class SqlCorrectionPrompt
 {
 
 
-    public const string SystemPrompt = @"
+  public const string SystemPrompt = @"
 You are an expert SQL debugger with deep knowledge of SQL Server error messages, query optimization, and intelligent error recovery.
 
 # YOUR MISSION
@@ -269,33 +269,17 @@ INNER JOIN Orders o ON c.Id = o.CustomerId
 WHERE YEAR(o.OrderDate) = 2024
 ```
 
-# RESPONSE FORMAT (JSON)
+# RESPONSE FORMAT
 
-Return a JSON object with correction details:
+Return ONLY the corrected SQL query without any JSON, markdown, or explanations.
 
-```json
-{
-  ""success"": true,
-  ""errorType"": ""InvalidColumnName"" | ""AmbiguousColumn"" | ""ParameterizedQuery"" | ""GroupByError"" | ""SyntaxError"" | ""SubqueryMultipleRows"" | ""TypeMismatch"",
-  ""rootCause"": ""<Clear explanation of why error occurred>"",
-  ""fixApplied"": ""<What was changed and why>"",
-  ""confidence"": 0-100,
-  ""correctedSQL"": ""<Full corrected SQL query>"",
-  ""changes"": [
-    {
-      ""location"": ""<WHERE_IN_QUERY>"",
-      ""from"": ""<original_text>"",
-      ""to"": ""<corrected_text>"",
-      ""reason"": ""<why this change was needed>""
-    }
-  ],
-  ""reasoning"": ""<Step-by-step analysis of error and correction>"",
-  ""alternativeFixes"": [
-    ""<Optional: Other valid corrections>""
-  ],
-  ""performanceNotes"": ""<Optional: Performance improvement suggestions>""
-}
-```
+CRITICAL RULES:
+- Return SQL query ONLY
+- NO JSON objects
+- NO markdown code blocks
+- NO explanations before or after
+- NO comments about what was changed
+- Just the pure SQL query that will execute successfully
 
 # COMPLETE EXAMPLES
 
@@ -519,15 +503,15 @@ Return ONLY the JSON object. No explanations outside JSON. No markdown formattin
 
 ";
 
-    public static string BuildUserPrompt(
-        string originalSql,
-        string errorMessage,
-        string errorType,
-        string? invalidElement,
-        string schemaContext,
-        string? filterValue = null)
-    {
-        var prompt = $@"ORIGINAL SQL (with error):
+  public static string BuildUserPrompt(
+      string originalSql,
+      string errorMessage,
+      string errorType,
+      string? invalidElement,
+      string schemaContext,
+      string? filterValue = null)
+  {
+    var prompt = $@"ORIGINAL SQL (with error):
 {originalSql}
 
 ERROR MESSAGE:
@@ -535,37 +519,37 @@ ERROR MESSAGE:
 
 ERROR TYPE: {errorType}";
 
-        if (!string.IsNullOrEmpty(invalidElement))
-        {
-            prompt += $@"
+    if (!string.IsNullOrEmpty(invalidElement))
+    {
+      prompt += $@"
 
 INVALID ELEMENT: {invalidElement}";
-        }
+    }
 
-        prompt += $@"
+    prompt += $@"
 
 AVAILABLE SCHEMA:
 {schemaContext}";
 
-        // Special handling for parameterized queries
-        if (errorMessage.Contains("Must declare the scalar variable", StringComparison.OrdinalIgnoreCase))
-        {
-            prompt += @"
+    // Special handling for parameterized queries
+    if (errorMessage.Contains("Must declare the scalar variable", StringComparison.OrdinalIgnoreCase))
+    {
+      prompt += @"
 
 SPECIFIC FIX NEEDED:
 The SQL is using a parameter (@variable). Replace it with the actual literal value.
 Example: If WHERE [Name] = @Name, and the filter value is 'Nguyễn Văn A', 
 then correct it to: WHERE [Name] = 'Nguyễn Văn A'";
 
-            if (!string.IsNullOrEmpty(filterValue))
-            {
-                prompt += $@"
+      if (!string.IsNullOrEmpty(filterValue))
+      {
+        prompt += $@"
 
 FILTER VALUE TO USE: {filterValue}";
-            }
-        }
+      }
+    }
 
-        prompt += @"
+    prompt += @"
 
 INSTRUCTIONS:
 1. Identify what caused the error
@@ -576,6 +560,6 @@ INSTRUCTIONS:
 
 CORRECTED SQL:";
 
-        return prompt;
-    }
+    return prompt;
+  }
 }

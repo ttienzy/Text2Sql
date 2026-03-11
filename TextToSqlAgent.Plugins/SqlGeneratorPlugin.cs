@@ -40,11 +40,11 @@ public class SqlGeneratorPlugin
             intent.Target,
             schemaContext,
             intent.Filters.Select(f => $"{f.Field} {f.Operator} {ConvertFilterValue(f.Value)}").ToList(),
-            intent.Metrics);
+            intent.Metrics.Select(m => $"{m.Alias}: {m.Calculation}").ToList());
 
         // Use adapter's database-specific system prompt
         var systemPrompt = _adapter.GetSystemPrompt();
-        
+
         var sql = await _llmClient.CompleteWithSystemPromptAsync(
             systemPrompt,
             userPrompt,
@@ -66,11 +66,7 @@ public class SqlGeneratorPlugin
         if (targetTable.Equals("TABLES", StringComparison.OrdinalIgnoreCase) ||
             targetTable.Equals("SCHEMA", StringComparison.OrdinalIgnoreCase))
         {
-        if (targetTable.Equals("TABLES", StringComparison.OrdinalIgnoreCase) ||
-            targetTable.Equals("SCHEMA", StringComparison.OrdinalIgnoreCase))
-        {
             return "Metadata query - list all tables in the database.";
-        }
         }
 
         // Find the target table
@@ -99,37 +95,30 @@ public class SqlGeneratorPlugin
             }
         }
 
-        // Build context with columns and relationships
-        var safeSchema = _adapter.GetSafeIdentifier(table.Schema);
-        var safeTable = _adapter.GetSafeIdentifier(table.TableName);
-
-        var context = $"Table: {safeSchema}.{safeTable}\n";
-        context += "Columns:\n";
-
-        foreach (var col in table.Columns)
+        // Compact format: Table(col1 type1, col2 type2)
+        var cols = string.Join(", ", table.Columns.Select(c =>
         {
-            var pk = col.IsPrimaryKey ? " (PK)" : "";
-            var nullable = col.IsNullable ? " NULL" : " NOT NULL";
-            var safeCol = _adapter.GetSafeIdentifier(col.ColumnName);
-            context += $"  - {safeCol} {col.DataType}{nullable}{pk}\n";
-        }
+            var pk = c.IsPrimaryKey ? " PK" : "";
+            return $"{c.ColumnName} {c.DataType}{pk}";
+        }));
 
-        // Add relationships
+        var context = $"{table.TableName}({cols})";
+
+        // Add relationships in compact format
         var relationships = schema.Relationships
             .Where(r => r.FromTable.Contains(table.TableName) || r.ToTable.Contains(table.TableName))
             .ToList();
 
         if (relationships.Any())
         {
-            context += "\nRelationships:\n";
-            foreach (var rel in relationships)
-            {
-                context += $"  - {rel.FromTable}.{rel.FromColumn} → {rel.ToTable}.{rel.ToColumn}\n";
-            }
+            var rels = string.Join(", ", relationships.Select(r =>
+                $"{r.FromTable}.{r.FromColumn}→{r.ToTable}.{r.ToColumn}"));
+            context += $"\nJOINs: {rels}";
         }
 
         return context;
     }
+
 
     private string CleanSqlResponse(string sql)
     {
@@ -206,11 +195,11 @@ public class SqlGeneratorPlugin
             intent.Target,
             schemaContextText,
             intent.Filters.Select(f => $"{f.Field} {f.Operator} {ConvertFilterValue(f.Value)}").ToList(),
-            intent.Metrics);
+            intent.Metrics.Select(m => $"{m.Alias}: {m.Calculation}").ToList());
 
         // Use adapter's database-specific system prompt
         var systemPrompt = _adapter.GetSystemPrompt();
-        
+
         var sql = await _llmClient.CompleteWithSystemPromptAsync(
             systemPrompt,
             userPrompt,
@@ -227,41 +216,32 @@ public class SqlGeneratorPlugin
 
     private string BuildEnhancedSchemaContext(RetrievedSchemaContext context)
     {
-        var schemaText = "";
-
-        // All relevant tables with full details
-        // All relevant tables with full details
+        // Compact format: Table(col1 type1, col2 type2)
+        var tables = new List<string>();
         foreach (var table in context.RelevantTables)
         {
-            var safeSchema = _adapter.GetSafeIdentifier(table.Schema);
-            var safeTable = _adapter.GetSafeIdentifier(table.TableName);
-            
-            schemaText += $"\nTable: {safeSchema}.{safeTable}\n";
-            schemaText += "Columns:\n";
-
-            foreach (var col in table.Columns)
+            var cols = string.Join(", ", table.Columns.Select(c =>
             {
-                var pk = col.IsPrimaryKey ? " (PK)" : "";
-                var fk = col.IsForeignKey ? " (FK)" : "";
-                var nullable = col.IsNullable ? " NULL" : " NOT NULL";
-                var safeCol = _adapter.GetSafeIdentifier(col.ColumnName);
-
-                schemaText += $"  - {safeCol} {col.DataType}{nullable}{pk}{fk}\n";
-            }
+                var pk = c.IsPrimaryKey ? " PK" : "";
+                var fk = c.IsForeignKey ? " FK" : "";
+                return $"{c.ColumnName} {c.DataType}{pk}{fk}";
+            }));
+            tables.Add($"{table.TableName}({cols})");
         }
 
-        // Relationships
+        var schemaText = string.Join("\n", tables);
+
+        // Relationships in compact format
         if (context.RelevantRelationships.Any())
         {
-            schemaText += "\nRelationships:\n";
-            foreach (var rel in context.RelevantRelationships)
-            {
-                schemaText += $"  - {rel.FromTable}.{rel.FromColumn} → {rel.ToTable}.{rel.ToColumn}\n";
-            }
+            var rels = string.Join(", ", context.RelevantRelationships.Select(r =>
+                $"{r.FromTable}.{r.FromColumn}→{r.ToTable}.{r.ToColumn}"));
+            schemaText += $"\nJOINs: {rels}";
         }
 
         return schemaText;
     }
+
 
     // FIX: Helper method to convert filter value to string
     private static string ConvertFilterValue(object? value)

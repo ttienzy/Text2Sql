@@ -14,6 +14,8 @@ public class SchemaScanner
     private readonly DatabaseConfig _config;
     private readonly IDatabaseAdapter _adapter;
     private readonly ILogger<SchemaScanner> _logger;
+    private DatabaseSchema? _cachedSchema;
+    private DateTime _cacheTime;
 
     public SchemaScanner(
         DatabaseConfig config,
@@ -37,7 +39,7 @@ public class SchemaScanner
         try
         {
             using var connection = _adapter.CreateConnection(_config.ConnectionString);
-            
+
             // Cast to DbConnection for OpenAsync support
             if (connection is DbConnection dbConnection)
             {
@@ -55,6 +57,10 @@ public class SchemaScanner
                 schema.Tables.Count,
                 schema.Relationships.Count);
 
+            // Update cache
+            _cachedSchema = schema;
+            _cacheTime = DateTime.Now;
+
             return schema;
         }
         catch (Exception ex)
@@ -70,7 +76,7 @@ public class SchemaScanner
         try
         {
             var success = await _adapter.TestConnectionAsync(_config.ConnectionString, cancellationToken);
-            
+
             if (success)
             {
                 _logger.LogInformation("[SchemaScanner] Connected successfully to {Provider}", _adapter.Provider);
@@ -79,7 +85,7 @@ public class SchemaScanner
             {
                 _logger.LogError("[SchemaScanner] Cannot connect to {Provider} database", _adapter.Provider);
             }
-            
+
             return success;
         }
         catch (Exception ex)
@@ -87,5 +93,29 @@ public class SchemaScanner
             _logger.LogError(ex, "[SchemaScanner] Connection test failed for {Provider}", _adapter.Provider);
             return false;
         }
+    }
+
+    public async Task<DatabaseSchema> GetFreshSchemaAsync(bool bypassCache = false, CancellationToken cancellationToken = default)
+    {
+        if (!bypassCache && _cachedSchema != null &&
+            DateTime.Now - _cacheTime < TimeSpan.FromHours(1))
+        {
+            _logger.LogDebug("[SchemaScanner] Using cached schema (age: {Age})", DateTime.Now - _cacheTime);
+            return _cachedSchema;
+        }
+
+        _logger.LogDebug("[SchemaScanner] Fetching fresh schema from database");
+        return await ScanAsync(cancellationToken);
+    }
+
+    public DatabaseSchema? GetCachedSchema()
+    {
+        return _cachedSchema;
+    }
+
+    public void ClearCache()
+    {
+        _cachedSchema = null;
+        _logger.LogDebug("[SchemaScanner] Schema cache cleared");
     }
 }
