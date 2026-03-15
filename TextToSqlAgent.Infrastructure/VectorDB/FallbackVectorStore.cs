@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using TextToSqlAgent.Core.Interfaces;
+using TextToSqlAgent.Core.Models;
 
 namespace TextToSqlAgent.Infrastructure.VectorDB;
 
@@ -182,5 +183,62 @@ public class FallbackVectorStore : IVectorStore
         }
 
         return await _fallback.CollectionExistsAsync(cancellationToken);
+    }
+
+    public async Task StoreSchemaFingerprintAsync(
+        SchemaFingerprint fingerprint,
+        CancellationToken cancellationToken = default)
+    {
+        var primarySuccess = false;
+
+        // Try primary
+        if (await _primary.IsAvailableAsync(cancellationToken))
+        {
+            try
+            {
+                await _primary.StoreSchemaFingerprintAsync(fingerprint, cancellationToken);
+                primarySuccess = true;
+                _logger.LogDebug("[FallbackVectorStore] Primary fingerprint store successful");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[FallbackVectorStore] Primary fingerprint store failed");
+            }
+        }
+
+        // Always sync to fallback for redundancy
+        try
+        {
+            await _fallback.StoreSchemaFingerprintAsync(fingerprint, cancellationToken);
+            _logger.LogDebug("[FallbackVectorStore] Fallback fingerprint store successful");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[FallbackVectorStore] Fallback fingerprint store failed");
+
+            // If both failed, throw
+            if (!primarySuccess)
+            {
+                throw new InvalidOperationException("Both primary and fallback fingerprint store failed", ex);
+            }
+        }
+    }
+
+    public async Task<SchemaFingerprint?> GetStoredFingerprintAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (await _primary.IsAvailableAsync(cancellationToken))
+        {
+            try
+            {
+                return await _primary.GetStoredFingerprintAsync(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[FallbackVectorStore] Primary fingerprint retrieval failed, using fallback");
+            }
+        }
+
+        return await _fallback.GetStoredFingerprintAsync(cancellationToken);
     }
 }

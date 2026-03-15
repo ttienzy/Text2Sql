@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Models;
 
 namespace TextToSqlAgent.Infrastructure.RAG;
@@ -43,16 +44,17 @@ public class AdvancedSchemaLinker
 
         // Step 3: Select top tables and columns
         var selectedTables = scoredElements
-            .Where(e => e.ElementType == "table")
-            .OrderByDescending(e => e.HybridScore)
+            .Where(e => GetElementType(e.Element) == "table")
+            .OrderByDescending(e => e.CombinedScore)
             .Take(topK)
-            .Select(e => e.ElementName)
+            .Select(e => GetElementName(e.Element))
+            .Where(name => !string.IsNullOrEmpty(name))
             .Distinct()
             .ToList();
 
         var selectedColumns = scoredElements
-            .Where(e => e.ElementType == "column")
-            .OrderByDescending(e => e.HybridScore)
+            .Where(e => GetElementType(e.Element) == "column")
+            .OrderByDescending(e => e.CombinedScore)
             .Take(topK * 2)
             .ToList();
 
@@ -95,12 +97,16 @@ public class AdvancedSchemaLinker
         // Add schema matches for tracking
         foreach (var element in scoredElements.Take(topK))
         {
+            var elementType = GetElementType(element.Element);
+            var elementName = GetElementName(element.Element);
+            var tableName = GetTableName(element.Element);
+
             context.SchemaMatches.Add(new SchemaMatch
             {
-                ElementType = element.ElementType,
-                ElementName = element.ElementName,
-                TableName = element.TableName ?? "",
-                Score = element.HybridScore
+                ElementType = elementType,
+                ElementName = elementName,
+                TableName = tableName ?? "",
+                Score = element.CombinedScore
             });
         }
 
@@ -175,5 +181,38 @@ public class AdvancedSchemaLinker
         var common = s1.Intersect(s2).Count();
         var total = Math.Max(s1.Length, s2.Length);
         return (double)common / total;
+    }
+
+    private string GetElementType(object element)
+    {
+        return element switch
+        {
+            VectorSearchResult vsr when vsr.Payload.TryGetValue("type", out var typeObj)
+                => typeObj?.ToString() ?? "",
+            SchemaMatch sm => sm.ElementType ?? sm.Type,
+            _ => ""
+        };
+    }
+
+    private string GetElementName(object element)
+    {
+        return element switch
+        {
+            VectorSearchResult vsr when vsr.Payload.TryGetValue("name", out var nameObj)
+                => nameObj?.ToString() ?? "",
+            SchemaMatch sm => sm.ElementName,
+            _ => ""
+        };
+    }
+
+    private string? GetTableName(object element)
+    {
+        return element switch
+        {
+            VectorSearchResult vsr when vsr.Payload.TryGetValue("table_name", out var tableObj)
+                => tableObj?.ToString(),
+            SchemaMatch sm => sm.TableName,
+            _ => null
+        };
     }
 }

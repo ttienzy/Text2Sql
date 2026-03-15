@@ -405,7 +405,8 @@ public class AgentController : ControllerBase
 
             // Re-index to vector store
             var schemaIndexer = HttpContext.RequestServices.GetRequiredService<SchemaIndexer>();
-            await schemaIndexer.IndexSchemaAsync(schema, cancellationToken);
+            var fingerprint = CreateSimpleFingerprint(schema);
+            await schemaIndexer.IndexSchemaAsync(schema, fingerprint, cancellationToken);
 
             _logger.LogInformation("Schema refreshed and re-indexed successfully");
 
@@ -536,5 +537,18 @@ public class AgentController : ControllerBase
 
         // Single object = 1 row
         return 1;
+    }
+
+    private static SchemaFingerprint CreateSimpleFingerprint(DatabaseSchema schema)
+    {
+        return new SchemaFingerprint
+        {
+            Hash = Guid.NewGuid().ToString(), // Simple placeholder hash
+            ComputedAt = DateTime.UtcNow,
+            TableCount = schema.Tables.Count,
+            ColumnCount = schema.Tables.Sum(t => t.Columns.Count),
+            RelationshipCount = schema.Relationships.Count,
+            TableNames = schema.Tables.Select(t => t.TableName).OrderBy(n => n).ToList()
+        };
     }
 }

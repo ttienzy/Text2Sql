@@ -214,7 +214,8 @@ public class CommandHandler
                     var schema = await scanner.ScanAsync();
 
                     ctx.Status("[yellow]Bước 3/3: Embedding và lưu vào Qdrant...[/]");
-                    await indexer.IndexSchemaAsync(schema);
+                    var fingerprint = CreateSimpleFingerprint(schema);
+                    await indexer.IndexSchemaAsync(schema, fingerprint);
                 });
 
             AnsiConsole.MarkupLine("[green]✓ Schema đã được reindex thành công![/]");
@@ -582,7 +583,8 @@ public class CommandHandler
                     var schema = await scanner.ScanAsync();
 
                     ctx.Status("[yellow]Bước 2/2: Embedding và lưu vào Qdrant...[/]");
-                    await indexer.IndexSchemaAsync(schema);
+                    var fingerprint = CreateSimpleFingerprint(schema);
+                    await indexer.IndexSchemaAsync(schema, fingerprint);
                 });
 
             AnsiConsole.MarkupLine("[green]✓ Schema đã được index thành công vào vector database![/]");
@@ -680,7 +682,8 @@ public class CommandHandler
                     {
                         var indexer = _serviceProvider.GetRequiredService<SchemaIndexer>();
                         await indexer.ClearIndexAsync();
-                        await indexer.IndexSchemaAsync(schema);
+                        var fingerprint = CreateSimpleFingerprint(schema);
+                        await indexer.IndexSchemaAsync(schema, fingerprint);
                     });
 
                 AnsiConsole.MarkupLine("[green]✓ Schema reindexed successfully![/]");
@@ -744,5 +747,18 @@ public class CommandHandler
         }
 
         return differences;
+    }
+
+    private static SchemaFingerprint CreateSimpleFingerprint(DatabaseSchema schema)
+    {
+        return new SchemaFingerprint
+        {
+            Hash = Guid.NewGuid().ToString(), // Simple placeholder hash
+            ComputedAt = DateTime.UtcNow,
+            TableCount = schema.Tables.Count,
+            ColumnCount = schema.Tables.Sum(t => t.Columns.Count),
+            RelationshipCount = schema.Relationships.Count,
+            TableNames = schema.Tables.Select(t => t.TableName).OrderBy(n => n).ToList()
+        };
     }
 }

@@ -17,6 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\TextToSqlAgent.Application\TextToSqlAgent.Application.csproj" />
     <ProjectReference Include="..\TextToSqlAgent.Core\TextToSqlAgent.Core.csproj" />
     <ProjectReference Include="..\TextToSqlAgent.Infrastructure\TextToSqlAgent.Infrastructure.csproj" />
     <ProjectReference Include="..\TextToSqlAgent.Plugins\TextToSqlAgent.Plugins.csproj" />

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -187,6 +188,12 @@ public static class DependencyInjection
             var inMemory = sp.GetRequiredService<InMemoryVectorStore>();
             var logger = sp.GetRequiredService<ILogger<FallbackVectorStore>>();
             return new FallbackVectorStore(qdrant, inMemory, logger);
+        });
+
+        // Memory Cache for query embedding caching
+        services.AddMemoryCache(options =>
+        {
+            options.SizeLimit = 1000; // Limit to 1000 entries
         });
 
         // RAG services

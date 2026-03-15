@@ -55,6 +55,18 @@ public static class ResponseFormatter
             AnsiConsole.WriteLine();
         }
 
+        // ✅ Display suggested queries
+        if (response.SuggestedQueries != null && response.SuggestedQueries.Any())
+        {
+            DisplaySuggestedQueries(response.SuggestedQueries);
+        }
+        else
+        {
+            // ✅ Debug: Log why suggestions aren't shown
+            var suggestionCount = response.SuggestedQueries?.Count ?? 0;
+            System.Console.WriteLine($"[DEBUG] No suggestions displayed. Count: {suggestionCount}");
+        }
+
         // Processing steps
         if (response.ProcessingSteps.Any())
         {
@@ -66,6 +78,26 @@ public static class ResponseFormatter
     {
         var errorMessage = response.ErrorMessage ?? "Unknown error occurred";
 
+        // ✅ Phân biệt clarification vs actual error
+        var isClarification = !string.IsNullOrEmpty(response.Answer)
+                               && response.Answer == response.ErrorMessage;
+
+        if (isClarification)
+        {
+            // Hiện như question, không phải error
+            var clarPanel = new Panel(new Markup($"[yellow]{Markup.Escape(errorMessage)}[/]"))
+            {
+                Header = new PanelHeader("❓ Clarification needed", Justify.Left),
+                Border = BoxBorder.Rounded,
+                BorderStyle = new Style(Color.Yellow),
+                Padding = new Padding(1, 1, 1, 1)
+            };
+            AnsiConsole.Write(clarPanel);
+            AnsiConsole.WriteLine();
+            return; // ← Không show "Suggestions" bên dưới
+        }
+
+        // Original error handling
         var errorPanel = new Panel(new Markup($"[red]{Markup.Escape(errorMessage)}[/]"))  // ← Escape
         {
             Header = new PanelHeader("❌ Error", Justify.Left),
@@ -140,6 +172,19 @@ public static class ResponseFormatter
             tree.AddNode($"[dim]{step}[/]");
         }
         AnsiConsole.Write(tree);
+        AnsiConsole.WriteLine();
+    }
+
+    private static void DisplaySuggestedQueries(List<string> suggestions)
+    {
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[yellow]💡 Suggested follow-up queries:[/]");
+
+        for (int i = 0; i < suggestions.Count; i++)
+        {
+            AnsiConsole.MarkupLine($"  [cyan]{i + 1}.[/] {Markup.Escape(suggestions[i])}");
+        }
+
         AnsiConsole.WriteLine();
     }
 }

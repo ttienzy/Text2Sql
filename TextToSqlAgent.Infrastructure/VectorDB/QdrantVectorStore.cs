@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using TextToSqlAgent.Core.Interfaces;
+using TextToSqlAgent.Core.Models;
 
 namespace TextToSqlAgent.Infrastructure.VectorDB;
 
@@ -101,6 +102,19 @@ public class QdrantVectorStore : IVectorStore
     public async Task<bool> CollectionExistsAsync(CancellationToken cancellationToken = default)
     {
         return await _qdrantService.CollectionExistsAsync(cancellationToken);
+    }
+
+    public async Task StoreSchemaFingerprintAsync(
+        SchemaFingerprint fingerprint,
+        CancellationToken cancellationToken = default)
+    {
+        await _qdrantService.StoreSchemaFingerprintAsync(fingerprint, cancellationToken);
+    }
+
+    public async Task<SchemaFingerprint?> GetStoredFingerprintAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return await _qdrantService.GetStoredFingerprintAsync(cancellationToken);
     }
 
     private static object ConvertQdrantValue(Qdrant.Client.Grpc.Value value)

@@ -136,8 +136,11 @@ public class EnhancedAgentOrchestrator
             // Handle clarification needed (FAST PATH - no schema loaded)
             if (validation.NeedsClarification)
             {
+                var clarification = validation.ClarificationQuestion ?? "Please clarify your question.";
+
                 response.Success = false;
-                response.Answer = validation.ClarificationQuestion ?? "Please clarify your question.";
+                response.Answer = clarification;
+                response.ErrorMessage = clarification; // ✅ Set ErrorMessage để hiển thị đúng
                 response.ProcessingSteps = steps;
 
                 conversationManager.AddTurn(
@@ -188,21 +191,6 @@ public class EnhancedAgentOrchestrator
             // ====================================
             // STEP 3: Setup Qdrant Collection
             // ====================================
-            try
-            {
-                var dbName = ExtractDatabaseName(_dbConfig);
-                if (!string.IsNullOrEmpty(dbName))
-                {
-                    var qdrantService = _serviceFactory.GetQdrantService();
-                    qdrantService.SetCollectionName(dbName);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[EnhancedAgent] Cannot extract database name");
-            }
-
-            // ====================================
             // STEP 4: RAG - Retrieve Relevant Schema
             // ====================================
             steps.Add("Step 4: RAG - Retrieve relevant schema");
@@ -249,8 +237,11 @@ public class EnhancedAgentOrchestrator
 
             if (intent.NeedsClarification)
             {
+                var clarification = intent.ClarificationQuestion ?? "Question is unclear.";
+
                 response.Success = false;
-                response.Answer = intent.ClarificationQuestion ?? "Question is unclear.";
+                response.Answer = clarification;
+                response.ErrorMessage = clarification; // ✅ Set ErrorMessage để hiển thị đúng
                 response.ProcessingSteps = steps;
 
                 conversationManager.AddTurn(
@@ -270,11 +261,15 @@ public class EnhancedAgentOrchestrator
             steps.Add("Step 6: Generate SQL with RAG context");
 
             var sqlGenerator = _serviceFactory.GetSqlGenerator();
-            var sql = await sqlGenerator.GenerateSqlWithContextAsync(
+
+            // ✅ Get SQL + suggestions in one API call
+            var sqlResult = await sqlGenerator.GenerateSqlWithContextAsync(
                 intent,
                 relevantSchema,
                 normalized.NormalizedText,  // Pass original question to LLM
                 cancellationToken);
+
+            var sql = sqlResult.Sql;
 
             // ====================================
             // STEP 7: Validate SQL Safety
@@ -367,6 +362,39 @@ public class EnhancedAgentOrchestrator
             response.QueryResult = executionResult;
             response.ProcessingSteps = steps;
 
+            // ✅ Add suggestions from LLM response
+            var suggestions = sqlResult.SuggestedQueries;
+
+            // ✅ Log suggestion details
+            _logger.LogInformation(
+                "[EnhancedAgent] Received {Count} suggestions from LLM: [{Suggestions}]",
+                suggestions.Count,
+                string.Join(", ", suggestions.Take(3).Select(s => $"\"{s}\"")));
+
+            // ✅ Fallback to rule-based if LLM suggestions are insufficient
+            if (suggestions.Count < 3)
+            {
+                _logger.LogDebug("[EnhancedAgent] LLM returned {Count} suggestions, padding with rule-based", suggestions.Count);
+
+                var ruleBasedService = new RuleBasedSuggestionService();
+                var ruleBased = ruleBasedService.Generate(intent.Intent, intent.Target, userQuestion);
+
+                // Keep LLM suggestions (if any), add rule-based to reach 3 total
+                var combined = suggestions
+                    .Concat(ruleBased)
+                    .Distinct()
+                    .Take(3)
+                    .ToList();
+
+                suggestions = combined;
+                _logger.LogDebug("[EnhancedAgent] Combined suggestions: {Count} total", suggestions.Count);
+            }
+
+            response.SuggestedQueries = suggestions;
+
+            // ✅ Log final suggestion count
+            _logger.LogInformation("[EnhancedAgent] Final response has {Count} suggestions", response.SuggestedQueries.Count);
+
             // Add to conversation history
             conversationManager.AddTurn(
                 context,
@@ -453,6 +481,22 @@ public class EnhancedAgentOrchestrator
         {
             _logger.LogError(ex, "[EnhancedAgent] Insufficient database permissions");
             throw;
+        }
+
+        // ✅ FIX: Set correct collection name BEFORE indexing
+        try
+        {
+            var dbName = ExtractDatabaseName(_dbConfig);
+            if (!string.IsNullOrEmpty(dbName))
+            {
+                var qdrantService = _serviceFactory.GetQdrantService();
+                qdrantService.SetCollectionName(dbName);
+                _logger.LogInformation("[EnhancedAgent] Collection name set to: {Name}", dbName);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[EnhancedAgent] Cannot set collection name, using default");
         }
 
         // Auto-index schema
@@ -873,9 +917,11 @@ public class EnhancedAgentOrchestrator
             var qdrantService = _serviceFactory.GetQdrantService();
             var schemaIndexer = _serviceFactory.GetSchemaIndexer();
 
-            // Use timeout to avoid hanging when Qdrant is not available
+            // ✅ FIX #1: Increase timeout - 163 docs need several minutes
+            // Use original cancellationToken, don't set hard timeout here
+            // Let embedding client manage its own timeout
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(TimeSpan.FromSeconds(10)); // 10 second timeout
+            cts.CancelAfter(TimeSpan.FromMinutes(5)); // Enough for 163 docs
 
             try
             {
@@ -885,22 +931,50 @@ public class EnhancedAgentOrchestrator
                 if (pointCount == 0)
                 {
                     _logger.LogInformation("[EnhancedAgent] Indexing schema to Qdrant...");
-                    await schemaIndexer.IndexSchemaAsync(schema, cts.Token);
-                    _logger.LogInformation("[EnhancedAgent] ✓ Schema indexed");
+                    var fingerprint = CreateSimpleFingerprint(schema);
+
+                    // ✅ FIX #2: Check return value
+                    var result = await schemaIndexer.IndexSchemaAsync(schema, fingerprint, cts.Token);
+
+                    if (!result.Success)
+                    {
+                        _logger.LogWarning(
+                            "[EnhancedAgent] Schema indexing failed: {Error} — continuing without RAG",
+                            result.ErrorMessage);
+                        return false;
+                    }
+
+                    _logger.LogInformation(
+                        "[EnhancedAgent] ✓ Schema indexed: {Count} points in {Duration}ms",
+                        result.PointsIndexed,
+                        result.IndexingDuration.TotalMilliseconds);
                 }
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                _logger.LogWarning("[EnhancedAgent] Qdrant not available or timeout - skipping vector indexing");
-                return false; // Continue without Qdrant
+                _logger.LogWarning("[EnhancedAgent] Qdrant timeout - skipping vector indexing");
+                return false;
             }
 
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "[EnhancedAgent] Error indexing schema to Qdrant - continuing without it");
+            _logger.LogWarning(ex, "[EnhancedAgent] Error indexing schema - continuing without it");
             return false;
         }
+    }
+
+    private static SchemaFingerprint CreateSimpleFingerprint(DatabaseSchema schema)
+    {
+        return new SchemaFingerprint
+        {
+            Hash = Guid.NewGuid().ToString(), // Simple placeholder hash
+            ComputedAt = DateTime.UtcNow,
+            TableCount = schema.Tables.Count,
+            ColumnCount = schema.Tables.Sum(t => t.Columns.Count),
+            RelationshipCount = schema.Relationships.Count,
+            TableNames = schema.Tables.Select(t => t.TableName).OrderBy(n => n).ToList()
+        };
     }
 }

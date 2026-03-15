@@ -11,6 +11,7 @@ public class TableInfo
 {
     public string TableName { get; set; } = string.Empty;
     public string Schema { get; set; } = "dbo";
+    public string? Description { get; set; }
     public List<ColumnInfo> Columns { get; set; } = new();
     public List<string> PrimaryKeys { get; set; } = new();
 }
@@ -19,6 +20,7 @@ public class ColumnInfo
 {
     public string ColumnName { get; set; } = string.Empty;
     public string DataType { get; set; } = string.Empty;
+    public string? Description { get; set; }
     public bool IsNullable { get; set; }
     public int? MaxLength { get; set; }
     public bool IsPrimaryKey { get; set; }

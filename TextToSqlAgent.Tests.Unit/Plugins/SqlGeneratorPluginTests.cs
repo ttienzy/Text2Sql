@@ -156,4 +156,116 @@ public class SqlGeneratorPluginTests
         // Assert
         result.Should().Be(expected);
     }
+
+    [Fact]
+    public async Task Should_Generate_SQL_With_Suggestions()
+    {
+        // Arrange
+        var intent = new IntentAnalysis
+        {
+            Intent = QueryIntent.GROUP_BY,
+            Target = "Orders"
+        };
+
+        var schemaContext = new RetrievedSchemaContext();
+        schemaContext.RelevantTables.Add(_testSchema.Tables.First(t => t.TableName == "Orders"));
+
+        // Mock LLM response with JSON format including suggestions
+        var mockJsonResponse = @"{
+            ""sql"": ""SELECT Status, PaymentMethod, COUNT(*) AS TotalOrders FROM Orders GROUP BY Status, PaymentMethod"",
+            ""suggested_queries"": [
+                ""Show orders by status only"",
+                ""Compare revenue by payment method"",
+                ""List top customers by order count""
+            ]
+        }";
+
+        _mockLlm.SetResponse("GROUP_BY", mockJsonResponse);
+
+        // Act
+        var result = await _plugin.GenerateSqlWithContextAsync(intent, schemaContext, "Show orders by status and payment method");
+
+        // Assert
+        result.Should().NotBeNull();
+        result.Sql.Should().NotBeNullOrEmpty();
+        result.Sql.ToUpper().Should().Contain("SELECT");
+        result.Sql.ToUpper().Should().Contain("GROUP BY");
+
+        // ✅ Test suggestions
+        result.SuggestedQueries.Should().NotBeNull();
+        result.SuggestedQueries.Should().HaveCount(3);
+        result.SuggestedQueries[0].Should().Be("Show orders by status only");
+        result.SuggestedQueries[1].Should().Be("Compare revenue by payment method");
+        result.SuggestedQueries[2].Should().Be("List top customers by order count");
+    }
+
+    [Fact]
+    public async Task Should_Handle_Invalid_JSON_Response_Gracefully()
+    {
+        // Arrange
+        var intent = new IntentAnalysis
+        {
+            Intent = QueryIntent.LIST,
+            Target = "Customers"
+        };
+
+        var schemaContext = new RetrievedSchemaContext();
+        schemaContext.RelevantTables.Add(_testSchema.Tables.First(t => t.TableName == "Customers"));
+
+        // Mock invalid JSON response (should fallback to treating as raw SQL)
+        var invalidJsonResponse = "SELECT * FROM Customers";
+        _mockLlm.SetResponse("LIST", invalidJsonResponse);
+
+        // Act
+        var result = await _plugin.GenerateSqlWithContextAsync(intent, schemaContext, "List all customers");
+
+        // Assert
+        result.Should().NotBeNull();
+        result.Sql.Should().NotBeNullOrEmpty();
+        result.Sql.Should().Be("SELECT * FROM Customers");
+
+        // Should have empty suggestions when JSON parsing fails
+        result.SuggestedQueries.Should().NotBeNull();
+        result.SuggestedQueries.Should().BeEmpty();
+    }
 }
+    [Fact]
+    public async Task Should_Handle_Alternative_Suggestion_Keys()
+    {
+        // Arrange
+        var intent = new IntentAnalysis
+        {
+            Intent = QueryIntent.COUNT,
+            Target = "Orders"
+        };
+
+        var schemaContext = new RetrievedSchemaContext();
+        schemaContext.RelevantTables.Add(_testSchema.Tables.First(t => t.TableName == "Orders"));
+
+        // Mock LLM response with alternative key "suggestions" instead of "suggested_queries"
+        var mockJsonResponse = @"{
+            ""sql"": ""SELECT COUNT(*) AS TotalOrders FROM Orders"",
+            ""suggestions"": [
+                ""Show orders by status"",
+                ""List recent orders"",
+                ""Count orders by customer""
+            ]
+        }";
+
+        _mockLlm.SetResponse("COUNT", mockJsonResponse);
+
+        // Act
+        var result = await _plugin.GenerateSqlWithContextAsync(intent, schemaContext, "Count total orders");
+
+        // Assert
+        result.Should().NotBeNull();
+        result.Sql.Should().NotBeNullOrEmpty();
+        result.Sql.ToUpper().Should().Contain("COUNT");
+
+        // ✅ Should find suggestions under alternative key
+        result.SuggestedQueries.Should().NotBeNull();
+        result.SuggestedQueries.Should().HaveCount(3);
+        result.SuggestedQueries[0].Should().Be("Show orders by status");
+        result.SuggestedQueries[1].Should().Be("List recent orders");
+        result.SuggestedQueries[2].Should().Be("Count orders by customer");
+    }

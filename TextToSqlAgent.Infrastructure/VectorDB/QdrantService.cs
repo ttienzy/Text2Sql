@@ -5,6 +5,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using TextToSqlAgent.Core.Exceptions;
+using TextToSqlAgent.Core.Interfaces;
+using TextToSqlAgent.Core.Models;
 using TextToSqlAgent.Infrastructure.Configuration;
 
 namespace TextToSqlAgent.Infrastructure.VectorDB;
@@ -35,20 +37,15 @@ public class QdrantService
             _baseUrl, config.VectorSize);
     }
 
-    public void SetCollectionName(string databaseName)
+    public virtual void SetCollectionName(string databaseName)
     {
-        var sanitized = new string(databaseName
-            .Where(c => char.IsLetterOrDigit(c) || c == '_')
-            .ToArray())
-            .ToLowerInvariant();
-
-        _currentCollectionName = $"{_config.CollectionName}_{sanitized}";
+        _currentCollectionName = CollectionNameHelper.NormalizeCollectionName(databaseName);
         _logger.LogInformation("[Qdrant] Collection name: {CollectionName}", _currentCollectionName);
     }
 
-    public string GetCurrentCollectionName() => _currentCollectionName;
+    public virtual string GetCurrentCollectionName() => _currentCollectionName;
 
-    public async Task<bool> CollectionExistsAsync(CancellationToken cancellationToken = default)
+    public virtual async Task<bool> CollectionExistsAsync(CancellationToken cancellationToken = default)
     {
         try
         {
@@ -267,7 +264,7 @@ public class QdrantService
         }
     }
 
-    public async Task DeleteCollectionAsync(CancellationToken cancellationToken = default)
+    public virtual async Task DeleteCollectionAsync(CancellationToken cancellationToken = default)
     {
         try
         {
@@ -517,7 +514,7 @@ public class QdrantService
         }
     }
 
-    public async Task<long> GetPointCountAsync(CancellationToken cancellationToken = default)
+    public virtual async Task<long> GetPointCountAsync(CancellationToken cancellationToken = default)
     {
         try
         {
@@ -530,7 +527,284 @@ public class QdrantService
         }
     }
 
-    // âœ… FIXED DTOs with correct JSON property names
+    /// <summary>
+    /// Validates that the configured embedding dimension matches the collection's vector dimension.
+    /// This should be called before indexing or retrieval operations to catch dimension mismatches early.
+    /// </summary>
+    /// <returns>A tuple containing success status and optional error message</returns>
+    public async Task<(bool Success, string? ErrorMessage)> ValidateCollectionDimensionAsync(
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Check if collection exists
+            var exists = await CollectionExistsAsync(cancellationToken);
+            if (!exists)
+            {
+                return (false, $"Collection '{_currentCollectionName}' does not exist");
+            }
+
+            // Get collection info to check dimension
+            var info = await GetCollectionInfoAsync(cancellationToken);
+            if (info == null)
+            {
+                return (false, "Unable to retrieve collection information");
+            }
+
+            var actualDimension = info.Config?.Params?.Vectors?.Size ?? 0;
+            var configuredDimension = _config.VectorSize;
+
+            if (actualDimension == 0)
+            {
+                return (false, "Collection has invalid vector configuration (dimension is 0)");
+            }
+
+            if (actualDimension != configuredDimension)
+            {
+                var errorMessage = $"Vector dimension mismatch: Collection has {actualDimension} dimensions, " +
+                                 $"but configuration expects {configuredDimension} dimensions. " +
+                                 $"This may indicate the embedding model has changed. Re-indexing is required.";
+
+                _logger.LogError("[Qdrant] {ErrorMessage}", errorMessage);
+                return (false, errorMessage);
+            }
+
+            _logger.LogDebug(
+                "[Qdrant] Dimension validation passed - Collection: {Dimension} dims, Config: {ConfigDimension} dims",
+                actualDimension, configuredDimension);
+
+            return (true, null);
+        }
+        catch (Exception ex)
+        {
+            var errorMessage = $"Error validating collection dimension: {ex.Message}";
+            _logger.LogError(ex, "[Qdrant] {ErrorMessage}", errorMessage);
+            return (false, errorMessage);
+        }
+    }
+
+    /// <summary>
+    /// Store schema fingerprint metadata in the collection as a special point.
+    /// Uses a reserved ID "schema_fingerprint" to store the fingerprint data.
+    /// </summary>
+    public async Task StoreSchemaFingerprintAsync(
+        SchemaFingerprint fingerprint,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation(
+                "[Qdrant] Storing schema fingerprint - Hash: {Hash}, Tables: {TableCount}",
+                fingerprint.Hash, fingerprint.TableCount);
+
+            // ✅ FIX: Use valid UUID instead of arbitrary string "schema_fingerprint"
+            // This UUID is unique enough to not conflict with actual data points
+            var fingerprintId = "00000000-0000-0000-0000-000000000001";
+
+            // Create a zero vector (fingerprint doesn't need semantic search)
+            var zeroVector = Enumerable.Repeat(0.0, _config.VectorSize).ToList();
+
+            var point = new
+            {
+                id = fingerprintId,
+                vector = zeroVector,
+                payload = new Dictionary<string, object>
+                {
+                    { "type", "fingerprint" },
+                    { "hash", fingerprint.Hash },
+                    { "computed_at", fingerprint.ComputedAt.ToString("o") },
+                    { "table_count", fingerprint.TableCount },
+                    { "column_count", fingerprint.ColumnCount },
+                    { "relationship_count", fingerprint.RelationshipCount },
+                    { "table_names", string.Join(",", fingerprint.TableNames) }
+                }
+            };
+
+            var request = new { points = new[] { point } };
+            var json = JsonSerializer.Serialize(request);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PutAsync(
+                $"{_baseUrl}/collections/{_currentCollectionName}/points",
+                content,
+                cancellationToken);
+
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError(
+                    "[Qdrant] Store fingerprint failed - Status: {Status}, Body: {Body}",
+                    response.StatusCode, responseBody);
+
+                throw new VectorDBException(
+                    $"Failed to store fingerprint. Status: {response.StatusCode}, Error: {responseBody}");
+            }
+
+            _logger.LogInformation("[Qdrant] ✓ Schema fingerprint stored successfully");
+        }
+        catch (VectorDBException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Qdrant] Error storing schema fingerprint");
+            throw new VectorDBException($"Store fingerprint failed: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// Retrieve stored schema fingerprint from the collection.
+    /// Returns null if collection doesn't exist or fingerprint hasn't been stored yet.
+    /// </summary>
+    public virtual async Task<SchemaFingerprint?> GetStoredFingerprintAsync(
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Check if collection exists first
+            var exists = await CollectionExistsAsync(cancellationToken);
+            if (!exists)
+            {
+                _logger.LogDebug("[Qdrant] Collection doesn't exist, no fingerprint available");
+                return null;
+            }
+
+            // ✅ Use same UUID as in StoreSchemaFingerprintAsync
+            var fingerprintId = "00000000-0000-0000-0000-000000000001";
+
+            _logger.LogDebug("[Qdrant] Retrieving schema fingerprint with ID: {Id}", fingerprintId);
+
+            var response = await _httpClient.GetAsync(
+                $"{_baseUrl}/collections/{_currentCollectionName}/points/{fingerprintId}",
+                cancellationToken);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                _logger.LogDebug("[Qdrant] No fingerprint found in collection");
+                return null;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogWarning(
+                    "[Qdrant] Get fingerprint failed - Status: {Status}, Body: {Body}",
+                    response.StatusCode, errorBody);
+                return null;
+            }
+
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            var result = JsonSerializer.Deserialize<PointResponse>(responseBody, options);
+
+            if (result?.Result?.Payload == null)
+            {
+                _logger.LogWarning("[Qdrant] Fingerprint point exists but has no payload");
+                return null;
+            }
+
+            var payload = result.Result.Payload;
+
+            // Extract fingerprint data from payload
+            var fingerprint = new SchemaFingerprint
+            {
+                Hash = payload.GetValueOrDefault("hash")?.ToString() ?? string.Empty,
+                ComputedAt = DateTime.TryParse(
+                    payload.GetValueOrDefault("computed_at")?.ToString(),
+                    out var computedAt) ? computedAt : DateTime.MinValue,
+                TableCount = int.TryParse(
+                    payload.GetValueOrDefault("table_count")?.ToString(),
+                    out var tableCount) ? tableCount : 0,
+                ColumnCount = int.TryParse(
+                    payload.GetValueOrDefault("column_count")?.ToString(),
+                    out var columnCount) ? columnCount : 0,
+                RelationshipCount = int.TryParse(
+                    payload.GetValueOrDefault("relationship_count")?.ToString(),
+                    out var relCount) ? relCount : 0,
+                TableNames = payload.GetValueOrDefault("table_names")?.ToString()
+                    ?.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .ToList() ?? new List<string>()
+            };
+
+            _logger.LogInformation(
+                "[Qdrant] Retrieved fingerprint - Hash: {Hash}, Tables: {TableCount}",
+                fingerprint.Hash, fingerprint.TableCount);
+
+            return fingerprint;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Qdrant] Error retrieving schema fingerprint");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Upsert schema elements (tables/columns) with embeddings for semantic search
+    /// </summary>
+    public async Task UpsertSchemaElementsAsync(
+        List<(string Name, string Type, string? Table, string? Description)> schemaElements,
+        IEmbeddingClient embeddingClient,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Generate embeddings for all elements
+            var texts = schemaElements.Select(e => $"{e.Name}: {e.Type} - {e.Description}").ToList();
+            var embeddings = await embeddingClient.GenerateBatchEmbeddingsAsync(texts, cancellationToken);
+
+            // Create points using the same format as UpsertPointsAsync
+            var pointsList = new List<object>();
+            for (int i = 0; i < schemaElements.Count; i++)
+            {
+                var element = schemaElements[i];
+                var point = new
+                {
+                    id = (ulong)(i + 1),
+                    vector = embeddings[i].Select(x => (double)x).ToList(),
+                    payload = new Dictionary<string, object>
+                    {
+                        { "name", element.Name },
+                        { "type", element.Type },
+                        { "table", element.Table ?? "" },
+                        { "description", element.Description ?? "" }
+                    }
+                };
+                pointsList.Add(point);
+            }
+
+            // Use internal upsert logic
+            var countBefore = await GetPointCountAsync(cancellationToken);
+            _logger.LogInformation("[Qdrant] Upserting {Count} schema elements (current: {Current})",
+                pointsList.Count, countBefore);
+
+            var jsonContent = JsonSerializer.Serialize(new { points = pointsList });
+            var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PostAsync(
+                $"{_baseUrl}/collections/{_currentCollectionName}/points",
+                content,
+                cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync(cancellationToken);
+                throw new VectorDBException($"Upsert failed: {response.StatusCode} - {error}");
+            }
+
+            _logger.LogInformation("[Qdrant] Upserted {Count} schema elements", pointsList.Count);
+        }
+        catch (Exception ex) when (ex is not VectorDBException)
+        {
+            _logger.LogError(ex, "[Qdrant] Error upserting schema elements");
+            throw new VectorDBException($"UpsertSchemaElementsAsync failed: {ex.Message}", ex);
+        }
+    }
+
+
+    // ✅ FIXED DTOs with correct JSON property names
     public class SearchResponse
     {
         [JsonPropertyName("result")]
@@ -544,6 +818,21 @@ public class QdrantService
 
         [JsonPropertyName("score")]
         public double Score { get; set; }
+
+        [JsonPropertyName("payload")]
+        public Dictionary<string, object>? Payload { get; set; }
+    }
+
+    public class PointResponse
+    {
+        [JsonPropertyName("result")]
+        public PointResult? Result { get; set; }
+    }
+
+    public class PointResult
+    {
+        [JsonPropertyName("id")]
+        public JsonElement Id { get; set; }
 
         [JsonPropertyName("payload")]
         public Dictionary<string, object>? Payload { get; set; }

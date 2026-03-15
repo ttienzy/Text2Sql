@@ -7,6 +7,22 @@ public class RetrievedSchemaContext
     public Dictionary<string, List<ColumnInfo>> TableColumns { get; set; } = new();
     public List<SchemaMatch> Matches { get; set; } = new();
     public List<SchemaMatch> SchemaMatches { get; set; } = new(); // Alias for backward compatibility
+
+    /// <summary>
+    /// List of retrieval strategies that were successfully used (e.g., "vector", "keyword", "graph").
+    /// </summary>
+    public List<string> RetrievalStrategies { get; set; } = new();
+
+    /// <summary>
+    /// Dictionary mapping element identifiers to their combined relevance scores.
+    /// </summary>
+    public Dictionary<string, float> ElementScores { get; set; } = new();
+
+    /// <summary>
+    /// Error message when all retrieval strategies fail or encounter errors.
+    /// Null or empty when retrieval is successful.
+    /// </summary>
+    public string? ErrorMessage { get; set; }
 }
 
 public class SchemaMatch

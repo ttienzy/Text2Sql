@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
@@ -183,8 +184,8 @@ public class SqlGeneratorPlugin
     {
         return _adapter.ApplyLimit(sql, defaultLimit);
     }
-    [KernelFunction, Description("Generate SQL with RAG context")]
-    public async Task<string> GenerateSqlWithContextAsync(
+    [KernelFunction, Description("Generate SQL with RAG context and suggestions")]
+    public async Task<SqlGenerationResult> GenerateSqlWithContextAsync(
     IntentAnalysis intent,
     RetrievedSchemaContext schemaContext,
     string? originalQuestion = null,
@@ -194,7 +195,7 @@ public class SqlGeneratorPlugin
 
         var schemaContextText = BuildEnhancedSchemaContext(schemaContext);
 
-        var userPrompt = SqlGenerationPrompt.BuildUserPrompt(
+        var userPrompt = SqlGenerationPrompt.BuildUserPromptWithSuggestions(
             intent.Intent.ToString(),
             intent.Target,
             schemaContextText,
@@ -203,19 +204,34 @@ public class SqlGeneratorPlugin
             originalQuestion,
             intent.SelectColumns);
 
-        // Use adapter's database-specific system prompt
-        var systemPrompt = _adapter.GetSystemPrompt();
+        // Use enhanced system prompt for JSON output
+        var systemPrompt = SqlGenerationPrompt.SystemPromptWithSuggestions;
 
-        var sql = await _llmClient.CompleteWithSystemPromptAsync(
+        var response = await _llmClient.CompleteWithSystemPromptAsync(
             systemPrompt,
             userPrompt,
             cancellationToken);
 
-        sql = CleanSqlResponse(sql);
+        var result = ParseSqlGenerationResult(response);
 
-        _logger.LogDebug("[SqlGenerator] Generated SQL for {Provider}: {SQL}", _adapter.Provider, sql);
+        _logger.LogDebug("[SqlGenerator] Generated SQL for {Provider} with {Count} suggestions",
+            _adapter.Provider, result.SuggestedQueries.Count);
 
-        return sql;
+        return result;
+    }
+
+    /// <summary>
+    /// Legacy method for backward compatibility - returns only SQL string
+    /// </summary>
+    [KernelFunction, Description("Generate SQL with RAG context (legacy)")]
+    public async Task<string> GenerateSqlWithContextLegacyAsync(
+    IntentAnalysis intent,
+    RetrievedSchemaContext schemaContext,
+    string? originalQuestion = null,
+    CancellationToken cancellationToken = default)
+    {
+        var result = await GenerateSqlWithContextAsync(intent, schemaContext, originalQuestion, cancellationToken);
+        return result.Sql;
     }
 
 
@@ -264,4 +280,140 @@ public class SqlGeneratorPlugin
             _ => value?.ToString() ?? ""
         };
     }
+
+    private SqlGenerationResult ParseSqlGenerationResult(string raw)
+    {
+        try
+        {
+            // ✅ Log the raw response for debugging
+            _logger.LogDebug("[SqlGenerator] Raw LLM response:\n{Raw}", raw);
+
+            // Strip markdown code blocks if present
+            var cleaned = raw
+                .Replace("```json", "")
+                .Replace("```", "")
+                .Trim();
+
+            // ✅ Find JSON block if LLM adds extra text
+            var jsonStart = cleaned.IndexOf('{');
+            var jsonEnd = cleaned.LastIndexOf('}');
+            if (jsonStart >= 0 && jsonEnd > jsonStart)
+            {
+                cleaned = cleaned[jsonStart..(jsonEnd + 1)];
+            }
+
+            // ✅ Log the cleaned response
+            _logger.LogDebug("[SqlGenerator] Cleaned JSON: {Response}", cleaned.Length > 300 ? cleaned.Substring(0, 300) + "..." : cleaned);
+
+            var options = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            };
+
+            var result = JsonSerializer.Deserialize<SqlGenerationResult>(cleaned, options);
+
+            if (result == null || string.IsNullOrWhiteSpace(result.Sql))
+            {
+                _logger.LogWarning("[SqlGenerator] JSON parse ok but SQL empty, using raw");
+
+                // Fallback: treat entire response as SQL (backward compatibility)
+                return new SqlGenerationResult
+                {
+                    Sql = CleanSqlResponse(cleaned),
+                    SuggestedQueries = new List<string>()
+                };
+            }
+
+            // Clean the SQL from the parsed result
+            result.Sql = CleanSqlResponse(result.Sql);
+
+            // ✅ Handle Case C: LLM uses alternative keys like "suggestions" instead of "suggested_queries"
+            if (result.SuggestedQueries.Count == 0)
+            {
+                try
+                {
+                    // Try parsing manually with JsonDocument
+                    using var doc = JsonDocument.Parse(cleaned);
+                    var root = doc.RootElement;
+
+                    // Check alternative keys LLM commonly uses
+                    string[] altKeys = ["suggestions", "follow_up", "related_queries", "next_queries", "followup_queries"];
+                    foreach (var key in altKeys)
+                    {
+                        if (root.TryGetProperty(key, out var arr) && arr.ValueKind == JsonValueKind.Array)
+                        {
+                            result.SuggestedQueries = arr
+                                .EnumerateArray()
+                                .Select(e => e.GetString() ?? "")
+                                .Where(s => !string.IsNullOrWhiteSpace(s))
+                                .ToList();
+
+                            if (result.SuggestedQueries.Count > 0)
+                            {
+                                _logger.LogDebug("[SqlGenerator] Found {Count} suggestions under key '{Key}'", result.SuggestedQueries.Count, key);
+                                break;
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "[SqlGenerator] Failed to parse alternative suggestion keys");
+                }
+            }
+            if (result.SuggestedQueries.Count == 0)
+            {
+                try
+                {
+                    // Try parsing manually with JsonDocument
+                    using var doc = JsonDocument.Parse(cleaned);
+                    var root = doc.RootElement;
+
+                    // Check alternative keys LLM commonly uses
+                    string[] altKeys = ["suggestions", "follow_up", "related_queries", "next_queries", "followup_queries"];
+                    foreach (var key in altKeys)
+                    {
+                        if (root.TryGetProperty(key, out var arr) && arr.ValueKind == JsonValueKind.Array)
+                        {
+                            result.SuggestedQueries = arr
+                                .EnumerateArray()
+                                .Select(e => e.GetString() ?? "")
+                                .Where(s => !string.IsNullOrWhiteSpace(s))
+                                .ToList();
+
+                            if (result.SuggestedQueries.Count > 0)
+                            {
+                                _logger.LogDebug("[SqlGenerator] Found {Count} suggestions under key '{Key}'", result.SuggestedQueries.Count, key);
+                                break;
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "[SqlGenerator] Failed to parse alternative suggestion keys");
+                }
+            }
+
+            // ✅ Log detailed suggestion info
+            _logger.LogInformation(
+                "[SqlGenerator] ✅ Parsed SQL + {Count} suggestions: [{Suggestions}]",
+                result.SuggestedQueries.Count,
+                string.Join(", ", result.SuggestedQueries.Take(3).Select(s => $"\"{s}\"")));
+
+            return result;
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "[SqlGenerator] JSON parse failed, using raw as SQL. Raw response: {Raw}",
+                raw.Length > 200 ? raw.Substring(0, 200) + "..." : raw);
+
+            return new SqlGenerationResult
+            {
+                Sql = CleanSqlResponse(raw.Trim()),
+                SuggestedQueries = new List<string>()
+            };
+        }
+    }
+
 }

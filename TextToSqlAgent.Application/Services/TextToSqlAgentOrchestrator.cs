@@ -214,11 +214,15 @@ public class TextToSqlAgentOrchestrator
             // STEP 5: Generate SQL (with RAG context + original question)
             // ====================================
             steps.Add("Step 5: Generate SQL with RAG context");
-            var sql = await _sqlGenerator.GenerateSqlWithContextAsync(
+
+            // ✅ Get SQL + suggestions in one API call
+            var sqlResult = await _sqlGenerator.GenerateSqlWithContextAsync(
                 intent,
                 relevantSchema,
                 normalized.NormalizedText,  // Pass original question to LLM
                 cancellationToken);
+
+            var sql = sqlResult.Sql;
 
             // ====================================
             // STEP 6: Validate SQL
@@ -272,6 +276,9 @@ public class TextToSqlAgentOrchestrator
             response.SqlGenerated = finalSql;
             response.QueryResult = executionResult;
             response.ProcessingSteps = steps;
+
+            // ✅ Add suggestions from LLM response
+            response.SuggestedQueries = sqlResult.SuggestedQueries;
 
             _logger.LogInformation("[Agent] ✓ Processing complete");
 
@@ -725,7 +732,8 @@ public class TextToSqlAgentOrchestrator
                 if (pointCount == 0)
                 {
                     _logger.LogInformation("[Agent] Indexing schema to Qdrant...");
-                    await _schemaIndexer.IndexSchemaAsync(schema, cts.Token);
+                    var fingerprint = CreateSimpleFingerprint(schema);
+                    await _schemaIndexer.IndexSchemaAsync(schema, fingerprint, cts.Token);
                     _logger.LogInformation("[Agent] ✓ Schema indexed");
                 }
             }
@@ -742,5 +750,18 @@ public class TextToSqlAgentOrchestrator
             _logger.LogWarning(ex, "[Agent] Error indexing schema to Qdrant - continuing without it");
             return false;
         }
+    }
+
+    private static SchemaFingerprint CreateSimpleFingerprint(DatabaseSchema schema)
+    {
+        return new SchemaFingerprint
+        {
+            Hash = Guid.NewGuid().ToString(), // Simple placeholder hash
+            ComputedAt = DateTime.UtcNow,
+            TableCount = schema.Tables.Count,
+            ColumnCount = schema.Tables.Sum(t => t.Columns.Count),
+            RelationshipCount = schema.Relationships.Count,
+            TableNames = schema.Tables.Select(t => t.TableName).OrderBy(n => n).ToList()
+        };
     }
 }

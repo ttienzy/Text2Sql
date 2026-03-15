@@ -37,6 +37,19 @@ public class FastPathQueryRouter : IQueryRouter
         "game", "trò chơi", "tro choi"
     };
 
+    // ✅ Vietnamese database keywords - if present, definitely NOT out-of-scope
+    private static readonly string[] VietnameseDatabaseKeywords =
+    {
+        "hiển thị", "hien thi", "lấy", "lay", "lọc", "loc", "tìm", "tim",
+        "đếm", "dem", "tổng", "tong", "trung bình", "trung binh",
+        "so sánh", "so sanh", "doanh thu", "doanh thu", "đơn hàng", "don hang",
+        "khách hàng", "khach hang", "sản phẩm", "san pham", "nhân viên", "nhan vien",
+        "báo cáo", "bao cao", "thống kê", "thong ke", "danh sách", "danh sach",
+        "theo", "nhóm", "nhom", "sắp xếp", "sap xep", "tháng", "thang",
+        "năm", "nam", "quý", "quy", "trạng thái", "trang thai",
+        "phương thức", "phuong thuc", "thanh toán", "thanh toan"
+    };
+
     public FastPathQueryRouter(ILogger<FastPathQueryRouter> logger)
     {
         _logger = logger;
@@ -141,6 +154,13 @@ public class FastPathQueryRouter : IQueryRouter
 
     private bool IsLikelyOutOfScope(string text)
     {
+        // ✅ Check Vietnamese DB keywords FIRST - if present, definitely NOT out-of-scope
+        if (VietnameseDatabaseKeywords.Any(kw => text.Contains(kw)))
+        {
+            _logger.LogDebug("[FastPathRouter] Vietnamese database keywords detected - NOT out-of-scope");
+            return false;
+        }
+
         // Heuristic: Check for out-of-scope keywords
         return OutOfScopeKeywords.Any(k => text.Contains(k));
     }

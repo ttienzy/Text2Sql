@@ -27,7 +27,7 @@ public class SchemaScanner
         _logger = logger;
     }
 
-    public async Task<DatabaseSchema> ScanAsync(CancellationToken cancellationToken = default)
+    public virtual async Task<DatabaseSchema> ScanAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("[SchemaScanner] Scanning schema using {Provider} adapter...", _adapter.Provider);
 

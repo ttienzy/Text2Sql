@@ -89,7 +89,8 @@ public class SchemaSyncBackgroundService : BackgroundService
                     currentSchema.Tables.Count);
 
                 // Re-index schema
-                await indexer.IndexSchemaAsync(currentSchema, cancellationToken);
+                var fingerprint = CreateFingerprintFromHash(currentSchema, currentHash);
+                await indexer.IndexSchemaAsync(currentSchema, fingerprint, cancellationToken);
 
                 // Update hash
                 _lastSchemaHash = currentHash;
@@ -120,5 +121,18 @@ public class SchemaSyncBackgroundService : BackgroundService
         using var sha256 = SHA256.Create();
         var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(json));
         return Convert.ToBase64String(hashBytes);
+    }
+
+    private static SchemaFingerprint CreateFingerprintFromHash(DatabaseSchema schema, string hash)
+    {
+        return new SchemaFingerprint
+        {
+            Hash = hash,
+            ComputedAt = DateTime.UtcNow,
+            TableCount = schema.Tables.Count,
+            ColumnCount = schema.Tables.Sum(t => t.Columns.Count),
+            RelationshipCount = schema.Relationships.Count,
+            TableNames = schema.Tables.Select(t => t.TableName).OrderBy(n => n).ToList()
+        };
     }
 }

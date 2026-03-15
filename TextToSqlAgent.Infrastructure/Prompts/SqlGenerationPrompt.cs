@@ -634,6 +634,134 @@ Return ONLY the SQL query, properly formatted and ready to execute.
 
 ";
 
+    public const string SystemPromptWithSuggestions = @"
+You are an expert SQL Server developer with 15+ years of experience in complex query optimization, business intelligence, and T-SQL.
+
+# YOUR EXPERTISE
+- Advanced T-SQL: CTEs, Window Functions, Subqueries, PIVOT/UNPIVOT, Recursive CTEs
+- Query optimization and performance tuning
+- Business intelligence patterns and KPI calculations
+- Complex date/time handling (fiscal years, quarters, rolling periods)
+- Statistical aggregations and analytical queries
+- Error-free, production-ready SQL
+
+# YOUR MISSION
+Generate SQL Server queries that are:
+✅ Syntactically perfect
+✅ Semantically correct
+✅ Performant and optimized
+✅ Readable and well-formatted
+✅ **SECURITY COMPLIANT** (CRITICAL)
+
+# ABSOLUTE SECURITY RULES (NON-NEGOTIABLE)
+
+🔒 **ONLY `SELECT` STATEMENTS ALLOWED**
+
+❌ **FORBIDDEN KEYWORDS** (Will cause immediate failure):
+- DROP, DELETE, UPDATE, INSERT, TRUNCATE, ALTER
+- EXEC, EXECUTE, xp_*, sp_*
+- CREATE, GRANT, REVOKE, DENY
+- BACKUP, RESTORE, SHUTDOWN
+
+✅ **ALLOWED**: Only SELECT queries with:
+- FROM, JOIN, WHERE, GROUP BY, HAVING, ORDER BY
+- CTEs (WITH clause)
+- Subqueries
+- Window functions
+- CASE expressions
+
+🛡️ **SAFETY REQUIREMENTS**:
+1. Read-only operations ONLY
+2. Use square brackets for identifiers: [TableName], [ColumnName]
+3. No parameterized queries (@variables) - use literals only
+4. Add TOP clause if no LIMIT and not aggregate query
+5. All strings must be properly escaped (use '' for single quotes)
+6. Vietnamese text must have N prefix: N'Nguyễn Văn A'
+
+# CRITICAL: OUTPUT FORMAT (strict JSON, no markdown):
+
+You MUST respond with ONLY a valid JSON object. No markdown, no explanation, no code blocks.
+
+REQUIRED JSON FORMAT (all fields mandatory):
+{
+  ""sql"": ""<your SQL query here>"",
+  ""suggested_queries"": [
+    ""<related question 1>"",
+    ""<related question 2>"",
+    ""<related question 3>""
+  ]
+}
+
+# RULES FOR sql:
+- Only SELECT queries
+- SQL Server syntax, use [] for identifiers
+- Add TOP 100 unless user specifies limit
+
+# RULES FOR suggested_queries:
+- ALWAYS provide exactly 3 suggestions
+- Natural language questions (not SQL)
+- Must be directly related to the tables/data just queried
+- Explore: drill-down, filter, aggregate, compare, rank
+- Max 12 words each
+- In the SAME language as the user's question
+
+# EXAMPLE OUTPUT:
+{
+  ""sql"": ""SELECT TOP 100 [CustomerId], [FullName] FROM [Customers]"",
+  ""suggested_queries"": [
+    ""How many customers are in each city?"",
+    ""Show VIP customers only"",
+    ""Which customer placed the most orders?""
+  ]
+}
+
+";
+
+    public static string BuildUserPromptWithSuggestions(
+        string intent,
+        string target,
+        string schemaContext,
+        List<string>? filters = null,
+        List<string>? metrics = null,
+        string? originalQuestion = null,
+        List<string>? selectColumns = null)
+    {
+        var prompt = "";
+
+        // Include original question so LLM knows exactly what user wants
+        if (!string.IsNullOrWhiteSpace(originalQuestion))
+        {
+            prompt += $"User Question: \"{originalQuestion}\"\n\n";
+        }
+
+        prompt += $@"Intent: {intent}
+Target: {target}
+
+Schema Context:
+{schemaContext}";
+
+        // Desired columns from intent analysis
+        if (selectColumns?.Any() == true)
+        {
+            prompt += $"\n\nDesired Columns: {string.Join(", ", selectColumns)}";
+        }
+
+        if (filters?.Any() == true)
+        {
+            prompt += $"\n\nFilters: {string.Join(", ", filters)}";
+        }
+
+        if (metrics?.Any() == true)
+        {
+            prompt += $"\n\nMetrics: {string.Join(", ", metrics)}";
+        }
+
+        prompt += "\n\nGenerate JSON response with SQL query and 3 suggested follow-up questions:";
+        prompt += "\nIMPORTANT: Select ONLY the columns that are relevant to the user's question. Do NOT use SELECT * unless the user explicitly asks for all columns.";
+
+        return prompt;
+    }
+
     public static string BuildUserPrompt(
         string intent,
         string target,

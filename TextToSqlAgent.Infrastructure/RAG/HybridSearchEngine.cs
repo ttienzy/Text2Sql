@@ -48,7 +48,7 @@ public class HybridSearchEngine
 
         // 4. Sort by hybrid score
         var sortedResults = mergedResults
-            .OrderByDescending(r => r.HybridScore)
+            .OrderByDescending(r => r.CombinedScore)
             .Take(topK)
             .ToList();
 
@@ -73,12 +73,11 @@ public class HybridSearchEngine
 
             return results.Select(r => new ScoredSchemaElement
             {
-                ElementType = r.Payload.ContainsKey("type") ? r.Payload["type"].ToString() ?? "" : "",
-                ElementName = r.Payload.ContainsKey("name") ? r.Payload["name"].ToString() ?? "" : "",
-                TableName = r.Payload.ContainsKey("table") ? r.Payload["table"].ToString() : null,
-                SemanticScore = r.Score,
+                Element = r,
+                VectorScore = r.Score,
                 KeywordScore = 0,
-                HybridScore = r.Score * SemanticWeight
+                GraphScore = 0,
+                CombinedScore = r.Score * (float)SemanticWeight
             }).ToList();
         }
         catch (Exception ex)
@@ -102,14 +101,23 @@ public class HybridSearchEngine
                 var score = CalculateKeywordScore(entity.Text, table.TableName);
                 if (score > 0.5)
                 {
-                    results.Add(new ScoredSchemaElement
+                    var schemaMatch = new SchemaMatch
                     {
+                        Type = "table",
                         ElementType = "table",
                         ElementName = table.TableName,
                         TableName = table.TableName,
-                        SemanticScore = 0,
-                        KeywordScore = score,
-                        HybridScore = score * KeywordWeight
+                        Score = score,
+                        Content = $"Table: {table.TableName}"
+                    };
+
+                    results.Add(new ScoredSchemaElement
+                    {
+                        Element = schemaMatch,
+                        VectorScore = 0,
+                        KeywordScore = (float)score,
+                        GraphScore = 0,
+                        CombinedScore = (float)(score * KeywordWeight)
                     });
                 }
             }
@@ -125,14 +133,24 @@ public class HybridSearchEngine
                     var score = CalculateKeywordScore(entity.Text, column.ColumnName);
                     if (score > 0.5)
                     {
-                        results.Add(new ScoredSchemaElement
+                        var schemaMatch = new SchemaMatch
                         {
+                            Type = "column",
                             ElementType = "column",
                             ElementName = column.ColumnName,
                             TableName = table.TableName,
-                            SemanticScore = 0,
-                            KeywordScore = score,
-                            HybridScore = score * KeywordWeight
+                            ColumnName = column.ColumnName,
+                            Score = score,
+                            Content = $"Column: {table.TableName}.{column.ColumnName}"
+                        };
+
+                        results.Add(new ScoredSchemaElement
+                        {
+                            Element = schemaMatch,
+                            VectorScore = 0,
+                            KeywordScore = (float)score,
+                            GraphScore = 0,
+                            CombinedScore = (float)(score * KeywordWeight)
                         });
                     }
                 }
@@ -197,22 +215,22 @@ public class HybridSearchEngine
         // Add semantic results
         foreach (var result in semanticResults)
         {
-            var key = $"{result.ElementType}:{result.TableName}:{result.ElementName}";
+            var key = GetElementKey(result.Element);
             merged[key] = result;
         }
 
         // Merge keyword results
         foreach (var result in keywordResults)
         {
-            var key = $"{result.ElementType}:{result.TableName}:{result.ElementName}";
+            var key = GetElementKey(result.Element);
 
             if (merged.ContainsKey(key))
             {
                 // Combine scores
                 var existing = merged[key];
                 existing.KeywordScore = result.KeywordScore;
-                existing.HybridScore = (existing.SemanticScore * SemanticWeight) +
-                                      (result.KeywordScore * KeywordWeight);
+                existing.CombinedScore = (existing.VectorScore * (float)SemanticWeight) +
+                                        (result.KeywordScore * (float)KeywordWeight);
             }
             else
             {
@@ -222,17 +240,22 @@ public class HybridSearchEngine
 
         return merged.Values.ToList();
     }
-}
 
-/// <summary>
-/// Schema element with hybrid scoring
-/// </summary>
-public class ScoredSchemaElement
-{
-    public string ElementType { get; set; } = ""; // table, column, relationship
-    public string ElementName { get; set; } = "";
-    public string? TableName { get; set; }
-    public double SemanticScore { get; set; }
-    public double KeywordScore { get; set; }
-    public double HybridScore { get; set; }
+    private string GetElementKey(object element)
+    {
+        return element switch
+        {
+            VectorSearchResult vsr => GetKeyFromPayload(vsr.Payload),
+            SchemaMatch sm => $"{sm.Type}:{sm.TableName}:{sm.ElementName}",
+            _ => element.GetHashCode().ToString()
+        };
+    }
+
+    private string GetKeyFromPayload(Dictionary<string, object> payload)
+    {
+        var type = payload.TryGetValue("type", out var typeObj) ? typeObj?.ToString() ?? "" : "";
+        var table = payload.TryGetValue("table_name", out var tableObj) ? tableObj?.ToString() ?? "" : "";
+        var name = payload.TryGetValue("name", out var nameObj) ? nameObj?.ToString() ?? "" : "";
+        return $"{type}:{table}:{name}";
+    }
 }

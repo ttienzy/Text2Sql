@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Models;
 using TextToSqlAgent.Infrastructure.Configuration;
@@ -6,9 +7,11 @@ using TextToSqlAgent.Infrastructure.Configuration;
 namespace TextToSqlAgent.Infrastructure.RAG;
 
 /// <summary>
-/// Schema retriever with fallback strategy:
-/// 1. Try vector search (Qdrant or in-memory)
-/// 2. Fallback to keyword-based search if vector search fails or returns 0 results
+/// Schema retriever with hybrid search strategy:
+/// 1. Vector similarity search (Qdrant or in-memory)
+/// 2. Keyword matching on schema elements
+/// 3. Schema graph traversal for related tables
+/// 4. Combined weighted scoring and ranking
 /// </summary>
 public class SchemaRetriever
 {
@@ -16,19 +19,26 @@ public class SchemaRetriever
     private readonly KeywordSchemaRetriever _keywordRetriever;
     private readonly IEmbeddingClient _embeddingClient;
     private readonly RAGConfig _ragConfig;
+    private readonly IMemoryCache _queryCache;
     private readonly ILogger<SchemaRetriever> _logger;
+
+    // Cache configuration
+    private const int MaxCacheSize = 1000;
+    private const int CacheExpirationMinutes = 60;
 
     public SchemaRetriever(
         IVectorStore vectorStore,
         KeywordSchemaRetriever keywordRetriever,
         IEmbeddingClient embeddingClient,
         RAGConfig ragConfig,
+        IMemoryCache queryCache,
         ILogger<SchemaRetriever> logger)
     {
         _vectorStore = vectorStore;
         _keywordRetriever = keywordRetriever;
         _embeddingClient = embeddingClient;
         _ragConfig = ragConfig;
+        _queryCache = queryCache;
         _logger = logger;
     }
 
@@ -39,172 +49,534 @@ public class SchemaRetriever
     {
         _logger.LogDebug("[SchemaRetriever] Retrieving schema for question...");
 
-        // Try vector search first
-        if (await _vectorStore.IsAvailableAsync(cancellationToken))
+        // 1. Get or generate query embedding (with caching)
+        float[]? queryEmbedding = null;
+        try
+        {
+            queryEmbedding = await GetOrGenerateQueryEmbeddingAsync(question, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[SchemaRetriever] Failed to generate query embedding, will rely on keyword search only");
+        }
+
+        var vectorResults = new List<VectorSearchResult>();
+        var keywordResults = new List<SchemaMatch>();
+        var retrievalStrategies = new List<string>();
+        var errors = new List<string>();
+
+        // 2. Vector similarity search (only if we have an embedding)
+        if (queryEmbedding != null && await _vectorStore.IsAvailableAsync(cancellationToken))
         {
             try
             {
                 _logger.LogDebug("[SchemaRetriever] Attempting vector search...");
 
-                // 1. Generate query embedding
-                var queryEmbedding = await _embeddingClient.GenerateEmbeddingAsync(question, cancellationToken);
-
-                // 2. Search vector DB
-                var searchResults = await _vectorStore.SearchAsync(
+                vectorResults = await _vectorStore.SearchAsync(
                     queryVector: queryEmbedding,
                     limit: _ragConfig.TopK,
                     scoreThreshold: (float)_ragConfig.MinimumScore,
                     cancellationToken: cancellationToken);
 
-                _logger.LogDebug("[SchemaRetriever] Vector search found {Count} results", searchResults.Count);
-
-                // 3. If we got results, use them
-                if (searchResults.Count > 0)
+                if (vectorResults.Count > 0)
                 {
-                    var context = BuildSchemaContext(searchResults, fullSchema);
-
-                    _logger.LogInformation(
-                        "[SchemaRetriever] ✓ Vector search: {Tables} tables, {Rels} relationships",
-                        context.RelevantTables.Count,
-                        context.RelevantRelationships.Count);
-
-                    return context;
+                    retrievalStrategies.Add("vector");
+                    _logger.LogDebug("[SchemaRetriever] Vector search: {Count} results", vectorResults.Count);
                 }
-
-                _logger.LogWarning("[SchemaRetriever] Vector search returned 0 results, falling back to keywords");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[SchemaRetriever] Vector search failed, falling back to keywords");
+                _logger.LogWarning(ex, "[SchemaRetriever] Vector search failed, continuing with other strategies");
+                errors.Add($"Vector search failed: {ex.Message}");
             }
         }
-        else
+
+        // 3. Keyword matching
+        if (_ragConfig.EnableHybridSearch)
         {
-            _logger.LogWarning("[SchemaRetriever] Vector store unavailable, using keyword fallback");
+            try
+            {
+                _logger.LogDebug("[SchemaRetriever] Performing keyword search...");
+                var keywordContext = _keywordRetriever.RetrieveByKeywords(
+                    question, fullSchema, _ragConfig.MaxContextTables);
+                keywordResults = keywordContext.Matches;
+                retrievalStrategies.Add("keyword");
+                _logger.LogDebug("[SchemaRetriever] Keyword search: {Count} results", keywordResults.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[SchemaRetriever] Keyword search failed");
+                errors.Add($"Keyword search failed: {ex.Message}");
+            }
         }
 
-        // Fallback to keyword-based search
-        _logger.LogInformation("[SchemaRetriever] Using keyword-based retrieval");
-        return _keywordRetriever.RetrieveByKeywords(question, fullSchema, _ragConfig.MaxContextTables);
-    }
-
-    private RetrievedSchemaContext BuildSchemaContext(
-        List<VectorSearchResult> searchResults,
-        DatabaseSchema fullSchema)
-    {
-        var context = new RetrievedSchemaContext();
-        var tableNames = new HashSet<string>();
-        var relationships = new List<RelationshipInfo>();
-
-        // Process each search result
-        foreach (var result in searchResults)
+        // 4. Check if all strategies failed
+        if (vectorResults.Count == 0 && keywordResults.Count == 0)
         {
-            var payload = result.Payload;
-            var type = GetPayloadString(payload, "type");
-            var score = result.Score;
+            _logger.LogError("[SchemaRetriever] All retrieval strategies failed or returned no results");
 
-            // Add to matches
-            var match = new SchemaMatch
+            // Return empty result with error message
+            return new RetrievedSchemaContext
             {
-                Type = type,
-                Score = score,
-                Content = GetPayloadString(payload, "content")
+                RetrievalStrategies = retrievalStrategies,
+                ErrorMessage = errors.Count > 0
+                    ? $"All retrieval strategies failed: {string.Join("; ", errors)}"
+                    : "No relevant schema elements found for the query"
             };
-
-            if (type == "table")
-            {
-                var tableName = GetPayloadString(payload, "table_name");
-                match.TableName = tableName;
-                tableNames.Add(tableName);
-            }
-            else if (type == "column")
-            {
-                var tableName = GetPayloadString(payload, "table_name");
-                var columnName = GetPayloadString(payload, "column_name");
-                match.TableName = tableName;
-                match.ColumnName = columnName;
-                tableNames.Add(tableName);
-            }
-            else if (type == "relationship")
-            {
-                var fromTable = GetPayloadString(payload, "from_table");
-                var toTable = GetPayloadString(payload, "to_table");
-                tableNames.Add(fromTable);
-                tableNames.Add(toTable);
-
-                var rel = new RelationshipInfo
-                {
-                    FromTable = fromTable,
-                    FromColumn = GetPayloadString(payload, "from_column"),
-                    ToTable = toTable,
-                    ToColumn = GetPayloadString(payload, "to_column")
-                };
-                relationships.Add(rel);
-            }
-
-            context.Matches.Add(match);
         }
 
-        // Get full table info for relevant tables
-        foreach (var tableName in tableNames.Take(_ragConfig.MaxContextTables))
+        // 5. Merge and deduplicate results
+        var mergedResults = MergeResults(vectorResults, keywordResults);
+
+        // 6. Graph traversal for related tables
+        if (_ragConfig.EnableHybridSearch && mergedResults.Count > 0)
         {
-            var table = fullSchema.Tables.FirstOrDefault(t =>
-                ExtractTableName(t.TableName).Equals(ExtractTableName(tableName), StringComparison.OrdinalIgnoreCase));
-
-            if (table != null)
+            try
             {
-                context.RelevantTables.Add(table);
-                context.TableColumns[table.TableName] = table.Columns;
+                _logger.LogDebug("[SchemaRetriever] Performing graph traversal...");
+                var expandedResults = TraverseSchemaGraph(mergedResults, fullSchema);
+                mergedResults = expandedResults;
+                retrievalStrategies.Add("graph");
+                _logger.LogDebug("[SchemaRetriever] Graph traversal: {Count} total results", mergedResults.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[SchemaRetriever] Graph traversal failed, using results without graph expansion");
+                errors.Add($"Graph traversal failed: {ex.Message}");
             }
         }
 
-        // Add relationships between relevant tables
-        foreach (var rel in relationships)
-        {
-            var fromTableName = ExtractTableName(rel.FromTable);
-            var toTableName = ExtractTableName(rel.ToTable);
+        // 7. Rank by combined score
+        var rankedResults = RankByCombinedScore(mergedResults);
 
-            if (context.RelevantTables.Any(t => ExtractTableName(t.TableName) == fromTableName) &&
-                context.RelevantTables.Any(t => ExtractTableName(t.TableName) == toTableName))
-            {
-                context.RelevantRelationships.Add(rel);
-            }
-        }
+        // 8. Build final context
+        var context = BuildSchemaContextFromScoredElements(rankedResults, fullSchema);
+        context.RetrievalStrategies = retrievalStrategies;
 
-        // Also add relationships from full schema that connect our tables
-        foreach (var table in context.RelevantTables)
-        {
-            var tableRelationships = fullSchema.Relationships.Where(r =>
-                ExtractTableName(r.FromTable).Equals(ExtractTableName(table.TableName), StringComparison.OrdinalIgnoreCase) ||
-                ExtractTableName(r.ToTable).Equals(ExtractTableName(table.TableName), StringComparison.OrdinalIgnoreCase));
-
-            foreach (var rel in tableRelationships)
-            {
-                if (!context.RelevantRelationships.Any(r =>
-                    r.FromTable == rel.FromTable && r.FromColumn == rel.FromColumn &&
-                    r.ToTable == rel.ToTable && r.ToColumn == rel.ToColumn))
-                {
-                    context.RelevantRelationships.Add(rel);
-                }
-            }
-        }
+        _logger.LogInformation(
+            "[SchemaRetriever] Hybrid retrieval: {Tables} tables, {Rels} relationships, Strategies: {Strategies}",
+            context.RelevantTables.Count,
+            context.RelevantRelationships.Count,
+            string.Join("+", retrievalStrategies));
 
         return context;
     }
 
-    private static string GetPayloadString(Dictionary<string, object> payload, string key)
+
+    private async Task<float[]> GetOrGenerateQueryEmbeddingAsync(
+        string query,
+        CancellationToken cancellationToken)
     {
-        if (payload.TryGetValue(key, out var value))
+        var cacheKey = $"query_embedding:{query}";
+
+        // Check cache for existing embedding
+        if (_queryCache.TryGetValue(cacheKey, out float[]? cachedEmbedding) && cachedEmbedding != null)
         {
-            return value?.ToString() ?? string.Empty;
+            _logger.LogDebug("[SchemaRetriever] Using cached embedding for query");
+            return cachedEmbedding;
         }
-        return string.Empty;
+
+        try
+        {
+            // Generate new embedding
+            var embedding = await _embeddingClient.GenerateEmbeddingAsync(query, cancellationToken);
+
+            // Cache with expiration and size limit
+            var cacheOptions = new MemoryCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(CacheExpirationMinutes),
+                Size = 1
+            };
+
+            _queryCache.Set(cacheKey, embedding, cacheOptions);
+            _logger.LogDebug("[SchemaRetriever] Generated and cached new embedding for query");
+
+            return embedding;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[SchemaRetriever] Failed to generate query embedding");
+
+            // Try to use any cached version as fallback (ignore age)
+            if (_queryCache.TryGetValue(cacheKey, out float[]? fallbackEmbedding) && fallbackEmbedding != null)
+            {
+                _logger.LogWarning("[SchemaRetriever] Using stale cached embedding as fallback");
+                return fallbackEmbedding;
+            }
+
+            throw;
+        }
     }
 
-    private static string ExtractTableName(string fullName)
+    /// <summary>
+    /// Placeholder for TraverseSchemaGraph - to be implemented in task 11.5
+    /// </summary>
+    /// <summary>
+    /// Traverses the schema graph to find related tables connected by foreign keys.
+    /// Adds related tables with a graph score to expand the result set.
+    /// </summary>
+    private List<ScoredSchemaElement> TraverseSchemaGraph(
+        List<ScoredSchemaElement> seedResults,
+        DatabaseSchema fullSchema)
     {
-        // Handle "schema.table" format
-        var parts = fullName.Split('.');
-        return parts.Length > 1 ? parts[1] : parts[0];
+        var expanded = new Dictionary<string, ScoredSchemaElement>();
+
+        // Add seed results
+        foreach (var result in seedResults)
+        {
+            var key = GetElementKey(result.Element);
+            expanded[key] = result;
+        }
+
+        // Extract table names from seed results
+        var seedTables = new HashSet<string>();
+        foreach (var result in seedResults)
+        {
+            var tableName = GetTableNameFromElement(result.Element);
+            if (!string.IsNullOrEmpty(tableName))
+            {
+                seedTables.Add(tableName);
+            }
+        }
+
+        _logger.LogDebug("[SchemaRetriever] Graph traversal starting from {Count} seed tables", seedTables.Count);
+
+        // Traverse relationships to find related tables
+        foreach (var tableName in seedTables)
+        {
+            var relatedTables = fullSchema.Relationships
+                .Where(r => r.FromTable == tableName || r.ToTable == tableName)
+                .SelectMany(r => new[] { r.FromTable, r.ToTable })
+                .Distinct()
+                .Where(t => !seedTables.Contains(t));
+
+            foreach (var relatedTable in relatedTables)
+            {
+                var table = fullSchema.Tables.FirstOrDefault(t => t.TableName == relatedTable);
+                if (table != null)
+                {
+                    var key = $"table:{relatedTable}";
+                    if (!expanded.ContainsKey(key))
+                    {
+                        // Create a SchemaMatch for the related table
+                        var schemaMatch = new SchemaMatch
+                        {
+                            Type = "table",
+                            ElementType = "table",
+                            TableName = relatedTable,
+                            ElementName = relatedTable,
+                            Score = 0.5, // Graph score
+                            Content = $"Table: {relatedTable}"
+                        };
+
+                        expanded[key] = new ScoredSchemaElement
+                        {
+                            Element = schemaMatch,
+                            VectorScore = 0,
+                            KeywordScore = 0,
+                            GraphScore = 0.5f // Related table score
+                        };
+
+                        _logger.LogDebug("[SchemaRetriever] Added related table {Table} via graph traversal", relatedTable);
+                    }
+                }
+            }
+        }
+
+        _logger.LogDebug("[SchemaRetriever] Graph traversal expanded from {Seed} to {Total} elements",
+            seedResults.Count, expanded.Count);
+
+        return expanded.Values.ToList();
+    }
+
+    /// <summary>
+    /// Extracts the table name from a schema element.
+    /// </summary>
+    private string GetTableNameFromElement(object element)
+    {
+        return element switch
+        {
+            VectorSearchResult vsr when vsr.Payload.TryGetValue("table_name", out var tableNameObj)
+                => tableNameObj?.ToString() ?? string.Empty,
+            SchemaMatch sm => sm.TableName,
+            TableInfo ti => ti.TableName,
+            _ => string.Empty
+        };
+    }
+
+
+    /// <summary>
+    /// Ranks results by combined weighted score from all retrieval strategies.
+    /// Uses configured weights: vector (0.5), keyword (0.3), graph (0.2).
+    /// </summary>
+    private List<ScoredSchemaElement> RankByCombinedScore(List<ScoredSchemaElement> results)
+    {
+        // Calculate combined score for each result using weighted formula
+        foreach (var result in results)
+        {
+            result.CombinedScore =
+                (result.VectorScore * _ragConfig.VectorWeight) +
+                (result.KeywordScore * _ragConfig.KeywordWeight) +
+                (result.GraphScore * _ragConfig.GraphWeight);
+        }
+
+        // Sort by combined score descending
+        var ranked = results
+            .OrderByDescending(r => r.CombinedScore)
+            .ToList();
+
+        _logger.LogDebug("[SchemaRetriever] Ranked {Count} results by combined score (V:{VW}, K:{KW}, G:{GW})",
+            ranked.Count, _ragConfig.VectorWeight, _ragConfig.KeywordWeight, _ragConfig.GraphWeight);
+
+        return ranked;
+    }
+
+    /// <summary>
+    /// Builds a RetrievedSchemaContext from scored schema elements.
+    /// Populates ElementScores dictionary with combined scores for each element.
+    /// </summary>
+    private RetrievedSchemaContext BuildSchemaContextFromScoredElements(
+        List<ScoredSchemaElement> rankedResults,
+        DatabaseSchema fullSchema)
+    {
+        var context = new RetrievedSchemaContext();
+        var tableNames = new HashSet<string>();
+        var elementScores = new Dictionary<string, float>();
+
+        // Process each scored element
+        foreach (var scoredElement in rankedResults)
+        {
+            var element = scoredElement.Element;
+            var key = GetElementKey(element);
+
+            // Store the combined score for this element
+            elementScores[key] = scoredElement.CombinedScore;
+
+            // Extract table names and build context based on element type
+            switch (element)
+            {
+                case VectorSearchResult vsr:
+                    ProcessVectorSearchResult(vsr, tableNames, context);
+                    break;
+
+                case SchemaMatch sm:
+                    ProcessSchemaMatch(sm, tableNames, context);
+                    break;
+
+                case TableInfo ti:
+                    tableNames.Add(ti.TableName);
+                    break;
+            }
+        }
+
+        // Add relevant tables from full schema
+        foreach (var tableName in tableNames)
+        {
+            var table = fullSchema.Tables.FirstOrDefault(t => t.TableName == tableName);
+            if (table != null && !context.RelevantTables.Any(t => t.TableName == tableName))
+            {
+                context.RelevantTables.Add(table);
+                context.TableColumns[tableName] = table.Columns;
+            }
+        }
+
+        // Add relevant relationships
+        foreach (var relationship in fullSchema.Relationships)
+        {
+            if (tableNames.Contains(relationship.FromTable) || tableNames.Contains(relationship.ToTable))
+            {
+                if (!context.RelevantRelationships.Any(r =>
+                    r.FromTable == relationship.FromTable &&
+                    r.FromColumn == relationship.FromColumn &&
+                    r.ToTable == relationship.ToTable &&
+                    r.ToColumn == relationship.ToColumn))
+                {
+                    context.RelevantRelationships.Add(relationship);
+                }
+            }
+        }
+
+        // Set element scores dictionary
+        context.ElementScores = elementScores;
+
+        _logger.LogDebug("[SchemaRetriever] Built context with {Tables} tables, {Rels} relationships, {Scores} scored elements",
+            context.RelevantTables.Count, context.RelevantRelationships.Count, elementScores.Count);
+
+        return context;
+    }
+
+    /// <summary>
+    /// Processes a VectorSearchResult and adds relevant information to the context.
+    /// </summary>
+    private void ProcessVectorSearchResult(VectorSearchResult vsr, HashSet<string> tableNames, RetrievedSchemaContext context)
+    {
+        if (vsr.Payload.TryGetValue("type", out var typeObj) && typeObj is string type)
+        {
+            if (type == "table" && vsr.Payload.TryGetValue("table_name", out var tableNameObj))
+            {
+                var tableName = tableNameObj?.ToString();
+                if (!string.IsNullOrEmpty(tableName))
+                {
+                    tableNames.Add(tableName);
+                }
+            }
+            else if (type == "column" &&
+                     vsr.Payload.TryGetValue("table_name", out var tblNameObj))
+            {
+                var tableName = tblNameObj?.ToString();
+                if (!string.IsNullOrEmpty(tableName))
+                {
+                    tableNames.Add(tableName);
+                }
+            }
+            else if (type == "relationship" &&
+                     vsr.Payload.TryGetValue("from_table", out var fromTableObj) &&
+                     vsr.Payload.TryGetValue("to_table", out var toTableObj))
+            {
+                var fromTable = fromTableObj?.ToString();
+                var toTable = toTableObj?.ToString();
+                if (!string.IsNullOrEmpty(fromTable)) tableNames.Add(fromTable);
+                if (!string.IsNullOrEmpty(toTable)) tableNames.Add(toTable);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Processes a SchemaMatch and adds relevant information to the context.
+    /// </summary>
+    private void ProcessSchemaMatch(SchemaMatch sm, HashSet<string> tableNames, RetrievedSchemaContext context)
+    {
+        if (!string.IsNullOrEmpty(sm.TableName))
+        {
+            tableNames.Add(sm.TableName);
+        }
+
+        // Add to matches list for backward compatibility
+        if (!context.Matches.Any(m => m.ElementName == sm.ElementName && m.TableName == sm.TableName))
+        {
+            context.Matches.Add(sm);
+            context.SchemaMatches.Add(sm);
+        }
+    }
+
+    /// <summary>
+    /// Merges vector and keyword search results, deduplicating overlapping elements
+    /// and preserving the highest score for each unique element.
+    /// </summary>
+    private List<ScoredSchemaElement> MergeResults(
+        List<VectorSearchResult> vectorResults,
+        List<SchemaMatch> keywordResults)
+    {
+        var merged = new Dictionary<string, ScoredSchemaElement>();
+
+        // Add vector results
+        foreach (var result in vectorResults)
+        {
+            var key = GetElementKey(result);
+            merged[key] = new ScoredSchemaElement
+            {
+                Element = result,
+                VectorScore = result.Score,
+                KeywordScore = 0,
+                GraphScore = 0
+            };
+        }
+
+        // Merge keyword results
+        foreach (var result in keywordResults)
+        {
+            var key = GetElementKey(result);
+            if (merged.ContainsKey(key))
+            {
+                // Element already exists from vector search - preserve higher score
+                merged[key].KeywordScore = (float)result.Score;
+            }
+            else
+            {
+                // New element from keyword search
+                merged[key] = new ScoredSchemaElement
+                {
+                    Element = result,
+                    VectorScore = 0,
+                    KeywordScore = (float)result.Score,
+                    GraphScore = 0
+                };
+            }
+        }
+
+        _logger.LogDebug("[SchemaRetriever] Merged {Total} unique elements from {Vector} vector + {Keyword} keyword results",
+            merged.Count, vectorResults.Count, keywordResults.Count);
+
+        return merged.Values.ToList();
+    }
+
+    /// <summary>
+    /// Generates a unique key for a schema element to enable deduplication.
+    /// </summary>
+    private string GetElementKey(object element)
+    {
+        return element switch
+        {
+            VectorSearchResult vsr => GetKeyFromPayload(vsr.Payload),
+            SchemaMatch sm => GetKeyFromSchemaMatch(sm),
+            _ => element.GetHashCode().ToString()
+        };
+    }
+
+    /// <summary>
+    /// Extracts a unique key from VectorSearchResult payload.
+    /// </summary>
+    private string GetKeyFromPayload(Dictionary<string, object> payload)
+    {
+        if (payload.TryGetValue("type", out var typeObj) && typeObj is string type)
+        {
+            if (type == "table" && payload.TryGetValue("table_name", out var tableNameObj))
+            {
+                return $"table:{tableNameObj}";
+            }
+            else if (type == "column" &&
+                     payload.TryGetValue("table_name", out var tblNameObj) &&
+                     payload.TryGetValue("column_name", out var colNameObj))
+            {
+                return $"column:{tblNameObj}.{colNameObj}";
+            }
+            else if (type == "relationship" &&
+                     payload.TryGetValue("from_table", out var fromTableObj) &&
+                     payload.TryGetValue("to_table", out var toTableObj))
+            {
+                return $"relationship:{fromTableObj}->{toTableObj}";
+            }
+        }
+
+        // Fallback to ID if available
+        if (payload.TryGetValue("id", out var idObj))
+        {
+            return $"unknown:{idObj}";
+        }
+
+        return $"unknown:{payload.GetHashCode()}";
+    }
+
+    /// <summary>
+    /// Extracts a unique key from SchemaMatch.
+    /// </summary>
+    private string GetKeyFromSchemaMatch(SchemaMatch match)
+    {
+        var type = !string.IsNullOrEmpty(match.ElementType) ? match.ElementType : match.Type;
+
+        if (type == "table")
+        {
+            return $"table:{match.TableName}";
+        }
+        else if (type == "column" && !string.IsNullOrEmpty(match.ColumnName))
+        {
+            return $"column:{match.TableName}.{match.ColumnName}";
+        }
+        else if (type == "relationship")
+        {
+            return $"relationship:{match.ElementName}";
+        }
+
+        return $"{type}:{match.ElementName}";
     }
 }

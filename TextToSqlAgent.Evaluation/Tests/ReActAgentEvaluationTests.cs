@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Xunit;
@@ -238,6 +239,7 @@ public class ReActAgentEvaluationTests
         services.AddSingleton<SqlExecutor>();
 
         // Infrastructure - RAG
+        services.AddMemoryCache(); // Required by SchemaRetriever
         services.AddSingleton<QdrantService>();
         services.AddSingleton<SchemaIndexer>();
         services.AddSingleton<SchemaRetriever>();

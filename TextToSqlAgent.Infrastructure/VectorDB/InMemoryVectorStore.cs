@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using TextToSqlAgent.Core.Interfaces;
+using TextToSqlAgent.Core.Models;
 
 namespace TextToSqlAgent.Infrastructure.VectorDB;
 
@@ -13,6 +14,7 @@ public class InMemoryVectorStore : IVectorStore
     private readonly ILogger<InMemoryVectorStore> _logger;
     private readonly object _lock = new();
     private bool _collectionExists = false;
+    private SchemaFingerprint? _storedFingerprint = null;
 
     public InMemoryVectorStore(ILogger<InMemoryVectorStore> logger)
     {
@@ -129,6 +131,29 @@ public class InMemoryVectorStore : IVectorStore
         lock (_lock)
         {
             return Task.FromResult(_collectionExists);
+        }
+    }
+
+    public Task StoreSchemaFingerprintAsync(
+        SchemaFingerprint fingerprint,
+        CancellationToken cancellationToken = default)
+    {
+        lock (_lock)
+        {
+            _storedFingerprint = fingerprint;
+            _logger.LogInformation(
+                "[InMemoryVectorStore] Stored fingerprint - Hash: {Hash}",
+                fingerprint.Hash);
+        }
+        return Task.CompletedTask;
+    }
+
+    public Task<SchemaFingerprint?> GetStoredFingerprintAsync(
+        CancellationToken cancellationToken = default)
+    {
+        lock (_lock)
+        {
+            return Task.FromResult(_storedFingerprint);
         }
     }
 

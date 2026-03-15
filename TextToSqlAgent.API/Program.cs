@@ -133,6 +133,12 @@ try
     // Infrastructure - RAG
     builder.Services.AddSingleton<QdrantService>();
 
+    // ✅ Memory Cache for query embedding caching
+    builder.Services.AddMemoryCache(options =>
+    {
+        options.SizeLimit = 1000; // Limit to 1000 entries
+    });
+
     // ✅ NEW: Vector Store Abstraction with Fallback Strategy
     builder.Services.AddSingleton<QdrantVectorStore>();
     builder.Services.AddSingleton<InMemoryVectorStore>();

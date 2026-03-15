@@ -8,4 +8,9 @@ public class QdrantConfig
     public string CollectionName { get; set; } = "schema_embeddings";
     public bool UseGrpc { get; set; } = true;
     public int VectorSize { get; set; } = 768;
+
+    /// <summary>
+    /// OpenAI embedding model to use for generating embeddings (default: text-embedding-3-small).
+    /// </summary>
+    public string EmbeddingModel { get; set; } = "text-embedding-3-small";
 }

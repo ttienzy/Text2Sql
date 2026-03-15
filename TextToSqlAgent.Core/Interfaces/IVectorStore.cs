@@ -1,3 +1,5 @@
+using TextToSqlAgent.Core.Models;
+
 namespace TextToSqlAgent.Core.Interfaces;
 
 /// <summary>
@@ -46,6 +48,20 @@ public interface IVectorStore
     /// Check if collection exists
     /// </summary>
     Task<bool> CollectionExistsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Store schema fingerprint metadata in the collection
+    /// </summary>
+    Task StoreSchemaFingerprintAsync(
+        SchemaFingerprint fingerprint,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieve stored schema fingerprint from the collection
+    /// Returns null if no fingerprint is stored
+    /// </summary>
+    Task<SchemaFingerprint?> GetStoredFingerprintAsync(
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
