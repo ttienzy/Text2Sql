@@ -1,0 +1,36 @@
+### Test Messages API Endpoint
+@baseUrl = https://localhost:7189
+@token = {{login.response.body.token}}
+
+### 1. Login to get token
+# @name login
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "dev@test.com",
+  "password": "Dev123!"
+}
+
+### 2. Get conversations to find a conversation ID
+GET {{baseUrl}}/api/conversations
+Authorization: Bearer {{token}}
+
+### 3. Create a new conversation for testing
+POST {{baseUrl}}/api/conversations
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "title": "Test Conversation for Messages",
+  "connectionId": "test-connection-id"
+}
+
+### 4. Test Messages Endpoint with the conversation ID from step 3
+# Replace the conversation ID with the actual ID from step 3 response
+GET {{baseUrl}}/api/messages/conversation/REPLACE_WITH_ACTUAL_ID?limit=50&offset=0
+Authorization: Bearer {{token}}
+
+### 5. Test Messages Endpoint with different pagination
+GET {{baseUrl}}/api/messages/conversation/REPLACE_WITH_ACTUAL_ID?limit=10&offset=0
+Authorization: Bearer {{token}}

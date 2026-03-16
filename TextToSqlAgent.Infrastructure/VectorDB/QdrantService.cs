@@ -43,6 +43,12 @@ public class QdrantService
         _logger.LogInformation("[Qdrant] Collection name: {CollectionName}", _currentCollectionName);
     }
 
+    public virtual void SetUserCollectionName(string userId)
+    {
+        _currentCollectionName = CollectionNameHelper.NormalizeUserCollectionName(userId);
+        _logger.LogInformation("[Qdrant] User collection name: {CollectionName}", _currentCollectionName);
+    }
+
     public virtual string GetCurrentCollectionName() => _currentCollectionName;
 
     public virtual async Task<bool> CollectionExistsAsync(CancellationToken cancellationToken = default)
@@ -497,6 +503,122 @@ public class QdrantService
                 var pointCount = await GetPointCountAsync(cancellationToken);
                 _logger.LogWarning(
                     "[Qdrant] âš ï¸ No results found. Collection has {Count} points. " +
+                    "Try lowering score_threshold or check vector quality.",
+                    pointCount);
+            }
+
+            return scoredPoints;
+        }
+        catch (VectorDBException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Qdrant] Search error");
+            throw new VectorDBException($"Search failed: {ex.Message}", ex);
+        }
+    }
+
+    public async Task<List<ScoredPoint>> SearchAsync(
+        float[] queryVector,
+        ulong limit = 5,
+        double scoreThreshold = 0.7,
+        Dictionary<string, object>? filter = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (queryVector == null || queryVector.Length == 0)
+        {
+            throw new ArgumentException("Query vector cannot be null or empty");
+        }
+
+        // ✅ Validate vector dimension
+        if (queryVector.Length != _config.VectorSize)
+        {
+            throw new ArgumentException(
+                $"Query vector dimension ({queryVector.Length}) " +
+                $"doesn't match collection ({_config.VectorSize})");
+        }
+
+        try
+        {
+            _logger.LogDebug(
+                "[Qdrant] Search - Limit: {Limit}, Threshold: {Threshold}, VectorDim: {VectorDim}, Filter: {HasFilter}",
+                limit, scoreThreshold, queryVector.Length, filter != null);
+
+            var request = new
+            {
+                vector = queryVector,
+                limit = (int)limit,
+                score_threshold = scoreThreshold,
+                with_payload = true,
+                filter = filter != null ? new { must = filter.Select(kvp => new { key = kvp.Key, match = new { value = kvp.Value } }).ToArray() } : null
+            };
+
+            var json = JsonSerializer.Serialize(request, new JsonSerializerOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull });
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PostAsync(
+                $"{_baseUrl}/collections/{_currentCollectionName}/points/search",
+                content,
+                cancellationToken);
+
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError(
+                    "[Qdrant] Search failed - Status: {Status}, Response: {Response}",
+                    response.StatusCode, responseBody);
+
+                throw new VectorDBException(
+                    $"Search failed. Status: {response.StatusCode}, Error: {responseBody}");
+            }
+
+            var result = JsonSerializer.Deserialize<SearchResponse>(
+                responseBody,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            var scoredPoints = new List<ScoredPoint>();
+
+            if (result?.Result != null)
+            {
+                foreach (var r in result.Result)
+                {
+                    var sp = new ScoredPoint { Score = (float)r.Score };
+
+                    var idStr = r.Id.ToString();
+                    if (ulong.TryParse(idStr, out var numId))
+                    {
+                        sp.Id = new PointId { Num = numId };
+                    }
+                    else
+                    {
+                        sp.Id = new PointId { Uuid = idStr };
+                    }
+
+                    if (r.Payload != null)
+                    {
+                        foreach (var kvp in r.Payload)
+                        {
+                            sp.Payload[kvp.Key] = new Value
+                            {
+                                StringValue = kvp.Value?.ToString() ?? ""
+                            };
+                        }
+                    }
+
+                    scoredPoints.Add(sp);
+                }
+            }
+
+            _logger.LogInformation("[Qdrant] Found {Count} results (filtered: {HasFilter})", scoredPoints.Count, filter != null);
+
+            if (scoredPoints.Count == 0)
+            {
+                var pointCount = await GetPointCountAsync(cancellationToken);
+                _logger.LogWarning(
+                    "[Qdrant] ⚠️ No results found. Collection has {Count} points. " +
                     "Try lowering score_threshold or check vector quality.",
                     pointCount);
             }

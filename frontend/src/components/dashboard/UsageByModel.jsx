@@ -3,32 +3,32 @@
  * Displays token usage statistics grouped by AI model
  */
 import { useMemo } from 'react';
-import { 
-  Card, 
-  Typography, 
-  Space, 
-  Statistic, 
-  Row, 
+import {
+  Card,
+  Typography,
+  Space,
+  Statistic,
+  Row,
   Col,
   Progress,
   Skeleton,
   Empty,
   Button,
 } from 'antd';
-import { 
-  RobotOutlined, 
+import {
+  RobotOutlined,
   ThunderboltOutlined,
   ReloadOutlined,
   ArrowUpOutlined,
   ArrowDownOutlined,
 } from '@ant-design/icons';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
   ResponsiveContainer,
   Cell,
 } from 'recharts';
@@ -53,7 +53,7 @@ const MODEL_COLORS = {
  */
 const getModelColor = (modelName) => {
   if (!modelName) return MODEL_COLORS.Default;
-  const key = Object.keys(MODEL_COLORS).find(k => 
+  const key = Object.keys(MODEL_COLORS).find(k =>
     modelName.toLowerCase().includes(k.toLowerCase())
   );
   return MODEL_COLORS[key] || MODEL_COLORS.Default;
@@ -61,31 +61,27 @@ const getModelColor = (modelName) => {
 
 const UsageByModel = () => {
   // Fetch usage by model
-  const { 
-    data: modelData, 
+  const {
+    data: modelData,
     isLoading: isModelLoading,
-    refetch: refetchModel 
+    refetch: refetchModel
   } = useUsageByModelQuery();
 
-  // Calculate mock data if API doesn't return data
+  // Calculate processed data from API response
   const processedData = useMemo(() => {
-    if (modelData && Array.isArray(modelData) && modelData.length > 0) {
-      return modelData.map(model => ({
-        name: model.model || model.name,
-        tokens: model.tokens || model.totalTokens || 0,
-        requests: model.requests || 0,
-        avgTokensPerRequest: model.avgTokensPerRequest || 0,
-        cost: model.cost || 0,
-        color: getModelColor(model.model || model.name),
+    if (modelData && modelData.models && Array.isArray(modelData.models) && modelData.models.length > 0) {
+      return modelData.models.map(model => ({
+        name: model.model || 'Unknown',
+        tokens: model.totalTokens || 0,
+        requests: model.messageCount || 0,
+        avgTokensPerRequest: model.avgTokensPerMessage || 0,
+        cost: model.totalCost || 0,
+        color: getModelColor(model.model),
       }));
     }
-    
-    // Default mock data
-    return [
-      { name: 'GPT-4', tokens: 45000, requests: 120, avgTokensPerRequest: 375, cost: 0.225, color: MODEL_COLORS['GPT-4'] },
-      { name: 'GPT-3.5', tokens: 25000, requests: 200, avgTokensPerRequest: 125, cost: 0.0375, color: MODEL_COLORS['GPT-3.5'] },
-      { name: 'Gemini', tokens: 15000, requests: 80, avgTokensPerRequest: 187.5, cost: 0.0525, color: MODEL_COLORS['Gemini'] },
-    ];
+
+    // Return empty array if no data - don't show mock data
+    return [];
   }, [modelData]);
 
   // Calculate totals
@@ -108,9 +104,9 @@ const UsageByModel = () => {
 
   // Find top model
   const topModel = useMemo(() => {
-    return processedData.reduce((max, model) => 
+    return processedData.reduce((max, model) =>
       model.tokens > max.tokens ? model : max
-    , processedData[0] || { name: 'N/A', tokens: 0 });
+      , processedData[0] || { name: 'N/A', tokens: 0 });
   }, [processedData]);
 
   const handleRefresh = async () => {
@@ -158,8 +154,8 @@ const UsageByModel = () => {
         </Space>
       }
       extra={
-        <Button 
-          icon={<ReloadOutlined />} 
+        <Button
+          icon={<ReloadOutlined />}
           onClick={handleRefresh}
         >
           Refresh
@@ -217,24 +213,24 @@ const UsageByModel = () => {
         <ResponsiveContainer width="100%" height={250}>
           <BarChart data={dataWithPercentage} layout="vertical" margin={{ top: 5, right: 30, left: 80, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-            <XAxis 
-              type="number" 
+            <XAxis
+              type="number"
               stroke="#8c8c8c"
               tickFormatter={(value) => value.toLocaleString()}
             />
-            <YAxis 
-              dataKey="name" 
-              type="category" 
+            <YAxis
+              dataKey="name"
+              type="category"
               stroke="#8c8c8c"
               width={70}
             />
-            <Tooltip 
+            <Tooltip
               formatter={(value, name) => [
-                value.toLocaleString(), 
+                value.toLocaleString(),
                 name === 'tokens' ? 'Tokens' : name
               ]}
-              contentStyle={{ 
-                borderRadius: 8, 
+              contentStyle={{
+                borderRadius: 8,
                 border: '1px solid #f0f0f0',
               }}
             />
@@ -250,9 +246,9 @@ const UsageByModel = () => {
       {/* Model Breakdown */}
       <Text strong style={{ display: 'block', marginBottom: 16 }}>Model Breakdown</Text>
       {dataWithPercentage.map((model) => (
-        <div 
-          key={model.name} 
-          style={{ 
+        <div
+          key={model.name}
+          style={{
             marginBottom: 16,
             padding: 16,
             background: '#fafafa',
@@ -261,11 +257,11 @@ const UsageByModel = () => {
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <Space>
-              <div style={{ 
-                width: 12, 
-                height: 12, 
-                borderRadius: 2, 
-                backgroundColor: model.color 
+              <div style={{
+                width: 12,
+                height: 12,
+                borderRadius: 2,
+                backgroundColor: model.color
               }} />
               <Text strong>{model.name}</Text>
               {model.name === topModel.name && (
@@ -278,14 +274,14 @@ const UsageByModel = () => {
               {model.tokens.toLocaleString()} tokens
             </Text>
           </div>
-          
-          <Progress 
-            percent={parseFloat(model.percentage)} 
+
+          <Progress
+            percent={parseFloat(model.percentage)}
             strokeColor={model.color}
             showInfo={false}
             size="small"
           />
-          
+
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
             <Text type="secondary" style={{ fontSize: 12 }}>
               {model.requests} requests

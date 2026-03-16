@@ -1,0 +1,222 @@
+### Test Controller APIs
+### Base URL
+@baseUrl = https://localhost:7189
+
+###############################################################################
+# TEST API 1: Schema Indexing to Qdrant
+###############################################################################
+
+### 1. Test Schema Indexing (Public API - No Auth Required)
+POST {{baseUrl}}/api/test/test-schema-indexing
+Content-Type: application/json
+
+# This API will:
+# - Test connection to Server=.;Database=TextToSqlTest;User Id=sa;Password=123
+# - Scan database schema (tables, columns, relationships)
+# - Index schema information to Qdrant vector database
+# - Return detailed results of each step
+
+###############################################################################
+# TEST API 2: Query Processing Test
+###############################################################################
+
+# IMPORTANT: Two different query processing endpoints:
+#
+# 1. /api/test/test-query (Basic Test)
+#    - Tests database connection
+#    - Retrieves schema from Qdrant
+#    - Lists available tables
+#    - Provides query recommendations
+#    - Does NOT generate or execute SQL
+#
+# 2. /api/test/process-query (Complete Processing - Like Console Project)
+#    - Uses the full EnhancedAgentOrchestrator pipeline
+#    - Validates query relevance
+#    - Loads database schema
+#    - Performs RAG schema retrieval
+#    - Analyzes intent
+#    - Generates SQL with context
+#    - Validates SQL safety
+#    - Executes SQL with self-correction
+#    - Formats intelligent answer
+#    - Returns complete results with actual data
+#
+# Use process-query to get the same behavior as the Console project!
+
+### 2. Test Query - Customers (Basic - Connection & Schema Only)
+POST {{baseUrl}}/api/test/test-query
+Content-Type: application/json
+
+{
+  "question": "Show me all customers"
+}
+
+### 2b. Process Complete Query - Customers (Like Console Project - Generates SQL & Executes)
+POST {{baseUrl}}/api/test/process-query
+Content-Type: application/json
+
+{
+  "question": "Show me all customers"
+}
+
+### 3. Test Query - Orders (Basic)
+POST {{baseUrl}}/api/test/test-query
+Content-Type: application/json
+
+{
+  "question": "Get all orders from last month"
+}
+
+### 3b. Process Complete Query - Orders (Full Processing)
+POST {{baseUrl}}/api/test/process-query
+Content-Type: application/json
+
+{
+  "question": "Get all orders from last month"
+}
+
+### 4. Test Query - Products (Basic)
+POST {{baseUrl}}/api/test/test-query
+Content-Type: application/json
+
+{
+  "question": "List all products with their prices"
+}
+
+### 4b. Process Complete Query - Products (Full Processing)
+POST {{baseUrl}}/api/test/process-query
+Content-Type: application/json
+
+{
+  "question": "List all products with their prices"
+}
+
+### 5. Test Query - General
+POST {{baseUrl}}/api/test/test-query
+Content-Type: application/json
+
+{
+  "question": "What tables are available in the database?"
+}
+
+### 6. Test Query - Complex
+POST {{baseUrl}}/api/test/test-query
+Content-Type: application/json
+
+{
+  "question": "Show me top 10 customers by revenue"
+}
+
+### 7. Clear Qdrant Collection (Fix Dimension Mismatch)
+POST {{baseUrl}}/api/test/clear-qdrant
+Content-Type: application/json
+
+# This API will:
+# - Clear the existing Qdrant collection
+# - Allow re-creation with correct dimensions (3072 for text-embedding-3-large)
+# - Fix the vector dimension mismatch issue
+
+###############################################################################
+# INSTRUCTIONS
+###############################################################################
+
+# HOW TO USE:
+# 
+# 1. Make sure your API is running: dotnet run --project TextToSqlAgent.API
+# 
+# 2. Make sure you have SQL Server running with:
+#    - Server: . (local instance)
+#    - Database: TextToSqlTest
+#    - Username: sa
+#    - Password: 123
+#    - TrustServerCertificate: True
+#
+# 3. Run Test API 1 first to index schema to Qdrant:
+#    - This will test database connection
+#    - Scan all tables and columns
+#    - Index schema information to Qdrant vector database
+#
+# 4. Then run Test API 2 with different questions:
+#    - This will test schema retrieval from Qdrant
+#    - Show available tables in database
+#    - Provide query recommendations
+#
+# EXPECTED RESULTS:
+#
+# Test API 1 (Schema Indexing):
+# {
+#   "success": true,
+#   "step": "completed",
+#   "tablesFound": 5,
+#   "tablesIndexed": 5,
+#   "collectionName": "schema_embeddings_test-user-123",
+#   "qdrantStatus": "Indexed successfully"
+# }
+#
+# Test API 2a (Basic Query Test):
+# {
+#   "success": true,
+#   "question": "Show me all customers",
+#   "databaseConnection": true,
+#   "tablesInDatabase": ["Customers", "Orders", "Products"],
+#   "tablesCount": 3,
+#   "qdrantSchemaRetrieval": {
+#     "success": true,
+#     "schemasFound": 2,
+#     "collectionExists": true
+#   },
+#   "recommendation": "Try querying customer-related tables"
+# }
+#
+# Test API 2b (Complete Query Processing - Like Console Project):
+# {
+#   "success": true,
+#   "question": "Show me all customers",
+#   "answer": "Here are all the customers from the database:\n\n[Customer data with intelligent formatting]",
+#   "sqlGenerated": "SELECT CustomerID, CompanyName, ContactName FROM Customers ORDER BY CompanyName",
+#   "queryResult": {
+#     "success": true,
+#     "columns": ["CustomerID", "CompanyName", "ContactName"],
+#     "rows": [
+#       {"CustomerID": "ALFKI", "CompanyName": "Alfreds Futterkiste", "ContactName": "Maria Anders"},
+#       {"CustomerID": "ANATR", "CompanyName": "Ana Trujillo Emparedados", "ContactName": "Ana Trujillo"}
+#     ],
+#     "rowCount": 91,
+#     "executionTimeMs": 45
+#   },
+#   "processingSteps": [
+#     "Step 0: Validate query relevance",
+#     "Step 1: Load database schema",
+#     "Step 2: Normalize with conversation context",
+#     "Step 4: RAG - Retrieve relevant schema",
+#     "Step 5: Analyze intent",
+#     "Step 6: Generate SQL with RAG context",
+#     "Step 7: Validate SQL safety",
+#     "Step 9: Execute SQL with self-correction",
+#     "Step 10: Format intelligent answer"
+#   ],
+#   "queryExplanation": "This query retrieves all customer records...",
+#   "suggestedQueries": [
+#     "Show me customers from a specific city",
+#     "Find customers with recent orders",
+#     "List top customers by order count"
+#   ],
+#   "wasCorrected": false,
+#   "correctionAttempts": 0
+# }
+#
+# TROUBLESHOOTING:
+#
+# If you get database connection errors:
+# - Make sure SQL Server is running
+# - Check if TextToSqlTest database exists
+# - Verify sa user has correct password (123)
+# - Ensure SQL Server allows SQL authentication
+#
+# If you get Qdrant errors:
+# - Make sure Qdrant is running (usually on port 6333)
+# - Check Qdrant configuration in appsettings.json
+# - Verify network connectivity to Qdrant instance
+#
+# These APIs are PUBLIC (no authentication required) for testing purposes only!
+# Remove or secure them before production deployment.

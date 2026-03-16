@@ -61,8 +61,9 @@ public class RateLimitMiddleware
 
     private string GetIdentifier(HttpContext context)
     {
-        // Try to get user ID from claims
-        var userId = context.User?.FindFirst("sub")?.Value
+        // Try to get user ID from JWT claims (standard claim types)
+        var userId = context.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                  ?? context.User?.FindFirst("sub")?.Value
                   ?? context.User?.FindFirst("user_id")?.Value;
 
         if (!string.IsNullOrEmpty(userId))

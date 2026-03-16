@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
-import { 
-  Avatar, 
-  Typography, 
-  Space, 
-  Spin, 
+import {
+  Avatar,
+  Typography,
+  Space,
+  Spin,
   Tooltip,
 } from 'antd';
-import { 
-  UserOutlined, 
-  RobotOutlined, 
+import {
+  UserOutlined,
+  RobotOutlined,
   LoadingOutlined,
   CopyOutlined,
   CheckOutlined,
@@ -19,6 +19,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import SqlBlock from './SqlBlock';
 import ResultTable from './ResultTable';
 import TokenInfo from './TokenInfo';
+import EnhancedMessageInfo from './EnhancedMessageInfo';
 import { escapeHtml } from '../../utils/security';
 import { extractErrorMessage, hasError } from '../../utils/errorHandler';
 
@@ -30,43 +31,43 @@ const { Text } = Typography;
  * MessageBubble - Component for displaying user/assistant messages
  * @param {Object} props
  * @param {Object} props.message - The message object
- * @param {boolean} props.isLast - Whether this is the last message in the conversation
+ * @param {Function} props.onSuggestedQueryClick - Callback for suggested query clicks
  */
-const MessageBubble = ({ message }) => {
+const MessageBubble = ({ message, onSuggestedQueryClick }) => {
   const [copied, setCopied] = useState(false);
-  
+
   const isUser = message.role === 'user';
   const isPending = message.isPending || message.status === 'pending';
   const isOptimistic = message.isOptimistic;
   const errorMessage = extractErrorMessage(message);
   const hasErrorState = hasError(message);
-  
+
   // Parse results if available
   let results = null;
   if (message.results) {
     try {
-      results = typeof message.results === 'string' 
-        ? JSON.parse(message.results) 
+      results = typeof message.results === 'string'
+        ? JSON.parse(message.results)
         : message.results;
     } catch (e) {
       console.warn('Failed to parse results:', e);
     }
   }
-  
+
   const handleCopy = async () => {
     const textToCopy = message.content || message.sqlQuery || '';
     await navigator.clipboard.writeText(textToCopy);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
-  
+
   // Format timestamp
   const formatTime = (timestamp) => {
     if (!timestamp) return '';
     const date = dayjs(timestamp);
     return date.format('HH:mm');
   };
-  
+
   const formatRelativeTime = (timestamp) => {
     if (!timestamp) return '';
     return dayjs(timestamp).fromNow();
@@ -86,7 +87,7 @@ const MessageBubble = ({ message }) => {
       >
         <Avatar
           icon={<RobotOutlined />}
-          style={{ 
+          style={{
             backgroundColor: '#52c41a',
             marginRight: 8,
           }}
@@ -121,14 +122,14 @@ const MessageBubble = ({ message }) => {
     >
       <Avatar
         icon={isUser ? <UserOutlined /> : <RobotOutlined />}
-        style={{ 
+        style={{
           backgroundColor: isUser ? '#1890ff' : '#52c41a',
           marginLeft: isUser ? 8 : 0,
           marginRight: isUser ? 0 : 8,
           flexShrink: 0,
         }}
       />
-      
+
       <div
         style={{
           backgroundColor: isUser ? '#f0f5ff' : '#ffffff',
@@ -142,11 +143,11 @@ const MessageBubble = ({ message }) => {
       >
         {/* Error message display */}
         {hasErrorState && (
-          <div 
-            style={{ 
-              marginBottom: 8, 
-              padding: '8px 12px', 
-              backgroundColor: '#fff2f0', 
+          <div
+            style={{
+              marginBottom: 8,
+              padding: '8px 12px',
+              backgroundColor: '#fff2f0',
               borderRadius: 4,
               border: '1px solid #ffccc7',
             }}
@@ -156,12 +157,12 @@ const MessageBubble = ({ message }) => {
             </Text>
           </div>
         )}
-        
+
         {/* User/Assistant text content - escape HTML for security */}
         {message.content && (
           <div style={{ marginBottom: message.sqlQuery ? 12 : 0 }}>
-            <Text style={{ 
-              whiteSpace: 'pre-wrap', 
+            <Text style={{
+              whiteSpace: 'pre-wrap',
               fontSize: 14,
               color: isUser ? 'inherit' : '#262626',
             }}>
@@ -170,26 +171,26 @@ const MessageBubble = ({ message }) => {
             </Text>
           </div>
         )}
-        
+
         {/* SQL Query Block */}
         {(message.sqlQuery || message.SqlQuery) && (
-          <SqlBlock 
-            sql={message.sqlQuery || message.SqlQuery} 
+          <SqlBlock
+            sql={message.sqlQuery || message.SqlQuery}
             error={hasErrorState}
           />
         )}
-        
+
         {/* Results Table */}
         {results && results.length > 0 && (
-          <ResultTable 
-            data={results} 
+          <ResultTable
+            data={results}
             rowCount={message.rowCount || message.RowCount}
           />
         )}
-        
+
         {/* Token Info */}
         {(message.totalTokens || message.TotalTokens) && (
-          <TokenInfo 
+          <TokenInfo
             inputTokens={message.inputTokens || message.InputTokens}
             outputTokens={message.outputTokens || message.OutputTokens}
             totalTokens={message.totalTokens || message.TotalTokens}
@@ -197,13 +198,19 @@ const MessageBubble = ({ message }) => {
             model={message.model || message.Model}
           />
         )}
-        
+
+        {/* Enhanced Message Info - Processing steps, suggestions, etc. */}
+        <EnhancedMessageInfo
+          message={message}
+          onSuggestedQueryClick={onSuggestedQueryClick}
+        />
+
         {/* Footer: Copy button and timestamp */}
         {!isUser && (message.content || message.sqlQuery) && (
-          <div 
-            style={{ 
-              marginTop: 8, 
-              paddingTop: 8, 
+          <div
+            style={{
+              marginTop: 8,
+              paddingTop: 8,
               borderTop: '1px dashed #d9d9d9',
               display: 'flex',
               justifyContent: 'space-between',
@@ -211,19 +218,19 @@ const MessageBubble = ({ message }) => {
             }}
           >
             <Tooltip title={copied ? 'Copied!' : 'Copy content'}>
-              <span 
+              <span
                 onClick={handleCopy}
-                style={{ 
-                  cursor: 'pointer', 
+                style={{
+                  cursor: 'pointer',
                   color: copied ? '#52c41a' : '#8c8c8c',
                   fontSize: 12,
                 }}
               >
-                {copied ? <CheckOutlined /> : <CopyOutlined />} 
+                {copied ? <CheckOutlined /> : <CopyOutlined />}
                 {copied ? ' Copied' : ' Copy'}
               </span>
             </Tooltip>
-            
+
             {message.createdAt && (
               <Tooltip title={formatRelativeTime(message.createdAt)}>
                 <Space size={4} style={{ color: '#8c8c8c', fontSize: 12 }}>
@@ -234,11 +241,11 @@ const MessageBubble = ({ message }) => {
             )}
           </div>
         )}
-        
+
         {/* Timestamp for user messages */}
         {isUser && message.createdAt && (
-          <div 
-            style={{ 
+          <div
+            style={{
               marginTop: 8,
               textAlign: 'right',
             }}
@@ -251,7 +258,7 @@ const MessageBubble = ({ message }) => {
             </Tooltip>
           </div>
         )}
-        
+
         {/* Optimistic indicator */}
         {isOptimistic && (
           <div style={{ marginTop: 4 }}>

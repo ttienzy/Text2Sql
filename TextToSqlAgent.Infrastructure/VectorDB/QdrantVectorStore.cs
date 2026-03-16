@@ -47,10 +47,21 @@ public class QdrantVectorStore : IVectorStore
         float scoreThreshold,
         CancellationToken cancellationToken = default)
     {
+        return await SearchAsync(queryVector, limit, scoreThreshold, null, cancellationToken);
+    }
+
+    public async Task<List<VectorSearchResult>> SearchAsync(
+        float[] queryVector,
+        int limit,
+        float scoreThreshold,
+        Dictionary<string, object>? filter,
+        CancellationToken cancellationToken = default)
+    {
         var qdrantResults = await _qdrantService.SearchAsync(
             queryVector: queryVector,
             limit: (ulong)limit,
             scoreThreshold: scoreThreshold,
+            filter: filter,
             cancellationToken: cancellationToken);
 
         // Convert Qdrant results to abstraction

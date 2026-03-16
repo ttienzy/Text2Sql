@@ -3,29 +3,29 @@
  * Displays token usage over time and by model using Recharts
  */
 import { useState, useMemo } from 'react';
-import { 
-  Card, 
-  DatePicker, 
-  Space, 
-  Typography, 
-  Select, 
-  Skeleton, 
-  Empty, 
+import {
+  Card,
+  DatePicker,
+  Space,
+  Typography,
+  Select,
+  Skeleton,
+  Empty,
   Button,
   Tabs,
 } from 'antd';
-import { 
-  LineChartOutlined, 
-  BarChartOutlined, 
+import {
+  LineChartOutlined,
+  BarChartOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
-import { 
-  LineChart, 
-  Line, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
   ResponsiveContainer,
   BarChart,
   Bar,
@@ -68,17 +68,17 @@ const UsageChart = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Fetch quota data
-  const { 
-    data: quota, 
+  const {
+    data: quota,
     isLoading: isQuotaLoading,
-    refetch: refetchQuota 
+    refetch: refetchQuota
   } = useQuotaQuery();
 
   // Fetch usage history
-  const { 
-    data: usageData, 
+  const {
+    data: usageData,
     isLoading: isHistoryLoading,
-    refetch: refetchHistory 
+    refetch: refetchHistory
   } = useUsageHistoryQuery({
     from: dateRange[0]?.toISOString(),
     to: dateRange[1]?.toISOString(),
@@ -86,36 +86,24 @@ const UsageChart = () => {
 
   // Transform data for line/bar chart
   const chartData = useMemo(() => {
-    if (!usageData || !Array.isArray(usageData)) {
-      // Generate sample data based on quota if no usage data
-      const days = [];
-      const usedToday = quota?.usedToday || 10000;
-      for (let i = 6; i >= 0; i--) {
-        const date = dayjs().subtract(i, 'day').format('YYYY-MM-DD');
-        // Fixed sample data - in real app, this would come from API
-        const dailyUsage = Math.floor(usedToday / 7 * (0.5 + (i * 0.1)));
-        days.push({
-          date,
-          tokens: dailyUsage,
-          formattedDate: dayjs(date).format('MM/DD'),
-        });
-      }
-      return days;
+    if (usageData && usageData.usage && Array.isArray(usageData.usage) && usageData.usage.length > 0) {
+      return usageData.usage.map(item => ({
+        date: item.date,
+        tokens: item.totalTokens || 0,
+        formattedDate: formatDate(item.date),
+      }));
     }
-    
-    return usageData.map(item => ({
-      date: item.date || item.timestamp,
-      tokens: item.tokens || item.totalTokens || 0,
-      formattedDate: formatDate(item.date || item.timestamp),
-    }));
-  }, [usageData, quota]);
 
-  // Model usage data (mock data - would come from API)
-  const modelData = useMemo(() => [
-    { name: 'GPT-4', tokens: 45000, color: COLORS[0] },
-    { name: 'GPT-3.5', tokens: 25000, color: COLORS[1] },
-    { name: 'Gemini', tokens: 15000, color: COLORS[2] },
-  ], []);
+    // Return empty array if no data - don't show mock data
+    return [];
+  }, [usageData]);
+
+  // Model usage data from API
+  const modelData = useMemo(() => {
+    // This would come from useUsageByModelQuery
+    // For now, return empty array to avoid mock data
+    return [];
+  }, []);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -144,7 +132,7 @@ const UsageChart = () => {
   if (!isLoading && !chartData.length) {
     return (
       <Card>
-        <Empty 
+        <Empty
           description="No usage data available"
           image={Empty.PRESENTED_IMAGE_SIMPLE}
         >
@@ -164,29 +152,29 @@ const UsageChart = () => {
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-            <XAxis 
-              dataKey="formattedDate" 
+            <XAxis
+              dataKey="formattedDate"
               stroke="#8c8c8c"
               tick={{ fontSize: 12 }}
             />
-            <YAxis 
+            <YAxis
               stroke="#8c8c8c"
               tick={{ fontSize: 12 }}
               tickFormatter={formatNumber}
             />
-            <Tooltip 
+            <Tooltip
               formatter={(value) => [value.toLocaleString(), 'Tokens']}
               labelFormatter={(label) => `Date: ${label}`}
-              contentStyle={{ 
-                borderRadius: 8, 
+              contentStyle={{
+                borderRadius: 8,
                 border: '1px solid #f0f0f0',
                 boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
               }}
             />
-            <Line 
-              type="monotone" 
-              dataKey="tokens" 
-              stroke="#1890ff" 
+            <Line
+              type="monotone"
+              dataKey="tokens"
+              stroke="#1890ff"
               strokeWidth={2}
               dot={{ fill: '#1890ff', strokeWidth: 2, r: 4 }}
               activeDot={{ r: 6, fill: '#1890ff' }}
@@ -203,28 +191,28 @@ const UsageChart = () => {
         <ResponsiveContainer width="100%" height={300}>
           <BarChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-            <XAxis 
-              dataKey="formattedDate" 
+            <XAxis
+              dataKey="formattedDate"
               stroke="#8c8c8c"
               tick={{ fontSize: 12 }}
             />
-            <YAxis 
+            <YAxis
               stroke="#8c8c8c"
               tick={{ fontSize: 12 }}
               tickFormatter={formatNumber}
             />
-            <Tooltip 
+            <Tooltip
               formatter={(value) => [value.toLocaleString(), 'Tokens']}
               labelFormatter={(label) => `Date: ${label}`}
-              contentStyle={{ 
-                borderRadius: 8, 
+              contentStyle={{
+                borderRadius: 8,
                 border: '1px solid #f0f0f0',
                 boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
               }}
             />
-            <Bar 
-              dataKey="tokens" 
-              fill="#1890ff" 
+            <Bar
+              dataKey="tokens"
+              fill="#1890ff"
               radius={[4, 4, 0, 0]}
               name="Tokens Used"
             />
@@ -244,14 +232,14 @@ const UsageChart = () => {
       }
       extra={
         <Space>
-          <RangePicker 
+          <RangePicker
             value={dateRange}
             onChange={handleDateChange}
             allowClear={false}
             disabledDate={(current) => current && current > dayjs().endOf('day')}
           />
-          <Button 
-            icon={<ReloadOutlined spin={isRefreshing} />} 
+          <Button
+            icon={<ReloadOutlined spin={isRefreshing} />}
             onClick={handleRefresh}
             loading={isRefreshing}
           >
@@ -260,16 +248,16 @@ const UsageChart = () => {
         </Space>
       }
     >
-      <Tabs 
-        activeKey={chartType} 
+      <Tabs
+        activeKey={chartType}
         onChange={setChartType}
         items={tabItems}
       />
-      
+
       {/* Summary Stats */}
-      <div style={{ 
-        display: 'grid', 
-        gridTemplateColumns: 'repeat(4, 1fr)', 
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(4, 1fr)',
         gap: 16,
         marginTop: 16,
         paddingTop: 16,
@@ -323,24 +311,24 @@ const UsageChart = () => {
                   <Cell key={`cell-${index}`} fill={entry.color || COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip 
+              <Tooltip
                 formatter={(value) => [value.toLocaleString(), 'Tokens']}
-                contentStyle={{ 
-                  borderRadius: 8, 
+                contentStyle={{
+                  borderRadius: 8,
                   border: '1px solid #f0f0f0',
                 }}
               />
             </PieChart>
           </ResponsiveContainer>
-          
+
           {/* Legend */}
           <div style={{ marginLeft: 24 }}>
             {modelData.map((model, index) => (
               <div key={model.name} style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
-                <div style={{ 
-                  width: 12, 
-                  height: 12, 
-                  borderRadius: 2, 
+                <div style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: 2,
                   backgroundColor: model.color || COLORS[index % COLORS.length],
                   marginRight: 8
                 }} />

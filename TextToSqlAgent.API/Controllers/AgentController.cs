@@ -1,554 +1,314 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Text.Json;
-using TextToSqlAgent.API.DTOs;
+using System.Security.Claims;
+using TextToSqlAgent.API.Extensions;
+using TextToSqlAgent.API.Repositories;
+using TextToSqlAgent.API.Services;
 using TextToSqlAgent.Application.Services;
-using TextToSqlAgent.Application.Routing;
-using TextToSqlAgent.Core.Agent;
-using TextToSqlAgent.Core.Models;
-using TextToSqlAgent.Infrastructure.Database;
-using TextToSqlAgent.Infrastructure.RAG;
-using TextToSqlAgent.Plugins;
-
-// Resolve ambiguity between API DTOs and Core Models
-using QueryRequest = TextToSqlAgent.API.DTOs.QueryRequest;
-using QueryResponse = TextToSqlAgent.API.DTOs.QueryResponse;
+using TextToSqlAgent.Infrastructure.Configuration;
+using TextToSqlAgent.Infrastructure.Entities;
 
 namespace TextToSqlAgent.API.Controllers;
 
-[Authorize]
+/// <summary>
+/// Controller for AI Agent processing - handles message processing with EnhancedAgentOrchestrator
+/// </summary>
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class AgentController : ControllerBase
 {
-    private readonly IAgent _agent;
-    private readonly TextToSqlAgentOrchestrator _legacyOrchestrator;
-    private readonly SchemaScanner _schemaScanner;
-    private readonly QueryValidatorPlugin _queryValidator;
-    private readonly IQueryRouter _queryRouter;
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly IServiceProvider _serviceProvider;
+    private readonly IConnectionEncryptionService _encryptionService;
     private readonly ILogger<AgentController> _logger;
-    private readonly bool _useLegacyMode;
-    private readonly bool _enableRouting;
-    private readonly bool _enableDevQueryEndpoint;
+    private readonly TextToSqlAgent.Infrastructure.Services.ITokenQuotaService _tokenQuotaService;
 
     public AgentController(
-        IAgent agent,
-        TextToSqlAgentOrchestrator legacyOrchestrator,
-        SchemaScanner schemaScanner,
-        QueryValidatorPlugin queryValidator,
-        IQueryRouter queryRouter,
+        IUnitOfWork unitOfWork,
+        IServiceProvider serviceProvider,
+        IConnectionEncryptionService encryptionService,
         ILogger<AgentController> logger,
-        IConfiguration configuration,
-        IWebHostEnvironment environment)
+        TextToSqlAgent.Infrastructure.Services.ITokenQuotaService tokenQuotaService)
     {
-        _agent = agent;
-        _legacyOrchestrator = legacyOrchestrator;
-        _schemaScanner = schemaScanner;
-        _queryValidator = queryValidator;
-        _queryRouter = queryRouter;
+        _unitOfWork = unitOfWork;
+        _serviceProvider = serviceProvider;
+        _encryptionService = encryptionService;
         _logger = logger;
-
-        // Allow switching between legacy and new agent via config
-        _useLegacyMode = configuration.GetValue<bool>("Agent:UseLegacyMode", false);
-        _enableRouting = configuration.GetValue<bool>("Agent:EnableRouting", true);
-        _enableDevQueryEndpoint = environment.IsDevelopment()
-            && configuration.GetValue<bool>("Agent:EnableDevQueryEndpoint", false);
-    }
-
-    [HttpPost("query")]
-    [ProducesResponseType(typeof(QueryResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(QueryResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(QueryResponse), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> ExecuteQuery([FromBody] QueryRequest? request, CancellationToken cancellationToken)
-    {
-        if (request == null)
-        {
-            return BadRequest(new QueryResponse
-            {
-                Success = false,
-                ErrorMessage = "Request body is required"
-            });
-        }
-
-        if (string.IsNullOrWhiteSpace(request.Question))
-        {
-            return BadRequest(new QueryResponse
-            {
-                Success = false,
-                ErrorMessage = "Question cannot be empty"
-            });
-        }
-
-        if (request.Question.Length > 10000)
-        {
-            return BadRequest(new QueryResponse
-            {
-                Success = false,
-                ErrorMessage = "Question is too long. Maximum 10,000 characters allowed."
-            });
-        }
-
-        try
-        {
-            _logger.LogInformation("Received query: {Question}",
-                request.Question.Length > 100 ? request.Question.Substring(0, 100) + "..." : request.Question);
-
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(TimeSpan.FromMinutes(5));
-
-            // ✅ NEW: Query Routing (if enabled)
-            if (_enableRouting && !_useLegacyMode)
-            {
-                _logger.LogInformation("Using intelligent query routing");
-                return await ExecuteWithRoutingAsync(request, cts.Token);
-            }
-
-            // Use legacy mode if configured
-            if (_useLegacyMode)
-            {
-                _logger.LogInformation("Using legacy orchestrator mode");
-                return await ExecuteWithLegacyOrchestrator(request, cts.Token);
-            }
-
-            // Use new ReAct Agent
-            _logger.LogInformation("Using ReAct Agent mode");
-            return await ExecuteWithReActAgent(request, cts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            _logger.LogWarning("Query timeout for question: {Question}", request.Question);
-            return StatusCode(504, new QueryResponse
-            {
-                Success = false,
-                ErrorMessage = "Query processing timed out. Please try again or simplify your question."
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Unexpected error processing query: {Question}", request.Question);
-            return StatusCode(500, new QueryResponse
-            {
-                Success = false,
-                ErrorMessage = $"Error processing query: {ex.Message}"
-            });
-        }
-    }
-
-    private async Task<IActionResult> ExecuteWithRoutingAsync(QueryRequest request, CancellationToken ct)
-    {
-        try
-        {
-            // Step 1: Validate query
-            var schema = await _schemaScanner.ScanAsync(ct);
-            var tableNames = schema.Tables.Select(t => t.TableName).ToList();
-            var validation = await _queryValidator.ValidateQueryAsync(request.Question, tableNames, ct);
-
-            _logger.LogInformation(
-                "[Routing] Query type: {Type}, Relevant: {Relevant}, Confidence: {Confidence:P0}",
-                validation.QueryType,
-                validation.IsRelevant,
-                validation.Confidence);
-
-            // Step 2: Route query
-            var route = await _queryRouter.RouteAsync(request.Question, validation, ct);
-
-            _logger.LogInformation(
-                "[Routing] Route decision: {Type} - {Reasoning}",
-                route.Type,
-                route.Reasoning);
-
-            // Step 3: Execute based on route
-            return route.Type switch
-            {
-                QueryRouteType.DirectResponse => HandleDirectResponse(route),
-                QueryRouteType.NeedsClarification => HandleClarification(route),
-                QueryRouteType.UseTool => await HandleToolExecution(route, ct),
-                QueryRouteType.UseAgent => await ExecuteWithReActAgent(request, ct),
-                _ => await ExecuteWithReActAgent(request, ct)
-            };
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "[Routing] Error in routing execution");
-            return StatusCode(500, new QueryResponse
-            {
-                Success = false,
-                ErrorMessage = $"Routing error: {ex.Message}"
-            });
-        }
-    }
-
-    private IActionResult HandleDirectResponse(QueryRoute route)
-    {
-        return Ok(new QueryResponse
-        {
-            Success = true,
-            Answer = route.DirectResponse,
-            ProcessingSteps = new List<string> { "Direct response (no agent execution)" },
-            Metadata = new Dictionary<string, object>
-            {
-                ["route_type"] = "DirectResponse",
-                ["reasoning"] = route.Reasoning ?? ""
-            }
-        });
-    }
-
-    private IActionResult HandleClarification(QueryRoute route)
-    {
-        return Ok(new QueryResponse
-        {
-            Success = false,
-            Answer = route.DirectResponse,
-            ProcessingSteps = new List<string> { "Clarification needed" },
-            Metadata = new Dictionary<string, object>
-            {
-                ["route_type"] = "NeedsClarification",
-                ["reasoning"] = route.Reasoning ?? ""
-            }
-        });
-    }
-
-    private async Task<IActionResult> HandleToolExecution(QueryRoute route, CancellationToken ct)
-    {
-        // For now, delegate to agent
-        // In future, could execute tool directly
-        _logger.LogInformation("[Routing] Tool execution delegated to agent: {Tool}", route.ToolName);
-
-        // P1-04: Consistent parameter key handling (prefer 'question' over 'query')
-        var routedQuestion = route.Parameters.TryGetValue("question", out var questionValue)
-            ? questionValue?.ToString()
-            : route.Parameters.TryGetValue("query", out var queryValue)
-                ? queryValue?.ToString()
-                : null;
-
-        if (string.IsNullOrWhiteSpace(routedQuestion))
-        {
-            return BadRequest(new QueryResponse
-            {
-                Success = false,
-                ErrorMessage = "Routing error: missing 'question' parameter in route"
-            });
-        }
-
-        var agentRequest = new AgentRequest(routedQuestion, null);
-        var result = await _agent.RunAsync(agentRequest, ct);
-
-        // P1-04: Consistent result mapping
-        var executionResult = TryExtractExecutionResult(result.QueryResult);
-        object? resultPayload = executionResult?.Rows ?? result.QueryResult;
-        int rowCount = executionResult?.RowCount ?? CountRows(result.QueryResult);
-
-        return Ok(new QueryResponse
-        {
-            Success = result.Success,
-            Answer = result.Answer,
-            SqlGenerated = result.SqlGenerated,
-            Result = resultPayload,
-            RowCount = rowCount,
-            ProcessingSteps = result.Steps.Select(s => $"Step {s.StepNumber}: {s.Thought}").ToList(),
-            Metadata = new Dictionary<string, object>
-            {
-                ["route_type"] = "UseTool",
-                ["tool_name"] = route.ToolName ?? "",
-                ["reasoning"] = route.Reasoning ?? "",
-                ["has_execution_result"] = executionResult != null
-            }
-        });
-    }
-
-    private async Task<IActionResult> ExecuteWithReActAgent(QueryRequest request, CancellationToken ct)
-    {
-        var agentRequest = new AgentRequest(request.Question, null);
-        var result = await _agent.RunAsync(agentRequest, ct);
-
-        // P1-04: Safe extraction of execution result
-        var executionResult = TryExtractExecutionResult(result.QueryResult);
-
-        // P1-04: Consistent result mapping
-        object? resultPayload = null;
-        int rowCount = 0;
-
-        if (executionResult != null)
-        {
-            // Use SqlExecutionResult structure
-            resultPayload = executionResult.Rows;
-            rowCount = executionResult.RowCount;
-        }
-        else if (result.QueryResult != null)
-        {
-            // Fallback: use raw QueryResult
-            resultPayload = result.QueryResult;
-            rowCount = CountRows(result.QueryResult);
-        }
-
-        var response = new QueryResponse
-        {
-            Success = result.Success,
-            SqlGenerated = result.SqlGenerated,
-            Result = resultPayload,
-            RowCount = rowCount,
-            ErrorMessage = result.ErrorMessage,
-            ProcessingSteps = result.ProcessingSteps.Count > 0
-                ? result.ProcessingSteps
-                : result.Steps.Select(s => $"Step {s.StepNumber}: {s.Thought}").ToList(),
-            Answer = result.Answer,
-            WasCorrected = false, // ReAct agent handles this differently
-            CorrectionAttempts = 0,
-            Metadata = new Dictionary<string, object>
-            {
-                ["agent_type"] = "ReAct",
-                ["total_steps"] = result.TotalSteps,
-                ["tokens_used"] = result.TotalTokensUsed,
-                ["latency_ms"] = result.TotalLatencyMs,
-                ["from_cache"] = result.FromCache,
-                ["has_execution_result"] = executionResult != null,
-                ["execution_time_ms"] = executionResult?.ExecutionTimeMs ?? 0
-            }
-        };
-
-        if (!result.Success)
-        {
-            _logger.LogWarning("ReAct Agent processing failed: {Error}", result.ErrorMessage);
-            return StatusCode(500, response);
-        }
-
-        return Ok(response);
-    }
-
-    private async Task<IActionResult> ExecuteWithLegacyOrchestrator(QueryRequest request, CancellationToken ct)
-    {
-        var result = await _legacyOrchestrator.ProcessQueryAsync(request.Question, ct);
-
-        var response = new QueryResponse
-        {
-            Success = result.Success,
-            SqlGenerated = result.SqlGenerated,
-            Result = result.QueryResult?.Rows,
-            RowCount = result.QueryResult?.RowCount ?? 0,
-            ErrorMessage = result.ErrorMessage,
-            ProcessingSteps = result.ProcessingSteps,
-            Answer = result.Answer,
-            WasCorrected = result.WasCorrected,
-            CorrectionAttempts = result.CorrectionAttempts,
-            Metadata = new Dictionary<string, object>
-            {
-                ["agent_type"] = "Legacy Pipeline"
-            }
-        };
-
-        if (!result.Success)
-        {
-            _logger.LogWarning("Legacy orchestrator processing failed: {Error}", result.ErrorMessage);
-            return StatusCode(500, response);
-        }
-
-        return Ok(response);
-    }
-
-    [HttpGet("schema")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> GetSchema(CancellationToken cancellationToken)
-    {
-        try
-        {
-            _logger.LogInformation("Getting database schema");
-
-            var schema = await _schemaScanner.ScanAsync(cancellationToken);
-
-            return Ok(new
-            {
-                TablesCount = schema.Tables.Count,
-                Tables = schema.Tables.Select(t => new
-                {
-                    t.TableName,
-                    Schema = t.Schema,
-                    ColumnCount = t.Columns.Count,
-                    Columns = t.Columns.Select(c => new
-                    {
-                        c.ColumnName,
-                        c.DataType,
-                        c.IsNullable,
-                        c.IsPrimaryKey,
-                        c.IsForeignKey
-                    })
-                }),
-                RelationshipsCount = schema.Relationships.Count
-            });
-        }
-        catch (OperationCanceledException)
-        {
-            _logger.LogWarning("Schema scan cancelled");
-            return StatusCode(504, new { Message = "Schema scan timed out" });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting schema");
-            return StatusCode(500, new { Message = $"Error getting schema: {ex.Message}" });
-        }
-    }
-
-    [HttpPost("schema/refresh")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> RefreshSchema(CancellationToken cancellationToken)
-    {
-        try
-        {
-            _logger.LogInformation("Manual schema refresh triggered");
-
-            // Clear cache
-            _legacyOrchestrator.ClearSchemaCache();
-
-            // Re-scan database schema
-            var schema = await _schemaScanner.ScanAsync(cancellationToken);
-
-            // Re-index to vector store
-            var schemaIndexer = HttpContext.RequestServices.GetRequiredService<SchemaIndexer>();
-            var fingerprint = CreateSimpleFingerprint(schema);
-            await schemaIndexer.IndexSchemaAsync(schema, fingerprint, cancellationToken);
-
-            _logger.LogInformation("Schema refreshed and re-indexed successfully");
-
-            return Ok(new
-            {
-                Message = "Schema refreshed and re-indexed successfully",
-                TablesCount = schema.Tables.Count,
-                RelationshipsCount = schema.Relationships.Count,
-                Timestamp = DateTime.UtcNow
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error refreshing schema");
-            return StatusCode(500, new { Message = $"Error refreshing schema: {ex.Message}" });
-        }
-    }
-
-    [AllowAnonymous]
-    [HttpGet("health")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    public IActionResult HealthCheck()
-    {
-        return Ok(new
-        {
-            Status = "Healthy",
-            Timestamp = DateTime.UtcNow,
-            Service = "TextToSqlAgent API",
-            Version = "2.0.0",
-            AgentType = _useLegacyMode ? "Legacy Pipeline" : "ReAct Agent"
-        });
-    }
-
-    [HttpGet("mode")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    public IActionResult GetMode()
-    {
-        return Ok(new
-        {
-            Mode = _useLegacyMode ? "Legacy" : "ReAct",
-            Description = _useLegacyMode
-                ? "Using legacy pipeline orchestrator (fixed steps)"
-                : "Using ReAct Agent (autonomous reasoning and acting)"
-        });
-    }
-    [AllowAnonymous]
-    [HttpPost("dev/query")]
-    [ProducesResponseType(typeof(QueryResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(QueryResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(QueryResponse), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> DevQuery([FromBody] QueryRequest? request, CancellationToken cancellationToken)
-    {
-        // P1-05: Security hardening - gate dev endpoint
-        if (!_enableDevQueryEndpoint)
-        {
-            _logger.LogWarning("Attempt to access disabled dev endpoint from {IP}", HttpContext.Connection.RemoteIpAddress);
-            return NotFound(new QueryResponse
-            {
-                Success = false,
-                ErrorMessage = "Endpoint not available"
-            });
-        }
-
-        // P1-05: Log security warning
-        _logger.LogWarning(
-            "[SECURITY] Using development endpoint without authentication! IP: {IP}, Question: {Question}",
-            HttpContext.Connection.RemoteIpAddress,
-            request?.Question?.Substring(0, Math.Min(50, request.Question?.Length ?? 0)));
-
-        return await ExecuteQuery(request, cancellationToken);
+        _tokenQuotaService = tokenQuotaService;
     }
 
     /// <summary>
-    /// P1-04: Safe extraction of SqlExecutionResult from QueryResult
-    /// Handles both typed objects and JsonElement
+    /// Process a message using the Enhanced Agent Orchestrator
     /// </summary>
-    private static SqlExecutionResult? TryExtractExecutionResult(object? queryResult)
+    [HttpPost("process")]
+    public async Task<IActionResult> ProcessMessage([FromBody] ProcessMessageRequest request)
     {
-        if (queryResult == null)
-            return null;
-
-        // Direct type match
-        if (queryResult is SqlExecutionResult typedResult)
+        try
         {
-            return typedResult;
-        }
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Unauthorized();
+            }
 
-        // JsonElement from LLM responses
-        if (queryResult is JsonElement jsonElement && jsonElement.ValueKind == JsonValueKind.Object)
-        {
+            if (string.IsNullOrEmpty(request?.Question))
+            {
+                return BadRequest(new { error = "Question is required" });
+            }
+
+            if (string.IsNullOrEmpty(request.ConnectionId))
+            {
+                return BadRequest(new { error = "ConnectionId is required" });
+            }
+
+            _logger.LogInformation("Processing message for user {UserId}, connection {ConnectionId}: {Question}",
+                userId, request.ConnectionId, request.Question);
+
+            // Verify user owns the connection
+            var connection = await _unitOfWork.Connections.GetByIdAndUserIdAsync(request.ConnectionId, userId);
+            if (connection == null)
+            {
+                return NotFound(new { error = "Connection not found" });
+            }
+
+            // Create a scoped service provider with overridden database configuration
+            using var scope = _serviceProvider.CreateScope();
+            var scopedServices = scope.ServiceProvider;
+
+            // Get the database config and temporarily override it for this connection
+            var dbConfig = scopedServices.GetRequiredService<DatabaseConfig>();
+            var originalConnectionString = dbConfig.ConnectionString;
+
+            // Build connection string from connection entity
+            var connectionString = BuildConnectionString(connection);
+            dbConfig.ConnectionString = connectionString;
+
             try
             {
-                return jsonElement.Deserialize<SqlExecutionResult>(new JsonSerializerOptions
+                // Get the enhanced agent orchestrator from scoped DI
+                var agent = scopedServices.GetRequiredService<EnhancedAgentOrchestrator>();
+
+                // Process the query using the same pipeline as Console project
+                var response = await agent.ProcessQueryAsync(request.Question, request.ConversationId);
+
+                // Save user message to database
+                var userMessage = new TextToSqlAgent.Infrastructure.Entities.Message
                 {
-                    PropertyNameCaseInsensitive = true
-                });
+                    ConversationId = request.ConversationId ?? Guid.NewGuid().ToString(),
+                    Role = "user",
+                    Content = request.Question,
+                    Success = true,
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                await _unitOfWork.Messages.AddAsync(userMessage);
+
+                // Estimate token usage for the AI response
+                // This is an approximation - in a real implementation, you'd get this from the LLM API
+                var inputTokens = EstimateTokens(request.Question);
+                var outputTokens = EstimateTokens(response.Answer + (response.SqlGenerated ?? "") + (response.QueryExplanation ?? ""));
+                var totalTokens = inputTokens + outputTokens;
+                var model = "gpt-4o"; // Default model - could be configurable
+
+                // Save assistant message to database with token usage
+                var assistantMessage = new TextToSqlAgent.Infrastructure.Entities.Message
+                {
+                    ConversationId = userMessage.ConversationId,
+                    Role = "assistant",
+                    Content = response.Answer,
+                    SqlQuery = response.SqlGenerated,
+                    Results = response.QueryResult?.Rows != null ?
+                        System.Text.Json.JsonSerializer.Serialize(response.QueryResult.Rows) : null,
+                    RowCount = response.QueryResult?.RowCount,
+                    ErrorMessage = response.ErrorMessage,
+                    QueryExplanation = response.QueryExplanation,
+                    ProcessingSteps = response.ProcessingSteps?.Count > 0 ?
+                        System.Text.Json.JsonSerializer.Serialize(response.ProcessingSteps) : null,
+                    SuggestedQueries = response.SuggestedQueries?.Count > 0 ?
+                        System.Text.Json.JsonSerializer.Serialize(response.SuggestedQueries) : null,
+                    CorrectionHistory = response.CorrectionHistory?.Count > 0 ?
+                        System.Text.Json.JsonSerializer.Serialize(response.CorrectionHistory) : null,
+                    WasCorrected = response.WasCorrected,
+                    CorrectionAttempts = response.CorrectionAttempts,
+                    Success = response.Success,
+                    // Token usage tracking
+                    InputTokens = inputTokens,
+                    OutputTokens = outputTokens,
+                    TotalTokens = totalTokens,
+                    Model = model,
+                    Cost = CalculateEstimatedCost(totalTokens, model),
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                await _unitOfWork.Messages.AddAsync(assistantMessage);
+                await _unitOfWork.SaveChangesAsync();
+
+                // Update user quota using TokenQuotaService
+                try
+                {
+                    await _tokenQuotaService.ConsumeTokenAsync(userId, inputTokens, outputTokens, model);
+                    _logger.LogInformation("Updated quota for user {UserId}: {InputTokens} input + {OutputTokens} output = {TotalTokens} total tokens",
+                        userId, inputTokens, outputTokens, totalTokens);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to update token quota for user {UserId}", userId);
+                    // Don't fail the request if quota update fails
+                }
+
+                // Update response with conversation ID
+                response.ConversationId = userMessage.ConversationId;
+
+                // Format response for production API
+                var result = new ProcessMessageResponse
+                {
+                    Success = response.Success,
+                    Question = request.Question,
+                    Answer = response.Answer,
+                    SqlGenerated = response.SqlGenerated,
+                    QueryResult = response.QueryResult != null ? new QueryResultDto
+                    {
+                        Success = response.QueryResult.Success,
+                        Columns = response.QueryResult.Columns,
+                        Rows = response.QueryResult.Rows,
+                        RowCount = response.QueryResult.RowCount,
+                        ExecutionTimeMs = response.QueryResult.ExecutionTimeMs,
+                        RowsAffected = response.QueryResult.RowsAffected,
+                        ErrorMessage = response.QueryResult.ErrorMessage
+                    } : null,
+                    ProcessingSteps = response.ProcessingSteps,
+                    QueryExplanation = response.QueryExplanation,
+                    SuggestedQueries = response.SuggestedQueries,
+                    CorrectionHistory = response.CorrectionHistory?.Select(c => new CorrectionAttemptDto
+                    {
+                        OriginalSql = c.OriginalSql,
+                        CorrectedSql = c.CorrectedSql,
+                        Error = c.Error?.ErrorMessage,
+                        Reasoning = c.Reasoning,
+                        Success = c.Success,
+                        AttemptNumber = c.AttemptNumber,
+                        Timestamp = c.Timestamp
+                    }).ToList() ?? new List<CorrectionAttemptDto>(),
+                    WasCorrected = response.WasCorrected,
+                    CorrectionAttempts = response.CorrectionAttempts,
+                    ConversationId = response.ConversationId,
+                    IsFollowUp = response.IsFollowUp,
+                    ErrorMessage = response.ErrorMessage,
+                    ConnectionId = request.ConnectionId
+                };
+
+                return Ok(result);
             }
-            catch (Exception ex)
+            finally
             {
-                // Log but don't throw - fallback to raw result
-                System.Diagnostics.Debug.WriteLine($"Failed to deserialize SqlExecutionResult: {ex.Message}");
-                return null;
+                // Restore original connection string
+                dbConfig.ConnectionString = originalConnectionString;
             }
         }
-
-        return null;
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during message processing for connection {ConnectionId}", request?.ConnectionId);
+            return this.CreateProblemDetails("Failed to process message", 500);
+        }
     }
 
     /// <summary>
-    /// P1-04: Safe row counting for various result types
+    /// Build connection string from connection entity
     /// </summary>
-    private static int CountRows(object? resultPayload)
+    private string BuildConnectionString(Connection connection)
     {
-        if (resultPayload == null)
+        // Decrypt the connection string (it's stored encrypted)
+        return _encryptionService.DecryptPassword(connection.ConnectionString, connection.Id);
+    }
+
+    /// <summary>
+    /// Estimate token count for text (rough approximation: 1 token ≈ 4 characters)
+    /// </summary>
+    private static int EstimateTokens(string text)
+    {
+        if (string.IsNullOrEmpty(text))
             return 0;
 
-        // ICollection (List, Array, etc.)
-        if (resultPayload is System.Collections.ICollection collection)
-        {
-            return collection.Count;
-        }
-
-        // JsonElement array
-        if (resultPayload is JsonElement jsonElement && jsonElement.ValueKind == JsonValueKind.Array)
-        {
-            return jsonElement.GetArrayLength();
-        }
-
-        // Single object = 1 row
-        return 1;
+        // Rough approximation: 1 token ≈ 4 characters for English text
+        // This is a simplified estimation - real tokenizers are more complex
+        return Math.Max(1, text.Length / 4);
     }
 
-    private static SchemaFingerprint CreateSimpleFingerprint(DatabaseSchema schema)
+    /// <summary>
+    /// Calculate estimated cost based on token count and model
+    /// </summary>
+    private static decimal CalculateEstimatedCost(int totalTokens, string model)
     {
-        return new SchemaFingerprint
+        // Approximate pricing per 1K tokens (can be adjusted based on actual model pricing)
+        var costPer1KTokens = model.ToLowerInvariant() switch
         {
-            Hash = Guid.NewGuid().ToString(), // Simple placeholder hash
-            ComputedAt = DateTime.UtcNow,
-            TableCount = schema.Tables.Count,
-            ColumnCount = schema.Tables.Sum(t => t.Columns.Count),
-            RelationshipCount = schema.Relationships.Count,
-            TableNames = schema.Tables.Select(t => t.TableName).OrderBy(n => n).ToList()
+            var m when m.Contains("gpt-4") => 0.03m, // $0.03 per 1K tokens
+            var m when m.Contains("gpt-3.5") => 0.002m, // $0.002 per 1K tokens
+            var m when m.Contains("gemini") => 0.00025m, // $0.00025 per 1K tokens
+            _ => 0.03m // Default to GPT-4 pricing
         };
+
+        return (totalTokens / 1000m) * costPer1KTokens;
     }
+}
+
+/// <summary>
+/// Request model for processing a message
+/// </summary>
+public class ProcessMessageRequest
+{
+    public string ConnectionId { get; set; } = string.Empty;
+    public string Question { get; set; } = string.Empty;
+    public string? ConversationId { get; set; }
+}
+
+/// <summary>
+/// Response model for processed message
+/// </summary>
+public class ProcessMessageResponse
+{
+    public bool Success { get; set; }
+    public string Question { get; set; } = string.Empty;
+    public string Answer { get; set; } = string.Empty;
+    public string? SqlGenerated { get; set; }
+    public QueryResultDto? QueryResult { get; set; }
+    public List<string> ProcessingSteps { get; set; } = new();
+    public string? QueryExplanation { get; set; }
+    public List<string> SuggestedQueries { get; set; } = new();
+    public List<CorrectionAttemptDto> CorrectionHistory { get; set; } = new();
+    public bool WasCorrected { get; set; }
+    public int CorrectionAttempts { get; set; }
+    public string? ConversationId { get; set; }
+    public bool IsFollowUp { get; set; }
+    public string? ErrorMessage { get; set; }
+    public string ConnectionId { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// DTO for query execution results
+/// </summary>
+public class QueryResultDto
+{
+    public bool Success { get; set; }
+    public List<string> Columns { get; set; } = new();
+    public List<Dictionary<string, object?>> Rows { get; set; } = new();
+    public int RowCount { get; set; }
+    public int ExecutionTimeMs { get; set; }
+    public int RowsAffected { get; set; }
+    public string? ErrorMessage { get; set; }
+}
+
+/// <summary>
+/// DTO for correction attempts
+/// </summary>
+public class CorrectionAttemptDto
+{
+    public string OriginalSql { get; set; } = string.Empty;
+    public string CorrectedSql { get; set; } = string.Empty;
+    public string? Error { get; set; }
+    public string Reasoning { get; set; } = string.Empty;
+    public bool Success { get; set; }
+    public int AttemptNumber { get; set; }
+    public DateTime Timestamp { get; set; }
 }

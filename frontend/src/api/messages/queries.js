@@ -1,10 +1,8 @@
 /**
- * Messages Queries - CQRS Pattern
- * React Query hooks for fetching messages and schema data
+ * Message Queries - React Query hooks for fetching message data
  */
 import { useQuery } from '@tanstack/react-query';
 import axiosInstance from '../axios';
-import { API_ENDPOINTS } from '../../constants';
 
 /**
  * Query keys for message-related queries
@@ -12,96 +10,43 @@ import { API_ENDPOINTS } from '../../constants';
 export const messageKeys = {
   all: ['messages'],
   lists: () => [...messageKeys.all, 'list'],
-  list: (conversationId) => [...messageKeys.lists(), conversationId],
+  list: (filters) => [...messageKeys.lists(), filters],
   details: () => [...messageKeys.all, 'detail'],
-  detail: (conversationId, messageId) => [...messageKeys.details(), conversationId, messageId],
-};
-
-/**
- * Schema query keys
- */
-export const schemaKeys = {
-  all: ['schema'],
-  byConnection: (connectionId) => [...schemaKeys.all, 'connection', connectionId],
+  detail: (id) => [...messageKeys.details(), id],
+  recentQueries: () => [...messageKeys.all, 'recent-queries'],
 };
 
 /**
  * useMessagesQuery - Get messages for a conversation
- * @param {string} conversationId - The conversation ID
- * @param {Object} options - Query options
- * @param {number} options.limit - Max number of messages to return
- * @param {number} options.offset - Offset for pagination
- * @param {boolean} options.enabled - Whether to enable the query
- * @param {Object} options.queryOptions - Additional react-query options
  */
-export const useMessagesQuery = (
-  conversationId,
-  { limit = 50, offset = 0, enabled = true, ...queryOptions } = {}
-) => {
+export const useMessagesQuery = (conversationId, options = {}) => {
   return useQuery({
-    queryKey: messageKeys.list(conversationId),
+    queryKey: messageKeys.list({ conversationId }),
     queryFn: async () => {
-      const response = await axiosInstance.get(
-        `${API_ENDPOINTS.MESSAGES}/conversation/${conversationId}`,
-        { params: { limit, offset } }
-      );
+      const response = await axiosInstance.get(`/api/messages/conversation/${conversationId}`);
       return response.data;
     },
-    enabled: !!conversationId && enabled,
-    staleTime: 1 * 60 * 1000, // 1 minute for messages
-    ...queryOptions,
+    enabled: !!conversationId,
+    ...options,
   });
 };
 
 /**
- * useSchemaQuery - Get schema for a connection (tables, columns, relationships)
- * @param {string} connectionId - The connection ID
- * @param {Object} options - Query options
- * @param {boolean} options.enabled - Whether to enable the query
- * @param {Object} options.queryOptions - Additional react-query options
+ * useRecentQueriesQuery - Get recent SQL queries for the current user
  */
-export const useSchemaQuery = (
-  connectionId,
-  { enabled = true, ...queryOptions } = {}
-) => {
+export const useRecentQueriesQuery = (options = {}) => {
   return useQuery({
-    queryKey: schemaKeys.byConnection(connectionId),
+    queryKey: messageKeys.recentQueries(),
     queryFn: async () => {
-      const response = await axiosInstance.get(
-        `${API_ENDPOINTS.CONNECTIONS}/${connectionId}/schema`
-      );
+      const response = await axiosInstance.get('/api/messages/recent-queries?limit=5');
       return response.data;
     },
-    enabled: !!connectionId && enabled,
-    staleTime: 60 * 60 * 1000, // 1 hour for schema - it doesn't change often
-    ...queryOptions,
-  });
-};
-
-/**
- * useQuotaQuery - Get token quota information for current user
- * @param {Object} options - Query options
- * @param {boolean} options.enabled - Whether to enable the query
- * @param {Object} options.queryOptions - Additional react-query options
- */
-export const useQuotaQuery = (
-  { enabled = true, ...queryOptions } = {}
-) => {
-  return useQuery({
-    queryKey: ['quota'],
-    queryFn: async () => {
-      const response = await axiosInstance.get('/api/auth/quota');
-      return response.data;
-    },
-    enabled,
-    staleTime: 30 * 1000, // 30 seconds
-    refetchInterval: 30000, // Refetch every 30 seconds
-    ...queryOptions,
+    refetchInterval: 30000, // Refresh every 30 seconds
+    ...options,
   });
 };
 
 export default {
   useMessagesQuery,
-  useSchemaQuery,
-  useQuotaQuery,
+  useRecentQueriesQuery,
 };

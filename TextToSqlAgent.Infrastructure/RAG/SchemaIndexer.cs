@@ -30,6 +30,15 @@ public class SchemaIndexer
         SchemaFingerprint fingerprint,
         CancellationToken cancellationToken = default)
     {
+        return await IndexSchemaAsync(schema, fingerprint, null, cancellationToken);
+    }
+
+    public virtual async Task<ConnectionResult> IndexSchemaAsync(
+        DatabaseSchema schema,
+        SchemaFingerprint fingerprint,
+        string? connectionId,
+        CancellationToken cancellationToken = default)
+    {
         var stopwatch = Stopwatch.StartNew();
         var result = new ConnectionResult { Success = false };
 
@@ -54,7 +63,7 @@ public class SchemaIndexer
             List<SchemaDocument> documents;
             try
             {
-                documents = BuildSchemaDocuments(schema);
+                documents = BuildSchemaDocuments(schema, connectionId);
                 _logger.LogDebug("[SchemaIndexer] Created {Count} documents", documents.Count);
             }
             catch (Exception ex)
@@ -127,7 +136,7 @@ public class SchemaIndexer
         }
     }
 
-    private List<SchemaDocument> BuildSchemaDocuments(DatabaseSchema schema)
+    private List<SchemaDocument> BuildSchemaDocuments(DatabaseSchema schema, string? connectionId = null)
     {
         var documents = new List<SchemaDocument>();
         var pointId = 0;
@@ -150,6 +159,12 @@ public class SchemaIndexer
                     ["column_count"] = table.Columns.Count.ToString()
                 }
             };
+
+            // Add connectionId to metadata if provided
+            if (!string.IsNullOrEmpty(connectionId))
+            {
+                tableDoc.Metadata["connection_id"] = connectionId;
+            }
 
             documents.Add(tableDoc);
 
@@ -174,6 +189,12 @@ public class SchemaIndexer
                     }
                 };
 
+                // Add connectionId to metadata if provided
+                if (!string.IsNullOrEmpty(connectionId))
+                {
+                    columnDoc.Metadata["connection_id"] = connectionId;
+                }
+
                 documents.Add(columnDoc);
             }
         }
@@ -197,6 +218,12 @@ public class SchemaIndexer
                     ["to_column"] = rel.ToColumn
                 }
             };
+
+            // Add connectionId to metadata if provided
+            if (!string.IsNullOrEmpty(connectionId))
+            {
+                relDoc.Metadata["connection_id"] = connectionId;
+            }
 
             documents.Add(relDoc);
         }

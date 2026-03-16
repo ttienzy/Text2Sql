@@ -17,8 +17,8 @@ const errorEventEmitter = new EventTarget();
  */
 export const dispatchGlobalError = (error) => {
   const standardizedError = createError(error);
-  errorEventEmitter.dispatchEvent(new CustomEvent('api:error', { 
-    detail: standardizedError 
+  errorEventEmitter.dispatchEvent(new CustomEvent('api:error', {
+    detail: standardizedError
   }));
 };
 
@@ -50,11 +50,11 @@ axiosInstance.interceptors.request.use(
   (config) => {
     // Get token from localStorage
     const token = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
-    
+
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    
+
     return config;
   },
   (error) => {
@@ -67,48 +67,48 @@ axiosInstance.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
-    
+
     // Standardize error before processing
     const standardizedError = {
       ...error,
       message: extractErrorMessage(error),
     };
-    
+
     // If 401 error and haven't tried to refresh yet
     if (error.response?.status === HTTP_STATUS.UNAUTHORIZED && !originalRequest._retry) {
       originalRequest._retry = true;
-      
+
       try {
         // If already refreshing, wait for that promise
         if (refreshTokenPromise) {
           await refreshTokenPromise;
           return axiosInstance(originalRequest);
         }
-        
+
         // Start refresh process
         const refreshToken = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
-        
+
         if (!refreshToken) {
           // No refresh token, force logout
           window.dispatchEvent(new CustomEvent('auth:logout', { detail: { reason: 'token_expired' } }));
           return Promise.reject(standardizedError);
         }
-        
+
         // Create refresh promise
         refreshTokenPromise = (async () => {
           try {
             const response = await axios.post(`${API_BASE_URL}/api/auth/refresh`, {
               refreshToken,
             });
-            
-            const { token: accessToken, refreshToken: newRefreshToken } = response.data;
-            
+
+            const { accessToken, refreshToken: newRefreshToken } = response.data;
+
             // Update localStorage
             localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
             if (newRefreshToken) {
               localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, newRefreshToken);
             }
-            
+
             return accessToken;
           } catch (refreshError) {
             // Refresh failed, force logout
@@ -118,11 +118,11 @@ axiosInstance.interceptors.response.use(
             refreshTokenPromise = null;
           }
         })();
-        
+
         // Wait for refresh and retry
         await refreshTokenPromise;
         return axiosInstance(originalRequest);
-        
+
       } catch (refreshError) {
         return Promise.reject({
           ...standardizedError,
@@ -130,10 +130,10 @@ axiosInstance.interceptors.response.use(
         });
       }
     }
-    
+
     // Dispatch global error event for non-401 errors
     dispatchGlobalError(error);
-    
+
     return Promise.reject(standardizedError);
   }
 );

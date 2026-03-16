@@ -1,13 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-  Input, 
-  Button, 
-  Typography, 
+import {
+  Input,
+  Button,
+  Typography,
   Tooltip,
   Space,
+  Skeleton,
 } from 'antd';
-import { 
-  SendOutlined, 
+import {
+  SendOutlined,
   LoadingOutlined,
 } from '@ant-design/icons';
 
@@ -23,9 +24,9 @@ const { Text } = Typography;
  * @param {string} props.placeholder - Placeholder text
  * @param {number} props.maxLength - Maximum character length
  */
-const ChatInput = ({ 
-  onSend, 
-  isLoading = false, 
+const ChatInput = ({
+  onSend,
+  isLoading = false,
   disabled = false,
   placeholder = 'Ask a question about your database...',
   maxLength = 5000,
@@ -33,37 +34,37 @@ const ChatInput = ({
   const [value, setValue] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const textAreaRef = useRef(null);
-  
+
   // Auto-resize textarea
   useEffect(() => {
     if (textAreaRef.current) {
       textAreaRef.current.resizeTextArea?.();
     }
   }, [value]);
-  
+
   const handleChange = (e) => {
     const newValue = e.target.value;
     if (newValue.length <= maxLength) {
       setValue(newValue);
     }
   };
-  
+
   const handleSend = async () => {
     const trimmedValue = value.trim();
     if (!trimmedValue || isLoading || disabled) return;
-    
+
     // Clear input and trigger send
     setValue('');
     if (onSend) {
       await onSend(trimmedValue);
     }
-    
+
     // Refocus after send
     setTimeout(() => {
       textAreaRef.current?.focus?.();
     }, 100);
   };
-  
+
   const handleKeyDown = (e) => {
     // Ctrl+Enter to send
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -71,26 +72,26 @@ const ChatInput = ({
       handleSend();
       return;
     }
-    
+
     // Shift+Enter for new line (default behavior)
     if (e.key === 'Enter' && e.shiftKey) {
       return; // Allow default behavior
     }
-    
+
     // Regular Enter - don't send (use Ctrl+Enter instead)
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       // Optionally show hint that Ctrl+Enter is needed
     }
   };
-  
+
   // Character count display
   const charCount = value.length;
   const isNearLimit = charCount > maxLength * 0.9;
-  
+
   return (
-    <div style={{ 
-      borderTop: '1px solid #f0f0f0', 
+    <div style={{
+      borderTop: '1px solid #f0f0f0',
       padding: '12px 16px',
       backgroundColor: '#fff',
     }}>
@@ -105,20 +106,20 @@ const ChatInput = ({
           placeholder={placeholder}
           autoSize={{ minRows: 2, maxRows: 8 }}
           disabled={disabled || isLoading}
-          style={{ 
+          style={{
             flex: 1,
             borderColor: isFocused ? '#1890ff' : undefined,
           }}
           status={isNearLimit ? 'warning' : undefined}
         />
-        <Button 
-          type="primary" 
-          icon={isLoading ? <LoadingOutlined /> : <SendOutlined />} 
+        <Button
+          type="primary"
+          icon={isLoading ? <LoadingOutlined /> : <SendOutlined />}
           onClick={handleSend}
           loading={isLoading}
           disabled={!value.trim() || disabled}
-          style={{ 
-            height: 'auto', 
+          style={{
+            height: 'auto',
             minHeight: 66,
             alignSelf: 'flex-end',
             padding: '12px 20px',
@@ -127,11 +128,11 @@ const ChatInput = ({
           {isLoading ? 'Sending...' : 'Send'}
         </Button>
       </div>
-      
+
       {/* Helper text */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
         marginTop: 8,
       }}>
         <Text type="secondary" style={{ fontSize: 12 }}>
@@ -141,8 +142,8 @@ const ChatInput = ({
             </span>
           </Tooltip>
         </Text>
-        <Text 
-          type={isNearLimit ? 'warning' : 'secondary'} 
+        <Text
+          type={isNearLimit ? 'warning' : 'secondary'}
           style={{ fontSize: 12 }}
         >
           {charCount.toLocaleString()} / {maxLength.toLocaleString()}

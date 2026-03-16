@@ -1,23 +1,26 @@
 import { useState, useEffect } from 'react';
-import { 
-  Typography, 
-  Space, 
-  Badge, 
-  List, 
-  Collapse, 
+import {
+  Typography,
+  Space,
+  Badge,
+  List,
+  Collapse,
   Button,
   Tooltip,
   Spin,
   Empty,
 } from 'antd';
-import { 
-  DatabaseOutlined, 
-  TableOutlined, 
-  ColumnWidthOutlined, 
+import {
+  DatabaseOutlined,
+  TableOutlined,
+  ColumnWidthOutlined,
   SyncOutlined,
   InfoCircleOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
+import { SchemaBrowserSkeleton } from '../common';
 import axiosInstance from '../../api/axios';
+import { useRecentQueriesQuery } from '../../api/messages/queries';
 import useConnectionStore from '../../store/connectionStore';
 import useConversationStore from '../../store/conversationStore';
 import QuotaProgress from '../dashboard/QuotaProgress';
@@ -28,10 +31,13 @@ const { Panel } = Collapse;
 const InfoPanel = ({ onSyncSchema }) => {
   const [schema, setSchema] = useState([]);
   const [isLoadingSchema, setIsLoadingSchema] = useState(false);
-  
+
   const { activeConnection } = useConnectionStore();
   const { currentConnection: currentConv } = useConversationStore();
-  
+
+  // Fetch recent queries
+  const { data: recentQueries, isLoading: isLoadingQueries } = useRecentQueriesQuery();
+
   // Fetch schema when connection changes
   useEffect(() => {
     if (activeConnection?.id) {
@@ -40,7 +46,7 @@ const InfoPanel = ({ onSyncSchema }) => {
       setSchema([]);
     }
   }, [activeConnection?.id]);
-  
+
   const fetchSchema = async (connectionId) => {
     setIsLoadingSchema(true);
     try {
@@ -53,10 +59,10 @@ const InfoPanel = ({ onSyncSchema }) => {
       setIsLoadingSchema(false);
     }
   };
-  
+
   const handleSyncSchema = async () => {
     if (!activeConnection?.id || isLoadingSchema) return;
-    
+
     try {
       await axiosInstance.post(`/api/connections/${activeConnection.id}/sync`);
       // Refresh schema after sync
@@ -68,91 +74,135 @@ const InfoPanel = ({ onSyncSchema }) => {
       console.error('Failed to sync schema:', error);
     }
   };
-  
+
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 16 }}>
-      <Title level={5} style={{ marginBottom: 16 }}>
-        <InfoCircleOutlined style={{ marginRight: 8 }} />
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 12 }}>
+      <Title level={5} style={{ marginBottom: 12, fontSize: 14 }}>
+        <InfoCircleOutlined style={{ marginRight: 6 }} />
         Connection Info
       </Title>
-      
+
       {activeConnection ? (
         <>
           {/* Connection Details */}
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ marginBottom: 8 }}>
-              <Text type="secondary">Database Type:</Text>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ marginBottom: 6 }}>
+              <Text type="secondary" style={{ fontSize: 11 }}>Database Type:</Text>
               <div>
-                <Badge 
-                  status="processing" 
-                  text={activeConnection.databaseType || 'Unknown'} 
+                <Badge
+                  status="processing"
+                  text={activeConnection.provider?.toUpperCase() || 'Unknown'}
                 />
               </div>
             </div>
-            <div style={{ marginBottom: 8 }}>
-              <Text type="secondary">Host:</Text>
+            <div style={{ marginBottom: 6 }}>
+              <Text type="secondary" style={{ fontSize: 11 }}>Host:</Text>
               <div>
-                <Text ellipsis style={{ fontSize: 13 }}>
+                <Text ellipsis style={{ fontSize: 12 }}>
                   {activeConnection.host || 'N/A'}:{activeConnection.port || ''}
                 </Text>
               </div>
             </div>
-            <div style={{ marginBottom: 8 }}>
-              <Text type="secondary">Database:</Text>
+            <div style={{ marginBottom: 6 }}>
+              <Text type="secondary" style={{ fontSize: 11 }}>Database:</Text>
               <div>
-                <Text>{activeConnection.database || 'N/A'}</Text>
+                <Text style={{ fontSize: 12 }}>{activeConnection.database || 'N/A'}</Text>
+              </div>
+            </div>
+            <div style={{ marginBottom: 6 }}>
+              <Text type="secondary" style={{ fontSize: 11 }}>Status:</Text>
+              <div>
+                <Badge
+                  status={activeConnection.isConnected ? "success" : "error"}
+                  text={activeConnection.isConnected ? "Connected" : "Disconnected"}
+                />
               </div>
             </div>
             <div>
-              <Text type="secondary">Status:</Text>
+              <Text type="secondary" style={{ fontSize: 11 }}>Schema Status:</Text>
               <div>
-                <Badge status="success" text="Connected" />
+                <Badge
+                  status={activeConnection.schemaSync?.isSynced ? "success" : "warning"}
+                  text={activeConnection.schemaSync?.isSynced
+                    ? `${activeConnection.schemaSync.tableCount || 0} tables indexed`
+                    : "Not indexed"
+                  }
+                />
               </div>
             </div>
           </div>
-          
+
           {/* Token Quota - Using new QuotaProgress component */}
-          <div style={{ marginBottom: 24 }}>
+          <div style={{ marginBottom: 16 }}>
             <QuotaProgress compact />
           </div>
-          
+
+          {/* Recent Queries */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
+              <HistoryOutlined style={{ marginRight: 6, color: '#1890ff', fontSize: 12 }} />
+              <Text strong style={{ fontSize: 12 }}>Recent Queries</Text>
+            </div>
+            {isLoadingQueries ? (
+              <Spin size="small" />
+            ) : recentQueries && recentQueries.length > 0 ? (
+              <div style={{ fontSize: 11 }}>
+                {recentQueries.map((query, index) => (
+                  <div key={query.id} style={{ marginBottom: 4, padding: 4, backgroundColor: '#f9f9f9', borderRadius: 3 }}>
+                    <Text style={{ fontSize: 10, color: '#666', fontFamily: 'monospace' }}>
+                      {query.sqlQuery || query.content}
+                    </Text>
+                    <div style={{ marginTop: 1 }}>
+                      <Text type="secondary" style={{ fontSize: 9 }}>
+                        {new Date(query.createdAt).toLocaleTimeString()}
+                      </Text>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                No recent queries
+              </Text>
+            )}
+          </div>
+
           {/* Schema Browser */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <Space>
-                <DatabaseOutlined />
-                <Text strong>Schema Browser</Text>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <Space size="small">
+                <DatabaseOutlined style={{ fontSize: 12 }} />
+                <Text strong style={{ fontSize: 12 }}>Schema Browser</Text>
               </Space>
               <Tooltip title="Sync Schema">
-                <Button 
-                  type="text" 
-                  size="small" 
-                  icon={<SyncOutlined spin={isLoadingSchema} />} 
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<SyncOutlined spin={isLoadingSchema} style={{ fontSize: 11 }} />}
                   onClick={handleSyncSchema}
                   loading={isLoadingSchema}
                 />
               </Tooltip>
             </div>
-            
+
             {isLoadingSchema ? (
-              <div style={{ textAlign: 'center', padding: 24 }}>
-                <Spin />
-              </div>
+              <SchemaBrowserSkeleton count={3} />
             ) : schema.length === 0 ? (
-              <Empty 
+              <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
                 description="No schema available"
-                style={{ padding: 24 }}
+                style={{ padding: 16 }}
               />
             ) : (
-              <Collapse 
-                ghost 
-                defaultActiveKey={schema.slice(0, 3).map(t => t.name)}
+              <Collapse
+                ghost
+                size="small"
+                defaultActiveKey={schema.slice(0, 2).map(t => t.name)}
                 style={{ flex: 1, overflow: 'auto' }}
               >
                 {schema.map((table) => (
-                  <Panel 
-                    key={table.name} 
+                  <Panel
+                    key={table.name}
                     header={
                       <Space>
                         <TableOutlined />
@@ -189,7 +239,7 @@ const InfoPanel = ({ onSyncSchema }) => {
               </Collapse>
             )}
           </div>
-          
+
           {/* Conversation Metadata */}
           {currentConv && (
             <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #f0f0f0' }}>
@@ -198,8 +248,8 @@ const InfoPanel = ({ onSyncSchema }) => {
               </Text>
               <br />
               <Text type="secondary" style={{ fontSize: 12 }}>
-                Created: {currentConv.createdAt 
-                  ? new Date(currentConv.createdAt).toLocaleDateString() 
+                Created: {currentConv.createdAt
+                  ? new Date(currentConv.createdAt).toLocaleDateString()
                   : 'N/A'}
               </Text>
             </div>

@@ -296,6 +296,241 @@ public class TextToSqlAgentOrchestrator
         }
     }
 
+    public async Task<AgentResponse> ProcessQueryAsync(
+        string userQuestion,
+        string userId,
+        string connectionId,
+        CancellationToken cancellationToken = default)
+    {
+        var response = new AgentResponse();
+        var steps = new List<string>();
+
+        try
+        {
+            _logger.LogDebug("[Agent] Processing new question for user {UserId}, connection {ConnectionId}", userId, connectionId);
+
+            // ====================================
+            // STEP 1: Normalize Prompt
+            // ====================================
+            steps.Add("Step 1: Normalize question");
+            var normalized = await _normalizeTask.ExecuteAsync(userQuestion, cancellationToken);
+
+            // ====================================
+            // STEP 1.5: Setup Qdrant Collection Name (per-user)
+            // ====================================
+            try
+            {
+                _qdrantService.SetUserCollectionName(userId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Agent] Cannot set user collection name. Using default collection name.");
+            }
+
+            // ====================================
+            // STEP 2: Scan Schema (if not cached)
+            // ====================================
+            if (_cachedSchema == null)
+            {
+                steps.Add("Step 2: Scan database schema");
+
+                try
+                {
+                    _cachedSchema = await _schemaScanner.ScanAsync(cancellationToken);
+                }
+                catch (DatabaseConnectionException ex)
+                {
+                    _logger.LogError(ex, "[Agent] Cannot connect to database");
+                    response.Success = false;
+                    response.ErrorMessage = "Cannot connect to database. Please check your connection string.";
+                    response.ProcessingSteps = steps;
+                    return response;
+                }
+                catch (DatabasePermissionException ex)
+                {
+                    _logger.LogError(ex, "[Agent] Insufficient database permissions");
+                    response.Success = false;
+                    response.ErrorMessage = "Insufficient database permissions. Please grant SELECT on INFORMATION_SCHEMA.";
+                    response.ProcessingSteps = steps;
+                    return response;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[Agent] Failed to scan database schema");
+                    response.Success = false;
+                    response.ErrorMessage = $"Failed to scan database schema: {ex.Message}";
+                    response.ProcessingSteps = steps;
+                    return response;
+                }
+
+                // Auto-index schema after first scan
+                if (!_schemaIndexed)
+                {
+                    steps.Add("Step 2.5: Index schema into vector database");
+
+                    // Use TryEnsure instead of Ensure to prevent crash
+                    if (!await TryEnsureSchemaIndexedAsync(_cachedSchema, connectionId, cancellationToken))
+                    {
+                        _logger.LogWarning("⚠️  Warning: RAG is not available. Using full schema. Reason: Could not connect to Qdrant vector database.");
+                    }
+
+                    _schemaIndexed = true;
+                }
+            }
+            else
+            {
+                steps.Add("Step 2: Use cached schema");
+                _logger.LogDebug("[Agent] Using cached schema");
+            }
+
+            // ====================================
+            // STEP 3: RAG - Retrieve Relevant Schema
+            // ====================================
+            steps.Add("Step 3: RAG - Retrieve relevant schema");
+            var relevantSchema = await _schemaRetriever.RetrieveAsync(
+                normalized.NormalizedText,
+                _cachedSchema,
+                connectionId,
+                cancellationToken);
+
+            _logger.LogDebug(
+                "[Agent] RAG found: {Tables} tables, {Rels} relationships",
+                relevantSchema.RelevantTables.Count,
+                relevantSchema.RelevantRelationships.Count);
+
+            // ====================================
+            // STEP 4: Intent Analysis (with RAG context)
+            // ====================================
+            steps.Add("Step 4: Analyze intent");
+
+            // ========================================
+            // FALLBACK: If RAG found nothing, use full schema
+            // ========================================
+            IntentAnalysis intent;
+            if (relevantSchema.RelevantTables.Count == 0)
+            {
+                _logger.LogWarning("[Agent] RAG found 0 results, falling back to full schema");
+
+                // Use all table names for intent analysis
+                var allTableNames = _cachedSchema.Tables.Select(t => t.TableName).ToList();
+
+                // Single intent analysis call (reuse the result)
+                intent = await _intentPlugin.AnalyzeIntentAsync(
+                    normalized.NormalizedText,
+                    allTableNames,
+                    cancellationToken);
+
+                // Build relevant schema based on intent target
+                relevantSchema = BuildFallbackSchema(intent.Target, _cachedSchema);
+
+                _logger.LogInformation(
+                    "[Agent] Fallback schema: {Tables} tables",
+                    relevantSchema.RelevantTables.Count);
+            }
+            else
+            {
+                // Normal path: use RAG-retrieved tables for intent analysis
+                var tableNames = relevantSchema.RelevantTables.Select(t => t.TableName).ToList();
+                intent = await _intentPlugin.AnalyzeIntentAsync(
+                    normalized.NormalizedText,
+                    tableNames,
+                    cancellationToken);
+            }
+
+            if (intent.NeedsClarification)
+            {
+                response.Success = false;
+                response.Answer = intent.ClarificationQuestion ?? "Question is unclear.";
+                response.ProcessingSteps = steps;
+                return response;
+            }
+
+            // ====================================
+            // STEP 5: Generate SQL (with RAG context + original question)
+            // ====================================
+            steps.Add("Step 5: Generate SQL with RAG context");
+
+            // ✅ Get SQL + suggestions in one API call
+            var sqlResult = await _sqlGenerator.GenerateSqlWithContextAsync(
+                intent,
+                relevantSchema,
+                normalized.NormalizedText,  // Pass original question to LLM
+                cancellationToken);
+
+            var sql = sqlResult.Sql;
+
+            // ====================================
+            // STEP 6: Validate SQL
+            // ====================================
+            steps.Add("Step 6: Validate SQL");
+            if (!_sqlGenerator.ValidateSql(sql))
+            {
+                response.Success = false;
+                response.ErrorMessage = "Unsafe SQL detected";
+                response.SqlGenerated = sql;
+                response.ProcessingSteps = steps;
+                return response;
+            }
+
+            // ====================================
+            // STEP 7: Execute SQL with Self-Correction
+            // ====================================
+            steps.Add("Step 7: Execute SQL with self-correction");
+            var (executionResult, corrections) = await ExecuteWithSelfCorrectionAsync(
+                sql,
+                relevantSchema,
+                intent,
+                cancellationToken);
+
+            response.CorrectionHistory = corrections;
+            response.WasCorrected = corrections.Any();
+            response.CorrectionAttempts = corrections.Count;
+
+            if (!executionResult.Success)
+            {
+                response.Success = false;
+                response.ErrorMessage = executionResult.ErrorMessage;
+                response.SqlGenerated = sql;
+                response.QueryResult = executionResult;
+                response.ProcessingSteps = steps;
+                return response;
+            }
+
+            // Apply EnsureLimit on the final executed SQL (after correction)
+            var finalSql = corrections.Any() ? corrections.Last().CorrectedSql : sql;
+            finalSql = _sqlGenerator.EnsureLimit(finalSql);
+
+            // ====================================
+            // STEP 8: Format Answer
+            // ====================================
+            steps.Add("Step 8: Interpret results");
+            var answer = FormatAnswer(intent, executionResult, corrections, normalized.NormalizedText);
+
+            response.Success = true;
+            response.Answer = answer;
+            response.SqlGenerated = finalSql;
+            response.QueryResult = executionResult;
+            response.ProcessingSteps = steps;
+
+            // ✅ Add suggestions from LLM response
+            response.SuggestedQueries = sqlResult.SuggestedQueries;
+
+            _logger.LogInformation("[Agent] ✓ Processing complete");
+
+            return response;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Agent] Error processing query");
+
+            response.Success = false;
+            response.ErrorMessage = $"Error: {ex.Message}";
+            response.ProcessingSteps = steps;
+
+            return response;
+        }
+    }
+
     private static string? ExtractDatabaseName(DatabaseConfig config)
     {
         if (string.IsNullOrWhiteSpace(config.ConnectionString))
@@ -716,6 +951,14 @@ public class TextToSqlAgentOrchestrator
     DatabaseSchema schema,
     CancellationToken cancellationToken)
     {
+        return await TryEnsureSchemaIndexedAsync(schema, null, cancellationToken);
+    }
+
+    private async Task<bool> TryEnsureSchemaIndexedAsync(
+    DatabaseSchema schema,
+    string? connectionId,
+    CancellationToken cancellationToken)
+    {
         try
         {
             _logger.LogInformation("[Agent] Checking Qdrant collection...");
@@ -733,7 +976,7 @@ public class TextToSqlAgentOrchestrator
                 {
                     _logger.LogInformation("[Agent] Indexing schema to Qdrant...");
                     var fingerprint = CreateSimpleFingerprint(schema);
-                    await _schemaIndexer.IndexSchemaAsync(schema, fingerprint, cts.Token);
+                    await _schemaIndexer.IndexSchemaAsync(schema, fingerprint, connectionId, cts.Token);
                     _logger.LogInformation("[Agent] ✓ Schema indexed");
                 }
             }

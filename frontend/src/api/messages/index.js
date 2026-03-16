@@ -4,4 +4,3 @@
 export * from './queries';
 export * from './commands';
 export { messageKeys } from './queries';
-export { schemaKeys } from './queries';

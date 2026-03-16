@@ -46,6 +46,16 @@ public class InMemoryVectorStore : IVectorStore
         float scoreThreshold,
         CancellationToken cancellationToken = default)
     {
+        return SearchAsync(queryVector, limit, scoreThreshold, null, cancellationToken);
+    }
+
+    public Task<List<VectorSearchResult>> SearchAsync(
+        float[] queryVector,
+        int limit,
+        float scoreThreshold,
+        Dictionary<string, object>? filter,
+        CancellationToken cancellationToken = default)
+    {
         lock (_lock)
         {
             if (_points.Count == 0)
@@ -54,7 +64,26 @@ public class InMemoryVectorStore : IVectorStore
                 return Task.FromResult(new List<VectorSearchResult>());
             }
 
-            var results = _points
+            var filteredPoints = _points.AsEnumerable();
+
+            // Apply filter if provided
+            if (filter != null && filter.Count > 0)
+            {
+                filteredPoints = filteredPoints.Where(p =>
+                {
+                    foreach (var filterItem in filter)
+                    {
+                        if (!p.Payload.TryGetValue(filterItem.Key, out var value) ||
+                            !value.Equals(filterItem.Value))
+                        {
+                            return false;
+                        }
+                    }
+                    return true;
+                });
+            }
+
+            var results = filteredPoints
                 .Select(p => new
                 {
                     Point = p,
@@ -72,8 +101,8 @@ public class InMemoryVectorStore : IVectorStore
                 .ToList();
 
             _logger.LogDebug(
-                "[InMemoryVectorStore] Search found {Count} results (threshold: {Threshold})",
-                results.Count, scoreThreshold);
+                "[InMemoryVectorStore] Search found {Count} results (threshold: {Threshold}, filtered: {HasFilter})",
+                results.Count, scoreThreshold, filter != null);
 
             return Task.FromResult(results);
         }

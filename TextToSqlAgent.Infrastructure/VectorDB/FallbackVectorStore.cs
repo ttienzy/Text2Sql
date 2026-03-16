@@ -57,12 +57,22 @@ public class FallbackVectorStore : IVectorStore
         float scoreThreshold,
         CancellationToken cancellationToken = default)
     {
+        return await SearchAsync(queryVector, limit, scoreThreshold, null, cancellationToken);
+    }
+
+    public async Task<List<VectorSearchResult>> SearchAsync(
+        float[] queryVector,
+        int limit,
+        float scoreThreshold,
+        Dictionary<string, object>? filter,
+        CancellationToken cancellationToken = default)
+    {
         // Try primary first
         if (await _primary.IsAvailableAsync(cancellationToken))
         {
             try
             {
-                var results = await _primary.SearchAsync(queryVector, limit, scoreThreshold, cancellationToken);
+                var results = await _primary.SearchAsync(queryVector, limit, scoreThreshold, filter, cancellationToken);
                 _logger.LogDebug("[FallbackVectorStore] Primary search returned {Count} results", results.Count);
                 return results;
             }
@@ -74,7 +84,7 @@ public class FallbackVectorStore : IVectorStore
 
         // Fallback
         _logger.LogInformation("[FallbackVectorStore] Using fallback store for search");
-        return await _fallback.SearchAsync(queryVector, limit, scoreThreshold, cancellationToken);
+        return await _fallback.SearchAsync(queryVector, limit, scoreThreshold, filter, cancellationToken);
     }
 
     public async Task UpsertPointsAsync(

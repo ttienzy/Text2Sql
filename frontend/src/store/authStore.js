@@ -11,7 +11,8 @@
  * - Alternative: memory-only storage requires more complex initialization
  */
 import { create } from 'zustand';
-import { TOKEN_REFRESH_BUFFER_MS, ACCESS_TOKEN_EXPIRY_MS, SILENT_REFRESH_INTERVAL_MS } from '../constants';
+import axiosInstance from '../api/axios';
+import { TOKEN_REFRESH_BUFFER_MS, ACCESS_TOKEN_EXPIRY_MS, SILENT_REFRESH_INTERVAL_MS, API_ENDPOINTS } from '../constants';
 
 // LocalStorage keys with prefix
 const STORAGE_KEYS = {
@@ -30,10 +31,10 @@ const useAuthStore = create((set, get) => ({
   user: null,
   isAuthenticated: !!localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN),
   isLoading: false,
-  
+
   // Silent refresh timer
   refreshTimer: null,
-  
+
   // Actions
   setToken: (accessToken, refreshToken) => {
     // Store both tokens in localStorage
@@ -43,46 +44,36 @@ const useAuthStore = create((set, get) => ({
     if (refreshToken) {
       localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, refreshToken);
     }
-    
-    set({ 
-      accessToken, 
+
+    set({
+      accessToken,
       refreshToken,
-      isAuthenticated: !!accessToken 
+      isAuthenticated: !!accessToken
     });
-    
+
     // Start silent refresh timer
     get().startSilentRefresh();
   },
-  
+
   setUser: (user) => {
     set({ user });
   },
-  
+
   login: async (credentials) => {
     set({ isLoading: true });
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(credentials),
-      });
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Login failed');
-      }
-      
-      const data = await response.json();
-      
-      // API returns lowercase: token, refreshToken
-      const { token: accessToken, refreshToken, email: user } = data;
-      
+      const response = await axiosInstance.post(API_ENDPOINTS.AUTH.LOGIN, credentials);
+      const data = response.data;
+
+      // API returns camelCase: accessToken, refreshToken
+      const { accessToken, refreshToken, email: user } = data;
+
       // Store both tokens in localStorage
       localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
       if (refreshToken) {
         localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, refreshToken);
       }
-      
+
       set({
         accessToken,
         refreshToken,
@@ -90,41 +81,55 @@ const useAuthStore = create((set, get) => ({
         isAuthenticated: true,
         isLoading: false,
       });
+
+      // Start silent refresh timer
+      get().startSilentRefresh();
     } catch (error) {
       set({ isLoading: false });
       throw error;
     }
   },
-  
-  logout: () => {
-    // Clear timer
-    if (get().refreshTimer) {
-      clearInterval(get().refreshTimer);
+
+  logout: async () => {
+    try {
+      // Call logout API to revoke refresh token
+      const refreshToken = get().refreshToken;
+      if (refreshToken) {
+        await axiosInstance.post(API_ENDPOINTS.AUTH.LOGOUT, { refreshToken });
+      }
+    } catch (error) {
+      // Continue with logout even if API call fails
+      console.warn('Logout API call failed:', error);
+    } finally {
+      // Clear timer
+      if (get().refreshTimer) {
+        clearInterval(get().refreshTimer);
+      }
+
+      // Clear localStorage
+      localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
+      localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
+
+      set({
+        accessToken: null,
+        refreshToken: null,
+        user: null,
+        isAuthenticated: false,
+        refreshTimer: null,
+      });
     }
-    
-    // Clear localStorage
-    localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
-    localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
-    
-    set({
-      accessToken: null,
-      refreshToken: null,
-      user: null,
-      isAuthenticated: false,
-      refreshTimer: null,
-    });
   },
-  
+
   forceLogout: () => {
     // Clear timer
     if (get().refreshTimer) {
       clearInterval(get().refreshTimer);
     }
-    
+
     // Clear localStorage
     localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
     localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
-    
+
     set({
       accessToken: null,
       refreshToken: null,
@@ -132,7 +137,7 @@ const useAuthStore = create((set, get) => ({
       isAuthenticated: false,
       refreshTimer: null,
     });
-    
+
     // Redirect to login
     window.location.href = '/login';
   },
@@ -143,42 +148,32 @@ const useAuthStore = create((set, get) => ({
     if (get().refreshTimer) {
       clearInterval(get().refreshTimer);
     }
-    
+
     const timer = setInterval(async () => {
       const refreshToken = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
       if (!refreshToken) {
         get().forceLogout();
         return;
       }
-      
+
       try {
-        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/auth/refresh`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refreshToken }),
-        });
-        
-        if (!response.ok) {
-          get().forceLogout();
-          return;
-        }
-        
-        const data = await response.json();
-        const { token: accessToken, refreshToken: newRefreshToken } = data;
-        
+        const response = await axiosInstance.post(API_ENDPOINTS.AUTH.REFRESH, { refreshToken });
+        const data = response.data;
+        const { accessToken, refreshToken: newRefreshToken } = data;
+
         // Update localStorage
         localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
         if (newRefreshToken) {
           localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, newRefreshToken);
         }
-        
+
         set({ accessToken, refreshToken: newRefreshToken });
       } catch (error) {
         console.error('Silent refresh failed:', error);
         get().forceLogout();
       }
     }, SILENT_REFRESH_INTERVAL_MS);
-    
+
     set({ refreshTimer: timer });
   },
 
@@ -187,14 +182,14 @@ const useAuthStore = create((set, get) => ({
   initializeAuth: () => {
     const accessToken = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
     const refreshToken = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
-    
+
     if (accessToken && refreshToken) {
       set({
         accessToken,
         refreshToken,
         isAuthenticated: true,
       });
-      
+
       // Start silent refresh timer
       get().startSilentRefresh();
     }

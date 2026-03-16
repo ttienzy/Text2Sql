@@ -1,89 +1,59 @@
-using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.IdentityModel.Tokens;
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using System.Text;
-using TextToSqlAgent.API.Data;
 using TextToSqlAgent.API.DTOs;
+using TextToSqlAgent.API.Services;
+using TextToSqlAgent.Infrastructure.Services;
 
 namespace TextToSqlAgent.API.Controllers;
 
 [ApiController]
-[Route("auth")]
+[Route("api/auth")]
 public class AuthController : ControllerBase
 {
-    private readonly UserManager<ApplicationUser> _userManager;
-    private readonly IConfiguration _configuration;
+    private readonly IAuthenticationService _authenticationService;
+    private readonly ITokenQuotaService _tokenQuotaService;
     private readonly ILogger<AuthController> _logger;
 
     public AuthController(
-        UserManager<ApplicationUser> userManager, 
-        IConfiguration configuration,
+        IAuthenticationService authenticationService,
+        ITokenQuotaService tokenQuotaService,
         ILogger<AuthController> logger)
     {
-        _userManager = userManager;
-        _configuration = configuration;
+        _authenticationService = authenticationService;
+        _tokenQuotaService = tokenQuotaService;
         _logger = logger;
     }
 
     [HttpPost("register")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> Register([FromBody] RegisterRequest? request)
+    public async Task<IActionResult> Register([FromBody] RegisterRequest request)
     {
-        // ✅ FIX: Validate request is not null
-        if (request == null)
+        if (!ModelState.IsValid)
         {
-            return BadRequest(new { Message = "Request body is required" });
-        }
-
-        // ✅ FIX: Validate email
-        if (string.IsNullOrWhiteSpace(request.Email))
-        {
-            return BadRequest(new { Message = "Email is required" });
-        }
-
-        // ✅ FIX: Validate password
-        if (string.IsNullOrWhiteSpace(request.Password))
-        {
-            return BadRequest(new { Message = "Password is required" });
-        }
-
-        if (request.Password.Length < 6)
-        {
-            return BadRequest(new { Message = "Password must be at least 6 characters" });
+            return BadRequest(ModelState);
         }
 
         try
         {
             _logger.LogInformation("Attempting to register user: {Email}", request.Email);
-            
-            var user = new ApplicationUser 
-            { 
-                UserName = request.Email, 
-                Email = request.Email, 
-                FullName = request.FullName 
-            };
-            
-            var result = await _userManager.CreateAsync(user, request.Password);
 
-            if (result.Succeeded)
+            var result = await _authenticationService.RegisterAsync(request);
+
+            if (result.IsSuccess)
             {
                 _logger.LogInformation("User registered successfully: {Email}", request.Email);
-                return Ok(new { Message = "User registered successfully" });
+                return Ok(result.Data);
             }
 
-            var errors = result.Errors.Select(e => e.Description).ToList();
-            _logger.LogWarning("Registration failed for {Email}: {Errors}", request.Email, string.Join(", ", errors));
-            return BadRequest(new { Errors = errors });
+            _logger.LogWarning("Registration failed for {Email}: {Error}", request.Email, result.ErrorMessage);
+            return BadRequest(new { Message = result.ErrorMessage });
         }
         catch (Exception ex)
         {
-            // ✅ FIX: Catch exception to prevent crash
             _logger.LogError(ex, "Registration failed with exception for {Email}", request.Email);
-            return StatusCode(500, new { Message = $"Registration failed: {ex.Message}" });
+            return StatusCode(500, new { Message = "An error occurred during registration" });
         }
     }
 
@@ -92,80 +62,180 @@ public class AuthController : ControllerBase
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> Login([FromBody] LoginRequest? request)
+    public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
-        // ✅ FIX: Validate request
-        if (request == null)
+        if (!ModelState.IsValid)
         {
-            return BadRequest(new { Message = "Request body is required" });
-        }
-
-        if (string.IsNullOrWhiteSpace(request.Email))
-        {
-            return BadRequest(new { Message = "Email is required" });
-        }
-
-        if (string.IsNullOrWhiteSpace(request.Password))
-        {
-            return BadRequest(new { Message = "Password is required" });
+            return BadRequest(ModelState);
         }
 
         try
         {
             _logger.LogInformation("Attempting login for: {Email}", request.Email);
-            
-            var user = await _userManager.FindByEmailAsync(request.Email);
-            
-            if (user == null)
+
+            var result = await _authenticationService.LoginAsync(request);
+
+            if (result.IsSuccess)
             {
-                _logger.LogWarning("Login failed - user not found: {Email}", request.Email);
-                return Unauthorized(new { Message = "Invalid email or password" });
-            }
-            
-            if (!await _userManager.CheckPasswordAsync(user, request.Password))
-            {
-                _logger.LogWarning("Login failed - invalid password for: {Email}", request.Email);
-                return Unauthorized(new { Message = "Invalid email or password" });
+                _logger.LogInformation("Login successful for: {Email}", request.Email);
+                return Ok(result.Data);
             }
 
-            var authClaims = new List<Claim>
-            {
-                new Claim(ClaimTypes.Name, user.UserName!),
-                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-            };
-
-            // ✅ FIX: Validate JWT key length
-            var jwtKey = _configuration["Jwt:Key"] ?? "SUPER_SECRET_KEY_FOR_DEV_ONLY_12345678";
-            if (jwtKey.Length < 32)
-            {
-                _logger.LogError("JWT key is too short");
-                return StatusCode(500, new { Message = "JWT key is too short. Minimum 32 characters required." });
-            }
-
-            var authSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
-
-            var token = new JwtSecurityToken(
-                issuer: _configuration["Jwt:Issuer"] ?? "TextToSqlAgentAPI",
-                audience: _configuration["Jwt:Audience"] ?? "TextToSqlAgentClient",
-                expires: DateTime.Now.AddHours(3),
-                claims: authClaims,
-                signingCredentials: new SigningCredentials(authSigningKey, SecurityAlgorithms.HmacSha256)
-            );
-
-            _logger.LogInformation("Login successful for: {Email}", request.Email);
-            
-            return Ok(new AuthResponse
-            {
-                Token = new JwtSecurityTokenHandler().WriteToken(token),
-                Expiration = token.ValidTo,
-                Email = user.Email!
-            });
+            _logger.LogWarning("Login failed for {Email}: {Error}", request.Email, result.ErrorMessage);
+            return Unauthorized(new { Message = result.ErrorMessage });
         }
         catch (Exception ex)
         {
-            // ✅ FIX: Catch exception to prevent crash
             _logger.LogError(ex, "Login failed with exception for {Email}", request.Email);
-            return StatusCode(500, new { Message = $"Login failed: {ex.Message}" });
+            return StatusCode(500, new { Message = "An error occurred during login" });
         }
     }
+
+    [HttpPost("refresh")]
+    [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequest request)
+    {
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        try
+        {
+            _logger.LogInformation("Attempting token refresh");
+
+            var result = await _authenticationService.RefreshTokenAsync(request.RefreshToken);
+
+            if (result.IsSuccess)
+            {
+                _logger.LogInformation("Token refresh successful");
+                return Ok(result.Data);
+            }
+
+            _logger.LogWarning("Token refresh failed: {Error}", result.ErrorMessage);
+            return Unauthorized(new { Message = result.ErrorMessage });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Token refresh failed with exception");
+            return StatusCode(500, new { Message = "An error occurred during token refresh" });
+        }
+    }
+
+    [HttpPost("logout")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> Logout([FromBody] RefreshTokenRequest request)
+    {
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        try
+        {
+            _logger.LogInformation("Attempting logout");
+
+            var result = await _authenticationService.RevokeTokenAsync(request.RefreshToken);
+
+            if (result)
+            {
+                _logger.LogInformation("Logout successful");
+                return Ok(new { Message = "Logged out successfully" });
+            }
+
+            _logger.LogWarning("Logout failed - token not found or already revoked");
+            return BadRequest(new { Message = "Invalid refresh token" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Logout failed with exception");
+            return StatusCode(500, new { Message = "An error occurred during logout" });
+        }
+    }
+
+    /// <summary>
+    /// Get user quota information
+    /// </summary>
+    [HttpGet("quota")]
+    [Authorize]
+    [ProducesResponseType(typeof(QuotaResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetQuota()
+    {
+        try
+        {
+            var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Unauthorized();
+            }
+
+            // Get quota from TokenQuotaService
+            var tokenQuota = await _tokenQuotaService.GetUserQuotaAsync(userId);
+
+            // Calculate usage percentage
+            var usagePercentage = tokenQuota.DailyLimit > 0
+                ? Math.Round((double)tokenQuota.UsedToday / tokenQuota.DailyLimit * 100, 2)
+                : 0.0;
+
+            var quota = new QuotaResponse
+            {
+                UserId = userId,
+                DailyLimit = tokenQuota.DailyLimit,
+                UsedToday = tokenQuota.UsedToday,
+                Remaining = tokenQuota.Remaining,
+                UsagePercentage = usagePercentage,
+                ResetAt = tokenQuota.ResetAt,
+                IsUnlimited = tokenQuota.IsUnlimited,
+                // Legacy fields for backward compatibility
+                TotalTokensUsed = tokenQuota.UsedToday,
+                TotalCost = 0.0m,
+                MonthlyLimit = tokenQuota.DailyLimit * 30,
+                MonthlyUsed = tokenQuota.UsedToday,
+                DailyUsed = tokenQuota.UsedToday,
+                LastResetDate = tokenQuota.ResetAt.Date.AddDays(-1),
+                NextResetDate = tokenQuota.ResetAt.Date
+            };
+
+            return Ok(quota);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving quota information for user {UserId}",
+                User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value);
+            return StatusCode(500, new { Message = "An error occurred while retrieving quota information" });
+        }
+    }
+}
+
+/// <summary>
+/// Response model for quota information
+/// </summary>
+public class QuotaResponse
+{
+    public string UserId { get; set; } = string.Empty;
+
+    // New fields matching TokenQuota
+    public int DailyLimit { get; set; }
+    public int UsedToday { get; set; }
+    public int Remaining { get; set; }
+    public double UsagePercentage { get; set; }
+    public DateTime ResetAt { get; set; }
+    public bool IsUnlimited { get; set; }
+
+    // Legacy fields for backward compatibility
+    public int TotalTokensUsed { get; set; }
+    public decimal TotalCost { get; set; }
+    public int MonthlyLimit { get; set; }
+    public int MonthlyUsed { get; set; }
+    public int DailyUsed { get; set; }
+    public DateTime LastResetDate { get; set; }
+    public DateTime NextResetDate { get; set; }
 }

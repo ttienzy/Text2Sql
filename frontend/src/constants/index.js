@@ -1,5 +1,5 @@
 // API Configuration
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://localhost:7189';
 export const APP_NAME = import.meta.env.VITE_APP_NAME || 'TextToSQL Agent';
 export const TOKEN_REFRESH_BUFFER_MS = parseInt(import.meta.env.VITE_TOKEN_REFRESH_BUFFER_MS || '60000', 10);
 

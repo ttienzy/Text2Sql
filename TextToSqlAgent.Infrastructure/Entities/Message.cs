@@ -51,6 +51,41 @@ public class Message
     public string? Explanation { get; set; }
 
     /// <summary>
+    /// Processing steps as JSON array
+    /// </summary>
+    public string? ProcessingSteps { get; set; }
+
+    /// <summary>
+    /// Suggested follow-up queries as JSON array
+    /// </summary>
+    public string? SuggestedQueries { get; set; }
+
+    /// <summary>
+    /// Correction history as JSON array
+    /// </summary>
+    public string? CorrectionHistory { get; set; }
+
+    /// <summary>
+    /// Whether the query was corrected during processing
+    /// </summary>
+    public bool WasCorrected { get; set; } = false;
+
+    /// <summary>
+    /// Number of correction attempts made
+    /// </summary>
+    public int CorrectionAttempts { get; set; } = 0;
+
+    /// <summary>
+    /// Detailed query explanation
+    /// </summary>
+    public string? QueryExplanation { get; set; }
+
+    /// <summary>
+    /// Whether the message processing was successful
+    /// </summary>
+    public bool Success { get; set; } = true;
+
+    /// <summary>
     /// Number of input tokens used
     /// </summary>
     public int? InputTokens { get; set; }

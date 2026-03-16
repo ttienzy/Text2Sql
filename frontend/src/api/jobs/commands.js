@@ -28,7 +28,7 @@ export const useCreateJobMutation = ({ onSuccess, onError } = {}) => {
     onSuccess: (data, variables) => {
       // Invalidate the jobs list to include the new job
       queryClient.invalidateQueries({ queryKey: jobKeys.lists() });
-      
+
       // Set the new job data in the cache
       queryClient.setQueryData(jobKeys.detail(data.jobId), {
         jobId: data.jobId,
@@ -62,7 +62,7 @@ export const useCancelJobMutation = ({ onSuccess, onError } = {}) => {
 
   return useMutation({
     mutationFn: async (jobId) => {
-      const response = await axiosInstance.delete(`${API_ENDPOINTS.JOBS}/${jobId}`);
+      const response = await axiosInstance.post(`${API_ENDPOINTS.JOBS}/${jobId}/cancel`);
       return response.data;
     },
     onSuccess: (data, jobId) => {

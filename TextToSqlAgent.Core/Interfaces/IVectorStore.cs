@@ -28,6 +28,16 @@ public interface IVectorStore
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Search for similar vectors with metadata filtering
+    /// </summary>
+    Task<List<VectorSearchResult>> SearchAsync(
+        float[] queryVector,
+        int limit,
+        float scoreThreshold,
+        Dictionary<string, object>? filter,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Insert or update vector points
     /// </summary>
     Task UpsertPointsAsync(

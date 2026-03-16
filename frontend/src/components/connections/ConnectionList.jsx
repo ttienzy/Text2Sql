@@ -24,6 +24,7 @@ import {
   UnorderedListOutlined,
   DatabaseOutlined,
 } from '@ant-design/icons';
+import { ResponsiveConnectionCardSkeleton, TableSkeleton } from '../common';
 import ConnectionCard from './ConnectionCard';
 
 const { Title, Text } = Typography;
@@ -211,36 +212,47 @@ const ConnectionList = ({
   );
 
   // Grid view
-  const renderGridView = () => (
-    <Row gutter={[16, 16]}>
-      {filteredConnections.map((connection) => (
-        <Col xs={24} sm={12} lg={8} xl={6} key={connection.id}>
-          <ConnectionCard
-            connection={connection}
-            isActive={connection.id === activeConnection?.id}
-            onConnect={onConnect}
-            onEdit={onEdit}
-            onDelete={onDelete}
-            onTest={onTest}
-            onSync={onSync}
-            isTesting={isTesting}
-            isSyncing={isSyncing}
-          />
-        </Col>
-      ))}
-    </Row>
-  );
+  const renderGridView = () => {
+    if (isLoading) {
+      return <ResponsiveConnectionCardSkeleton />;
+    }
+
+    return (
+      <Row gutter={[16, 16]}>
+        {filteredConnections.map((connection) => (
+          <Col xs={24} sm={12} lg={8} xl={6} key={connection.id}>
+            <ConnectionCard
+              connection={connection}
+              isActive={connection.id === activeConnection?.id}
+              onConnect={onConnect}
+              onEdit={onEdit}
+              onDelete={onDelete}
+              onTest={onTest}
+              onSync={onSync}
+              isTesting={isTesting}
+              isSyncing={isSyncing}
+            />
+          </Col>
+        ))}
+      </Row>
+    );
+  };
 
   // List view (table)
-  const renderListView = () => (
-    <Table
-      columns={columns}
-      dataSource={filteredConnections}
-      rowKey="id"
-      loading={isLoading}
-      pagination={{ pageSize: 10 }}
-    />
-  );
+  const renderListView = () => {
+    if (isLoading) {
+      return <TableSkeleton rows={5} columns={5} />;
+    }
+
+    return (
+      <Table
+        columns={columns}
+        dataSource={filteredConnections}
+        rowKey="id"
+        pagination={{ pageSize: 10 }}
+      />
+    );
+  };
 
   return (
     <div>
@@ -301,11 +313,7 @@ const ConnectionList = ({
       </div>
 
       {/* Content */}
-      {isLoading ? (
-        <div style={{ textAlign: 'center', padding: 48 }}>
-          <Spin size="large" />
-        </div>
-      ) : filteredConnections.length === 0 ? (
+      {filteredConnections.length === 0 && !isLoading ? (
         renderEmpty()
       ) : viewMode === 'grid' ? (
         renderGridView()

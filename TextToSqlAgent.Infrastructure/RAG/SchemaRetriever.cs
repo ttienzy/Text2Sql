@@ -47,6 +47,15 @@ public class SchemaRetriever
         DatabaseSchema fullSchema,
         CancellationToken cancellationToken = default)
     {
+        return await RetrieveAsync(question, fullSchema, null, cancellationToken);
+    }
+
+    public async Task<RetrievedSchemaContext> RetrieveAsync(
+        string question,
+        DatabaseSchema fullSchema,
+        string? connectionId,
+        CancellationToken cancellationToken = default)
+    {
         _logger.LogDebug("[SchemaRetriever] Retrieving schema for question...");
 
         // 1. Get or generate query embedding (with caching)
@@ -72,10 +81,18 @@ public class SchemaRetriever
             {
                 _logger.LogDebug("[SchemaRetriever] Attempting vector search...");
 
+                // Create filter for connectionId if provided
+                Dictionary<string, object>? filter = null;
+                if (!string.IsNullOrEmpty(connectionId))
+                {
+                    filter = new Dictionary<string, object> { ["connection_id"] = connectionId };
+                }
+
                 vectorResults = await _vectorStore.SearchAsync(
                     queryVector: queryEmbedding,
                     limit: _ragConfig.TopK,
                     scoreThreshold: (float)_ragConfig.MinimumScore,
+                    filter: filter,
                     cancellationToken: cancellationToken);
 
                 if (vectorResults.Count > 0)

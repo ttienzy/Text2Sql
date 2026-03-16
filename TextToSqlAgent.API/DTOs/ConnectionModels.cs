@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel.DataAnnotations;
+using TextToSqlAgent.API.Validation;
 
 namespace TextToSqlAgent.API.DTOs;
 
@@ -11,53 +12,60 @@ public class CreateConnectionRequest
     /// <summary>
     /// User-defined name for the connection
     /// </summary>
-    [Required]
-    [StringLength(100)]
+    [Required(ErrorMessage = "Connection name is required")]
+    [StringLength(100, MinimumLength = 1, ErrorMessage = "Connection name must be between 1 and 100 characters")]
+    [SafeText(MaxLength = 100, ErrorMessage = "Connection name contains invalid characters")]
     public string Name { get; set; } = string.Empty;
 
     /// <summary>
     /// Database provider (sqlserver, postgresql, mysql, sqlite)
     /// </summary>
-    [Required]
-    [StringLength(50)]
+    [Required(ErrorMessage = "Database provider is required")]
+    [ValidDatabaseProvider(ErrorMessage = "Invalid database provider")]
     public string Provider { get; set; } = string.Empty;
 
     /// <summary>
     /// Database host
     /// </summary>
-    [Required]
-    [StringLength(255)]
+    [Required(ErrorMessage = "Database host is required")]
+    [StringLength(255, MinimumLength = 1, ErrorMessage = "Host must be between 1 and 255 characters")]
+    [SafeText(MaxLength = 255, ErrorMessage = "Host contains invalid characters")]
     public string Host { get; set; } = string.Empty;
 
     /// <summary>
     /// Database port
     /// </summary>
+    [Range(1, 65535, ErrorMessage = "Port must be between 1 and 65535")]
     public int Port { get; set; } = 1433;
 
     /// <summary>
     /// Database name
     /// </summary>
-    [Required]
-    [StringLength(100)]
+    [Required(ErrorMessage = "Database name is required")]
+    [StringLength(100, MinimumLength = 1, ErrorMessage = "Database name must be between 1 and 100 characters")]
+    [SafeIdentifier(ErrorMessage = "Database name contains invalid characters")]
     public string Database { get; set; } = string.Empty;
 
     /// <summary>
     /// Database username
     /// </summary>
-    [Required]
-    [StringLength(100)]
+    [Required(ErrorMessage = "Username is required")]
+    [StringLength(100, MinimumLength = 1, ErrorMessage = "Username must be between 1 and 100 characters")]
+    [SafeText(MaxLength = 100, ErrorMessage = "Username contains invalid characters")]
     public string Username { get; set; } = string.Empty;
 
     /// <summary>
     /// Database password (will be encrypted)
     /// </summary>
-    [Required]
+    [Required(ErrorMessage = "Password is required")]
+    [StringLength(500, MinimumLength = 1, ErrorMessage = "Password is required")]
     public string Password { get; set; } = string.Empty;
 
     /// <summary>
     /// Optional connection description
     /// </summary>
-    [StringLength(500)]
+    [StringLength(500, ErrorMessage = "Description cannot exceed 500 characters")]
+    [SafeText(MaxLength = 500, ErrorMessage = "Description contains invalid characters")]
     public string? Description { get; set; }
 
     /// <summary>
@@ -74,31 +82,32 @@ public class UpdateConnectionRequest
     /// <summary>
     /// User-defined name for the connection
     /// </summary>
-    [StringLength(100)]
-    public string? Name { get; set; }
+    [Required, MaxLength(100)]
+    public string Name { get; set; } = string.Empty;
 
     /// <summary>
     /// Database host
     /// </summary>
-    [StringLength(255)]
-    public string? Host { get; set; }
+    [Required, MaxLength(255)]
+    public string Host { get; set; } = string.Empty;
 
     /// <summary>
     /// Database port
     /// </summary>
-    public int? Port { get; set; }
+    [Range(1, 65535)]
+    public int Port { get; set; } = 1433;
 
     /// <summary>
     /// Database name
     /// </summary>
-    [StringLength(100)]
-    public string? Database { get; set; }
+    [Required, MaxLength(100)]
+    public string Database { get; set; } = string.Empty;
 
     /// <summary>
     /// Database username
     /// </summary>
-    [StringLength(100)]
-    public string? Username { get; set; }
+    [Required, MaxLength(100)]
+    public string Username { get; set; } = string.Empty;
 
     /// <summary>
     /// New password (leave empty to keep existing)
@@ -108,13 +117,13 @@ public class UpdateConnectionRequest
     /// <summary>
     /// Optional connection description
     /// </summary>
-    [StringLength(500)]
+    [MaxLength(500)]
     public string? Description { get; set; }
 
     /// <summary>
     /// Whether this should be the default connection
     /// </summary>
-    public bool? IsDefault { get; set; }
+    public bool IsDefault { get; set; }
 }
 
 /// <summary>
@@ -186,6 +195,11 @@ public class ConnectionResponse
     /// Schema sync status
     /// </summary>
     public SchemaSyncStatus? SchemaSync { get; set; }
+
+    /// <summary>
+    /// Whether the connection is currently connected/available
+    /// </summary>
+    public bool IsConnected { get; set; }
 }
 
 /// <summary>
@@ -245,14 +259,14 @@ public class TestConnectionResult
     public bool Success { get; set; }
 
     /// <summary>
-    /// Latency in milliseconds (if successful)
+    /// Response time for the connection test
     /// </summary>
-    public long? LatencyMs { get; set; }
+    public TimeSpan ResponseTime { get; set; }
 
     /// <summary>
-    /// Server version (if successful)
+    /// Database version (if successful)
     /// </summary>
-    public string? ServerVersion { get; set; }
+    public string? DatabaseVersion { get; set; }
 
     /// <summary>
     /// Error message (if failed)
@@ -271,14 +285,19 @@ public class TestConnectionResult
 public class SchemaSyncStatus
 {
     /// <summary>
-    /// Whether schema has been synced
-    /// </summary>
-    public bool IsSynced { get; set; }
-
-    /// <summary>
     /// Last sync timestamp
     /// </summary>
     public DateTime? LastSyncedAt { get; set; }
+
+    /// <summary>
+    /// Whether sync is currently in progress
+    /// </summary>
+    public bool IsInProgress { get; set; }
+
+    /// <summary>
+    /// Last error message if sync failed
+    /// </summary>
+    public string? LastError { get; set; }
 
     /// <summary>
     /// Number of tables synced
@@ -286,7 +305,7 @@ public class SchemaSyncStatus
     public int TableCount { get; set; }
 
     /// <summary>
-    /// Number of columns synced
+    /// Whether the schema is currently synced
     /// </summary>
-    public int ColumnCount { get; set; }
+    public bool IsSynced { get; set; }
 }

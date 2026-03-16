@@ -31,8 +31,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<TelemetryService>();
         services.AddSingleton<HealthCheckService>();
 
-        // Tool Registry
-        services.AddSingleton<IToolRegistry, ToolRegistry>();
+        // Tool Registry (uses service provider to resolve scoped tools)
+        services.AddSingleton<IToolRegistry, ServiceProviderToolRegistry>();
 
         // Reasoning and Reflection Engines
         services.AddSingleton<IReasoningEngine, ReasoningEngine>();
@@ -56,24 +56,12 @@ public static class ServiceCollectionExtensions
         });
 
         // Register Tools
-        services.AddSingleton<SchemaExplorerTool>();
-        services.AddSingleton<SqlGeneratorTool>();
-        services.AddSingleton<SqlExecutorTool>();
-        services.AddSingleton<SqlValidatorTool>();
+        services.AddScoped<SchemaExplorerTool>();
+        services.AddScoped<SqlGeneratorTool>();
+        services.AddScoped<SqlExecutorTool>();
+        services.AddScoped<SqlValidatorTool>();
 
-        // Register tools in registry
-        services.AddSingleton(sp =>
-        {
-            var registry = sp.GetRequiredService<IToolRegistry>();
-
-            // Register all tools
-            registry.RegisterTool(sp.GetRequiredService<SchemaExplorerTool>());
-            registry.RegisterTool(sp.GetRequiredService<SqlGeneratorTool>());
-            registry.RegisterTool(sp.GetRequiredService<SqlExecutorTool>());
-            registry.RegisterTool(sp.GetRequiredService<SqlValidatorTool>());
-
-            return registry;
-        });
+        // Tools are registered as scoped and will be resolved by ServiceProviderToolRegistry
 
         return services;
     }
@@ -90,15 +78,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<AdvancedSchemaLinker>();
 
         // Register QueryDecomposer tool
-        services.AddSingleton<QueryDecomposerTool>();
+        services.AddScoped<QueryDecomposerTool>();
 
-        // Register QueryDecomposer in tool registry
-        services.AddSingleton(sp =>
-        {
-            var registry = sp.GetRequiredService<IToolRegistry>();
-            registry.RegisterTool(sp.GetRequiredService<QueryDecomposerTool>());
-            return registry;
-        });
+        // Tools are registered and will be resolved by ServiceProviderToolRegistry
 
         return services;
     }
@@ -114,19 +96,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ResultVerifier>();
 
         // Register Advanced Tools
-        services.AddSingleton<AmbiguityDetectorTool>();
-        services.AddSingleton<ComplexityAnalyzerTool>();
-        services.AddSingleton<ResultVerifierTool>();
+        services.AddScoped<AmbiguityDetectorTool>();
+        services.AddScoped<ComplexityAnalyzerTool>();
+        services.AddScoped<ResultVerifierTool>();
 
-        // Register tools in registry
-        services.AddSingleton(sp =>
-        {
-            var registry = sp.GetRequiredService<IToolRegistry>();
-            registry.RegisterTool(sp.GetRequiredService<AmbiguityDetectorTool>());
-            registry.RegisterTool(sp.GetRequiredService<ComplexityAnalyzerTool>());
-            registry.RegisterTool(sp.GetRequiredService<ResultVerifierTool>());
-            return registry;
-        });
+        // Tools are registered and will be resolved by ServiceProviderToolRegistry
 
         return services;
     }
