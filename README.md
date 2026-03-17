@@ -1,464 +1,325 @@
-# 🤖 TextToSqlAgent
+# TextToSQL Agent
 
-**AI-Powered Natural Language to SQL Agent with ReAct Pattern**
+**Enterprise AI-Powered Natural Language to SQL Converter**
 
-Production-ready agentic system that converts natural language questions into SQL queries using advanced AI techniques with autonomous reasoning.
+A production-ready intelligent system that converts natural language questions into SQL queries using OpenAI GPT-4o with autonomous ReAct (Reasoning + Acting) pattern.
 
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)]()
-[![.NET](https://img.shields.io/badge/.NET-10.0-blue)]()
-[![Phase](https://img.shields.io/badge/phase-7%20complete-success)]()
-[![License](https://img.shields.io/badge/license-MIT-green)]()
+[![.NET](https://img.shields.io/badge/.NET-10.0-blue)](https://dotnet.microsoft.com/)
+[![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o-green)](https://openai.com/)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-**Version:** 2.0.0 - Phase 7 (ReAct Agent)  
-**Status:** ✅ Production Ready  
-**Last Updated:** March 8, 2026
+## 🚀 Quick Start
 
----
+### Option 1: Console Application (Recommended for Testing)
 
-## 🎯 What is This?
-
-TextToSqlAgent is an intelligent system that:
-- ✅ Converts natural language questions to SQL queries
-- ✅ Uses ReAct (Reasoning + Acting) pattern for autonomous decision-making
-- ✅ Leverages RAG (Retrieval-Augmented Generation) for schema understanding
-- ✅ Provides production-ready features: caching, rate limiting, security, observability
-- ✅ Optimized for OpenAI GPT-4o with ~95% accuracy
-
----
-
-## 🚀 Quick Start (Console App - Recommended)
-
-### Prerequisites
-- .NET 10.0 SDK (or use self-contained build)
-- SQL Server (or any SQL database)
-- OpenAI API Key
-
-### Option 1: Run from Source
+**Prerequisites:** OpenAI API Key
 
 ```bash
-# Clone repository
+# Clone and run
 git clone <repository-url>
 cd TextToSqlAgent
-
-# Run console app
 dotnet run --project TextToSqlAgent.Console
 ```
 
-### Option 2: Use Pre-built Executable
+**First-time setup wizard will guide you through:**
+- OpenAI API key configuration
+- Database connection setup
+- Start querying immediately
+
+### Option 2: API + Frontend (Production Ready)
+
+**Prerequisites:** .NET 10.0, SQL Server, OpenAI API Key
 
 ```bash
-# Download release
-# Extract and run
-TextToSqlAgent.Console.exe
-```
-
-### First-Run Setup
-
-1. **Launch the application** - Setup wizard appears automatically
-2. **Enter OpenAI API Key** - Will be stored securely and encrypted
-3. **Connect to Database** - Interactive connection builder
-4. **Start querying!**
-
-```
-💬 Question #1: Show me all customers
-💬 Question #2: Top 10 products by revenue
-```
-
-### Configuration Commands
-
-```bash
-/config          # View and update configuration
-/api-key         # Update OpenAI API key
-/reset           # Reset all configuration
-help             # Show all available commands
-```
-
----
-
-## 🚀 Quick Start (API - For Integration)
-
-### Prerequisites
-- .NET 10.0 SDK
-- SQL Server (Express or Developer Edition)
-- OpenAI API Key
-
-### 1. Set API Key
-```powershell
-# Windows PowerShell
-$env:OPENAI_API_KEY="sk-your-openai-api-key"
-
-# Linux/Mac
+# 1. Set API key
 export OPENAI_API_KEY="sk-your-openai-api-key"
-```
 
-### 2. Run API
-```bash
+# 2. Run API
 dotnet run --project TextToSqlAgent.API
+
+# 3. Run Frontend (separate terminal)
+cd frontend
+npm install
+npm run dev
 ```
 
-### 3. Test
-```bash
-# Health check
-curl http://localhost:5251/api/agent/health
-
-# Query
-curl -X POST http://localhost:5251/api/agent/query \
-  -H "Content-Type: application/json" \
-  -d '{"question":"Show me top 10 customers by revenue"}'
-```
-
----
-
-## 📚 Documentation
-
-All documentation is in the `docs/` folder:
-
-### Getting Started
-- **[Console Refactor Summary](docs/CONSOLE_REFACTOR_SUMMARY.md)** - Console app guide ⭐ NEW
-- **[🇻🇳 Hướng Dẫn Chạy Dự Án](docs/HUONG_DAN_CHAY_DU_AN.md)** - Complete setup guide (Vietnamese)
-- **[API Configuration Guide](docs/API_CONFIGURATION_GUIDE.md)** - API configuration reference
-
-### Phase 7: ReAct Agent
-- **[Phase 7 Complete](docs/PHASE7_COMPLETE.md)** - ReAct Agent implementation details ⭐
-- **[Phase 7 Summary](docs/PHASE7_SUMMARY.md)** - Quick summary
-- **[🇻🇳 Phân Tích Vấn Đề](docs/PHAN_TICH_VAN_DE.md)** - Problem analysis (Vietnamese)
-
-### Optimization
-- **[OpenAI Optimization](docs/OPENAI_OPTIMIZATION.md)** - GPT-4o optimization guide ⭐
-- **[Advanced Configuration](docs/ADVANCED_CONFIGURATION.md)** - Advanced settings
-
-### Previous Phases
-- **[Phase 6: Production Readiness](docs/PHASE6_COMPLETE.md)** - Caching, security, rate limiting
-
----
+**Access:** http://localhost:5173
 
 ## 🏗️ Architecture
 
-```
-User Question
-     ↓
-ReAct Agent (Autonomous)
-     ↓
-┌─────────────────────────────────────┐
-│  REACT LOOP (Autonomous)            │
-│                                     │
-│  THINK: Reason about action         │
-│    ↓                                │
-│  ACT: Select & Execute Tool         │
-│    - Schema Explorer                │
-│    - SQL Generator                  │
-│    - SQL Validator                  │
-│    - SQL Executor                   │
-│    - Query Decomposer               │
-│    - Ambiguity Detector             │
-│    - Complexity Analyzer            │
-│    - Result Verifier                │
-│    ↓                                │
-│  OBSERVE: Capture Result            │
-│    ↓                                │
-│  REFLECT: Evaluate Progress         │
-│    ↓                                │
-│  [Continue or Terminate?]           │
-└─────────────────────────────────────┘
-     ↓
-SQL Result + Natural Language Answer
-```
+**Two Deployment Options:**
 
----
+### 1. Console UI
+- **Target:** Data analysts, developers, testing
+- **Features:** Interactive CLI with rich UI, secure credential storage
+- **Deployment:** Single executable file
+- **Best for:** Ad-hoc queries, development, demonstrations
+
+### 2. API + Web Frontend  
+- **Target:** Enterprise integration, end users
+- **Features:** REST API, React web interface, user management
+- **Deployment:** Docker containers, cloud-ready
+- **Best for:** Production systems, team collaboration
 
 ## ✨ Key Features
 
-### Phase 7: True ReAct Agent ⭐
-- ✅ Autonomous reasoning and decision-making
-- ✅ Dynamic tool selection (8 specialized tools)
-- ✅ Self-reflection and adaptation
-- ✅ Transparent reasoning process
-- ✅ Self-correction capability
-- ✅ Dual-mode support (ReAct + Legacy)
+### AI Engine
+- **OpenAI GPT-4o** integration (95% accuracy)
+- **ReAct Pattern** - Autonomous reasoning and decision-making
+- **RAG (Retrieval-Augmented Generation)** for schema understanding
+- **Self-correction** and adaptive learning
 
-### Production Ready (Phase 6)
-- ✅ Intelligent caching (70% cost reduction)
-- ✅ Rate limiting
-- ✅ SQL injection prevention
-- ✅ Query cost estimation
-- ✅ Observability and metrics
+### Enterprise Ready
+- **Security:** SQL injection prevention, input validation, rate limiting
+- **Performance:** Intelligent caching (70% cost reduction), query optimization
+- **Observability:** Structured logging, health checks, metrics
+- **Scalability:** Stateless design, horizontal scaling support
 
-### Advanced RAG
-- ✅ Hybrid search (vector + keyword + MMR)
-- ✅ Schema linking with entity recognition
-- ✅ Relationship inference
-- ✅ Query expansion and synonym detection
-- ✅ text-embedding-3-large (3072 dimensions)
+### Database Support
+- **Primary:** SQL Server 2022
+- **Supported:** PostgreSQL, MySQL, SQLite
+- **Vector DB:** Qdrant for semantic search (optional)
 
----
+## 📊 Performance Metrics
 
-## 🎯 Performance (GPT-4o)
-
-**With current configuration:**
-- ✅ **Accuracy:** ~95%
-- ✅ **Latency:** ~2.5s (P95)
-- ✅ **Cost:** ~$0.025/query (with caching, 50% savings)
-- ✅ **Success Rate:** ~90%
-- ✅ **Token Usage:** ~1200 tokens/query
-
-**Comparison with Legacy Pipeline:**
-- Accuracy: +10%
-- Reasoning: Transparent and explainable
-- Adaptability: Automatic adjustment
-- Self-correction: Auto-fix errors
-
----
+- **Accuracy:** ~95% with GPT-4o
+- **Latency:** ~2.5s (P95)
+- **Cost:** ~$0.025/query (with caching)
+- **Success Rate:** ~90%
 
 ## 🔧 Configuration
 
-**appsettings.Development.json** (✅ already configured):
-```json
+### Environment Variables
+
+**Required:**
+```bash
+OPENAI_API_KEY=sk-your-openai-api-key
+```
+
+**Optional:**
+```bash
+DATABASE_CONNECTION_STRING=Server=.;Database=YourDB;User Id=sa;Password=123;TrustServerCertificate=True;
+QDRANT_URL=http://localhost:6333
+JWT_SECRET=your-secure-jwt-secret-32-chars-min
+```
+
+### Configuration Files
+
+**API:** `TextToSqlAgent.API/appsettings.json`
+**Console:** `TextToSqlAgent.Console/appsettings.json`
+
+See `.env.example` files for complete configuration options.
+
+## 🚀 Deployment
+
+### Console Application
+
+```bash
+# Build self-contained executable
+./build-console.ps1
+
+# Output: dist/TextToSqlAgent.Console.exe (Windows)
+# Includes all dependencies, no .NET runtime required
+```
+
+### API + Frontend (Docker)
+
+```bash
+# Development with test database
+docker-compose -f docker-compose.test.yml up -d
+
+# Production deployment
+docker-compose up -d
+```
+
+**Services:**
+- SQL Server 2022 (port 1433)
+- Qdrant Vector DB (port 6333)
+- Redis Cache (port 6379)
+
+## 📚 API Endpoints
+
+### Core Endpoints
+
+```http
+POST /api/agent/query
+Content-Type: application/json
+
 {
-  "LLMProvider": "OpenAI",
-  "OpenAI": {
-    "Model": "gpt-4o",
-    "ReasoningModel": "gpt-4o",
-    "SqlGenerationModel": "gpt-4o",
-    "ReflectionModel": "gpt-4o-mini",
-    "EmbeddingModel": "text-embedding-3-large",
-    "Temperature": 0.3,
-    "MaxTokens": 8192,
-    "EnableCaching": true
-  },
-  "Agent": {
-    "UseLegacyMode": false,
-    "MaxIterations": 12,
-    "ReasoningDepth": "deep",
-    "EnableChainOfThought": true
-  },
-  "Database": {
-    "ConnectionString": "Server=localhost;Database=TextToSqlTest;User Id=sa;Password=123;TrustServerCertificate=True;"
-  }
+  "question": "Show me top 10 customers by revenue"
 }
-```
-
-**See:** `docs/OPENAI_OPTIMIZATION.md` for optimization guide.
-
----
-
-## 📊 Project Structure
-
-```
-TextToSqlAgent/
-├── TextToSqlAgent.API/              # 🚀 Web API (Entry Point)
-│   ├── Controllers/
-│   │   ├── AgentController.cs       # Main query endpoint
-│   │   ├── ProductionAgentController.cs
-│   │   └── AuthController.cs
-│   ├── appsettings.Development.json # ✅ Configured
-│   └── Program.cs                   # DI registration
-├── TextToSqlAgent.Infrastructure/   # ReAct Agent, Tools, LLM, RAG
-│   ├── Agent/
-│   │   ├── ReActAgent.cs            # Core ReAct loop
-│   │   ├── ReasoningEngine.cs
-│   │   └── ReflectionEngine.cs
-│   ├── Tools/                       # 8 specialized tools
-│   ├── LLM/                         # OpenAI, Gemini clients
-│   └── RAG/                         # Vector search, schema retrieval
-├── TextToSqlAgent.Core/             # Domain models
-├── TextToSqlAgent.Application/      # Legacy orchestrator (backward compat)
-├── docs/                            # 📚 Documentation
-│   ├── HUONG_DAN_CHAY_DU_AN.md     # 🇻🇳 Setup guide
-│   ├── PHASE7_COMPLETE.md           # ReAct Agent details
-│   ├── OPENAI_OPTIMIZATION.md       # ⭐ Optimization guide
-│   └── ...
-└── setup-database.ps1               # Database setup script
-```
-
----
-
-## 🧪 Example Usage
-
-### Simple Query
-```bash
-curl -X POST http://localhost:5251/api/agent/query \
-  -H "Content-Type: application/json" \
-  -d '{"question":"Show me all customers"}'
-```
-
-### Complex Query
-```bash
-curl -X POST http://localhost:5251/api/agent/query \
-  -H "Content-Type: application/json" \
-  -d '{"question":"Show me top 10 customers by revenue with their order count"}'
 ```
 
 **Response:**
 ```json
 {
   "success": true,
-  "sqlGenerated": "SELECT TOP 10 c.CustomerName, SUM(o.TotalAmount) as Revenue, COUNT(o.OrderId) as OrderCount FROM Customers c JOIN Orders o ON c.CustomerId = o.CustomerId GROUP BY c.CustomerName ORDER BY Revenue DESC",
+  "sqlGenerated": "SELECT TOP 10 c.FullName, SUM(o.TotalAmount) as Revenue FROM Customers c JOIN Orders o ON c.CustomerId = o.CustomerId GROUP BY c.FullName ORDER BY Revenue DESC",
   "result": [...],
   "answer": "Found 10 customers with highest revenue...",
-  "processingSteps": [
-    "Step 1: I need to explore the schema to find customer and revenue data",
-    "Step 2: I'll generate SQL to get top customers by revenue with order count",
-    "Step 3: Executing the SQL query",
-    "Step 4: Query successful, returning results"
-  ],
+  "processingSteps": ["Step 1: Analyzing schema...", "Step 2: Generating SQL..."],
   "metadata": {
     "agent_type": "ReAct",
     "total_steps": 4,
     "tokens_used": 1250,
-    "latency_ms": 2340,
-    "from_cache": false
+    "latency_ms": 2340
   }
 }
 ```
 
----
+### Additional Endpoints
 
-## 📈 API Endpoints
-
-### Main Endpoints
-
-#### GET /api/agent/health
-System health check
-
-#### GET /api/agent/mode
-Check current agent mode (ReAct or Legacy)
-
-#### POST /api/agent/query
-Execute natural language query
-
-#### GET /api/agent/schema
-Get database schema
-
-#### POST /api/agent/schema/refresh
-Refresh schema cache
-
----
-
-## 🚀 Deployment Strategy
-
-See `docs/PHASE7_COMPLETE.md` for detailed deployment strategy:
-
-1. **Week 1:** Deploy with legacy mode (safe)
-2. **Week 2:** Enable ReAct for 10% traffic (A/B test)
-3. **Week 3:** Increase to 50% traffic
-4. **Week 4:** Full rollout (100%)
-5. **Month 2:** Deprecate legacy code
-
----
-
-## ⚠️ Troubleshooting
-
-### "OpenAI API key not configured"
-```powershell
-$env:OPENAI_API_KEY="sk-your-key"
-```
-
-### "Cannot connect to database"
-```bash
-sqlcmd -S localhost -U sa -P 123 -Q "SELECT @@VERSION"
-```
-
-### Query too slow?
-See `docs/OPENAI_OPTIMIZATION.md` for optimization tips.
-
-### Agent not working correctly?
-```bash
-# Check agent mode
-curl http://localhost:5251/api/agent/mode
-
-# Should return: "mode": "ReAct"
-```
-
----
+- `GET /api/agent/health` - System health check
+- `GET /api/agent/schema` - Database schema information
+- `POST /api/auth/login` - User authentication
+- `GET /api/connections` - Database connections management
 
 ## 🧪 Testing
 
-### Run Evaluation
-```powershell
-.\run-evaluation.ps1
+### Sample Database
+
+Includes comprehensive test database with:
+- **13 tables:** Customers, Products, Orders, Categories, etc.
+- **Sample data:** 37 orders, realistic business scenarios
+- **Views & procedures:** Pre-built analytics queries
+
+```bash
+# Setup test database
+sqlcmd -S localhost -U sa -P 123 -i test-data/setup-test-db.sql
 ```
 
-### Run Unit Tests
+### Example Queries
+
+```
+"Show me all customers"
+"Top 10 products by revenue"
+"Monthly sales report for 2024"
+"Customers who haven't ordered in 6 months"
+"Average order value by customer type"
+```
+
+### Run Tests
+
 ```bash
+# Unit tests
 dotnet test TextToSqlAgent.Tests.Unit
-```
 
-### Run Integration Tests
-```bash
+# Integration tests (requires Docker)
+docker-compose -f docker-compose.test.yml up -d
 dotnet test TextToSqlAgent.Tests.Integration
 ```
 
----
+## � Security
 
-## 📝 Quick Start Checklist
-
-- [ ] Install .NET 10.0 SDK
-- [ ] Setup SQL Server and run `setup-database.ps1`
-- [ ] ⭐ Set `OPENAI_API_KEY` environment variable
-- [ ] ✅ `appsettings.Development.json` already configured
-- [ ] Run: `dotnet run --project TextToSqlAgent.API`
-- [ ] Test: `curl http://localhost:5251/api/agent/health`
-- [ ] Test: `curl http://localhost:5251/api/agent/mode`
-
----
-
-## 🔒 Security
-
-### Features
-- ✅ SQL injection prevention
-- ✅ Input validation
-- ✅ Rate limiting (per user/IP)
-- ✅ Query cost limits
-- ✅ Dangerous pattern detection
-- ✅ Identifier validation
+### Built-in Protection
+- **SQL Injection Prevention** - Query validation and parameterization
+- **Rate Limiting** - Configurable per user/IP
+- **Input Validation** - Comprehensive request validation
+- **Query Cost Limits** - Prevent expensive operations
+- **Audit Logging** - Complete operation tracking
 
 ### Best Practices
-- All SQL queries validated before execution
-- Only SELECT queries allowed
-- Parameterized queries
-- Cost-based query rejection
-- Comprehensive audit logging
+- API keys stored securely (encrypted at rest)
+- HTTPS enforcement in production
+- JWT token authentication
+- Role-based access control
 
----
+## 📈 Monitoring & Observability
 
-## 📚 Learn More
+### Health Checks
+```bash
+curl http://localhost:5251/api/agent/health
+```
 
-- **ReAct Paper:** https://arxiv.org/abs/2210.03629
-- **OpenAI GPT-4o:** https://platform.openai.com/docs
-- **Semantic Kernel:** https://learn.microsoft.com/semantic-kernel
-- **Spider Dataset:** https://yale-lily.github.io/spider
+### Logging
+- **Structured logging** with Serilog
+- **Log levels:** Information, Warning, Error
+- **Output:** Console + File rotation
 
----
+### Metrics
+- Query success/failure rates
+- Response times and token usage
+- Cache hit rates
+- Error tracking
 
-## 🤝 Contributing
+## 🛠️ Development
 
-Contributions are welcome! Please read the contributing guidelines first.
+### Project Structure
 
----
+```
+TextToSqlAgent/
+├── TextToSqlAgent.API/          # REST API
+├── TextToSqlAgent.Console/      # CLI Application  
+├── TextToSqlAgent.Core/         # Domain Models
+├── TextToSqlAgent.Infrastructure/ # AI, Database, External Services
+├── TextToSqlAgent.Application/  # Business Logic
+├── frontend/                    # React Web Interface
+├── test-data/                   # Sample Database
+└── docs/                        # Documentation
+```
+
+### Technology Stack
+
+**Backend:**
+- .NET 10.0, ASP.NET Core
+- Entity Framework Core
+- Semantic Kernel (AI orchestration)
+- Serilog (logging)
+
+**Frontend:**
+- React 19, Vite
+- Ant Design, TanStack Query
+- Zustand (state management)
+
+**AI & Data:**
+- OpenAI GPT-4o, text-embedding-3-large
+- Qdrant (vector database)
+- SQL Server 2022
+
+## 📋 Requirements
+
+### Minimum System Requirements
+- **OS:** Windows 10+, Linux, macOS
+- **Runtime:** .NET 10.0 (or use self-contained build)
+- **Memory:** 2GB RAM
+- **Storage:** 1GB available space
+
+### External Dependencies
+- **OpenAI API Key** (required)
+- **Database:** SQL Server, PostgreSQL, MySQL, or SQLite
+- **Qdrant:** Optional, improves performance
+
+## 🤝 Support
+
+### Troubleshooting
+
+**"OpenAI API key not configured"**
+```bash
+export OPENAI_API_KEY="sk-your-key"
+```
+
+**"Cannot connect to database"**
+```bash
+# Test connection
+sqlcmd -S localhost -U sa -P 123 -Q "SELECT @@VERSION"
+```
+
+**Performance issues**
+- Enable Qdrant vector database
+- Increase cache TTL settings
+- Check query complexity limits
+
+### Getting Help
+
+1. Check the `docs/` folder for detailed guides
+2. Review configuration in `.env.example` files
+3. Enable detailed logging for debugging
+4. Use health check endpoints for system status
 
 ## 📄 License
 
-This project is licensed under the MIT License.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
-## 👥 Authors
-
-- AI Engineer Team
-
----
-
-## 🙏 Acknowledgments
-
-- [Spider Dataset](https://yale-lily.github.io/spider)
-- [ReAct Paper](https://arxiv.org/abs/2210.03629)
-- [RESDSQL Paper](https://arxiv.org/abs/2302.05965)
-- [Semantic Kernel](https://github.com/microsoft/semantic-kernel)
-
----
-
-**Built with ❤️ using .NET 10, OpenAI GPT-4o, and Semantic Kernel**
-
-**Version:** 2.0.0 - Phase 7 (ReAct Agent)  
-**Status:** ✅ Production Ready  
-**Last Updated:** March 8, 2026
+**Built with ❤️ using .NET 10, OpenAI GPT-4o, and modern enterprise patterns**

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using TextToSqlAgent.Core.Agent;
+using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Infrastructure.Caching;
 
 namespace TextToSqlAgent.Infrastructure.Agent;

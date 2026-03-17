@@ -354,7 +354,14 @@ public class EnhancedAgentOrchestrator
             var finalSql = corrections.Any() ? corrections.Last().CorrectedSql : sql;
             finalSql = sqlGenerator.EnsureLimit(finalSql);
 
-            var answer = FormatIntelligentAnswer(intent, executionResult, corrections, context);
+            var answer = await FormatIntelligentAnswerAsync(
+                userQuestion,
+                finalSql,
+                intent,
+                executionResult,
+                corrections,
+                context,
+                cancellationToken);
 
             response.Success = true;
             response.Answer = answer;
@@ -362,24 +369,42 @@ public class EnhancedAgentOrchestrator
             response.QueryResult = executionResult;
             response.ProcessingSteps = steps;
 
-            // ✅ Add suggestions from LLM response
-            var suggestions = sqlResult.SuggestedQueries;
+            // ====================================
+            // STEP 11: Generate Contextual Suggestions (NEW!)
+            // ====================================
+            steps.Add("Step 11: Generate contextual suggestions based on results");
 
-            // ✅ Log suggestion details
-            _logger.LogInformation(
-                "[EnhancedAgent] Received {Count} suggestions from LLM: [{Suggestions}]",
-                suggestions.Count,
-                string.Join(", ", suggestions.Take(3).Select(s => $"\"{s}\"")));
+            List<string> suggestions;
+            try
+            {
+                // ✅ Generate suggestions based on ACTUAL RESULTS
+                suggestions = await sqlGenerator.GenerateContextualSuggestionsAsync(
+                    userQuestion,
+                    finalSql,
+                    executionResult,
+                    intent,
+                    cancellationToken);
 
-            // ✅ Fallback to rule-based if LLM suggestions are insufficient
+                _logger.LogInformation(
+                    "[EnhancedAgent] Generated {Count} contextual suggestions: [{Suggestions}]",
+                    suggestions.Count,
+                    string.Join(", ", suggestions.Take(3).Select(s => $"\"{s}\"")));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[EnhancedAgent] Failed to generate contextual suggestions, using fallback");
+                suggestions = new List<string>();
+            }
+
+            // ✅ Fallback to rule-based if contextual generation failed
             if (suggestions.Count < 3)
             {
-                _logger.LogDebug("[EnhancedAgent] LLM returned {Count} suggestions, padding with rule-based", suggestions.Count);
+                _logger.LogDebug("[EnhancedAgent] Contextual suggestions insufficient ({Count}), adding rule-based", suggestions.Count);
 
                 var ruleBasedService = new RuleBasedSuggestionService();
                 var ruleBased = ruleBasedService.Generate(intent.Intent, intent.Target, userQuestion);
 
-                // Keep LLM suggestions (if any), add rule-based to reach 3 total
+                // Keep contextual suggestions (if any), add rule-based to reach 3 total
                 var combined = suggestions
                     .Concat(ruleBased)
                     .Distinct()
@@ -664,18 +689,21 @@ public class EnhancedAgentOrchestrator
         return (finalResult, corrections);
     }
 
-    private string FormatIntelligentAnswer(
+    private async Task<string> FormatIntelligentAnswerAsync(
+        string originalQuestion,
+        string sqlQuery,
         IntentAnalysis intent,
         SqlExecutionResult result,
         List<CorrectionAttempt> corrections,
-        ConversationContext context)
+        ConversationContext context,
+        CancellationToken cancellationToken = default)
     {
         var answer = "";
 
         // Add correction info if any
         if (corrections.Any())
         {
-            answer += $"ℹ️  SQL was auto-corrected {corrections.Count} time(s).\n";
+            answer += $"ℹ️  SQL đã được tự động sửa {corrections.Count} lần.\n";
         }
 
         // Add context-aware response
@@ -686,24 +714,42 @@ public class EnhancedAgentOrchestrator
 
         if (result.RowCount == 0)
         {
-            return answer + "No results found. Try adjusting your filters or criteria.";
+            return answer + "Không tìm thấy kết quả nào. Hãy thử điều chỉnh bộ lọc hoặc tiêu chí tìm kiếm.";
         }
 
-        // Build rich answer based on intent type
-        answer += intent.Intent switch
+        try
         {
-            QueryIntent.COUNT => FormatCountAnswer(result),
-            QueryIntent.LIST => FormatListAnswer(result),
-            QueryIntent.SCHEMA when intent.Target.Equals("TABLES", StringComparison.OrdinalIgnoreCase) =>
-                FormatSchemaAnswer(result),
-            QueryIntent.AGGREGATE or QueryIntent.SUM or QueryIntent.AVG or QueryIntent.GROUP_BY =>
-                FormatAggregateAnswer(result),
-            QueryIntent.TOP_N => FormatTopNAnswer(result),
-            QueryIntent.DETAIL => FormatDetailAnswer(result),
-            QueryIntent.RANKING => FormatRankingAnswer(result),
-            QueryIntent.COMPARISON => FormatComparisonAnswer(result),
-            _ => FormatGenericAnswer(result)
-        };
+            // Use intelligent response plugin for better answers
+            var responsePlugin = _serviceFactory.GetOrCreate<IntelligentResponsePlugin>();
+            var intelligentResponse = await responsePlugin.GenerateResponseAsync(
+                originalQuestion,
+                sqlQuery,
+                result,
+                intent,
+                cancellationToken);
+
+            answer += intelligentResponse;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[EnhancedAgent] Failed to generate intelligent response, using fallback");
+
+            // Fallback to simple format
+            answer += intent.Intent switch
+            {
+                QueryIntent.COUNT => FormatCountAnswerSimple(result),
+                QueryIntent.LIST => FormatListAnswerSimple(result),
+                QueryIntent.SCHEMA when intent.Target.Equals("TABLES", StringComparison.OrdinalIgnoreCase) =>
+                    FormatSchemaAnswerSimple(result),
+                QueryIntent.AGGREGATE or QueryIntent.SUM or QueryIntent.AVG or QueryIntent.GROUP_BY =>
+                    FormatAggregateAnswerSimple(result),
+                QueryIntent.TOP_N => FormatTopNAnswerSimple(result),
+                QueryIntent.DETAIL => FormatDetailAnswerSimple(result),
+                QueryIntent.RANKING => FormatRankingAnswerSimple(result),
+                QueryIntent.COMPARISON => FormatComparisonAnswerSimple(result),
+                _ => FormatGenericAnswerSimple(result)
+            };
+        }
 
         return answer;
     }
@@ -897,6 +943,52 @@ public class EnhancedAgentOrchestrator
             float f => f.ToString("N2"),
             _ => value.ToString() ?? ""
         };
+    }
+    private static string FormatCountAnswerSimple(SqlExecutionResult result)
+    {
+        var firstRow = result.Rows[0];
+        var countValue = firstRow.Values.First();
+        return $"Tìm thấy {countValue} bản ghi trong hệ thống.";
+    }
+
+    private static string FormatListAnswerSimple(SqlExecutionResult result)
+    {
+        return $"Truy xuất thành công {result.RowCount} bản ghi từ cơ sở dữ liệu.";
+    }
+
+    private static string FormatSchemaAnswerSimple(SqlExecutionResult result)
+    {
+        return $"Cơ sở dữ liệu chứa {result.RowCount} bảng.";
+    }
+
+    private static string FormatAggregateAnswerSimple(SqlExecutionResult result)
+    {
+        return $"Phân tích dữ liệu hoàn tất với {result.RowCount} kết quả tổng hợp.";
+    }
+
+    private static string FormatTopNAnswerSimple(SqlExecutionResult result)
+    {
+        return $"Đã xác định được {result.RowCount} mục hàng đầu theo tiêu chí yêu cầu.";
+    }
+
+    private static string FormatDetailAnswerSimple(SqlExecutionResult result)
+    {
+        return $"Thông tin chi tiết: {result.RowCount} bản ghi.";
+    }
+
+    private static string FormatRankingAnswerSimple(SqlExecutionResult result)
+    {
+        return $"Xếp hạng hoàn tất với {result.RowCount} mục.";
+    }
+
+    private static string FormatComparisonAnswerSimple(SqlExecutionResult result)
+    {
+        return $"So sánh hoàn tất với {result.RowCount} kết quả.";
+    }
+
+    private static string FormatGenericAnswerSimple(SqlExecutionResult result)
+    {
+        return $"Truy vấn thành công với {result.RowCount} kết quả.";
     }
 
     public void ClearSchemaCache()

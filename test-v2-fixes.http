@@ -1,0 +1,62 @@
+### Test v2 API with Conversation Awareness and Suggested Queries
+### This file tests the fixes for:
+### 1. v2 API returning incomplete responses
+### 2. Suggested queries not appearing or being unnatural
+
+### Test 1: Basic query to check v2 API works
+POST {{host}}/api/v2/agent/process
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "connectionId": "{{connectionId}}",
+  "question": "Hiển thị danh sách khách hàng"
+}
+
+### Test 2: Follow-up query to test conversation awareness
+POST {{host}}/api/v2/agent/process
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "connectionId": "{{connectionId}}",
+  "question": "Khách hàng nào ở Hà Nội?",
+  "conversationId": "{{conversationId}}"
+}
+
+### Test 3: Query to specifically test suggested queries
+POST {{host}}/api/v2/agent/process
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "connectionId": "{{connectionId}}",
+  "question": "Tổng doanh thu tháng này là bao nhiêu?"
+}
+
+### Test 4: Complex query to test suggestions quality
+POST {{host}}/api/v2/agent/process
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "connectionId": "{{connectionId}}",
+  "question": "Top 10 sản phẩm bán chạy nhất"
+}
+
+### Test 5: Conversation context test
+POST {{host}}/api/v2/agent/process
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "connectionId": "{{connectionId}}",
+  "question": "Còn sản phẩm nào khác không?",
+  "conversationId": "{{conversationId}}"
+}
+
+### Variables (replace with actual values)
+@host = https://localhost:7001
+@token = your_jwt_token_here
+@connectionId = your_connection_id_here
+@conversationId = conversation_id_from_previous_response

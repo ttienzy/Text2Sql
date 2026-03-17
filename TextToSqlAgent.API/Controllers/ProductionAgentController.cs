@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using TextToSqlAgent.API.DTOs;
 using TextToSqlAgent.Core.Agent;
+using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Infrastructure.Security;
 
 namespace TextToSqlAgent.API.Controllers;

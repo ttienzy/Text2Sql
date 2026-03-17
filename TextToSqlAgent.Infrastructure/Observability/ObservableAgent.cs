@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using TextToSqlAgent.Core.Agent;
+using TextToSqlAgent.Core.Interfaces;
 
 namespace TextToSqlAgent.Infrastructure.Observability;
 

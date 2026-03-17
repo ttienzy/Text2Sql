@@ -1,0 +1,46 @@
+### Test Suggested Queries Generation
+
+# First, login to get token
+POST http://localhost:5251/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@example.com",
+  "password": "Admin123!"
+}
+
+###
+# Test v1 API with a simple query to see if suggestions are generated
+POST http://localhost:5251/api/agent/process
+Content-Type: application/json
+Authorization: Bearer YOUR_JWT_TOKEN_HERE
+
+{
+  "connectionId": "test-connection-id",
+  "question": "Hiển thị danh sách top 5 người dùng order nhiều nhất",
+  "conversationId": "test-conversation-id"
+}
+
+###
+# Test with different question types
+POST http://localhost:5251/api/agent/process
+Content-Type: application/json
+Authorization: Bearer YOUR_JWT_TOKEN_HERE
+
+{
+  "connectionId": "test-connection-id", 
+  "question": "Tổng doanh thu theo tháng",
+  "conversationId": "test-conversation-id-2"
+}
+
+###
+# Test with English question
+POST http://localhost:5251/api/agent/process
+Content-Type: application/json
+Authorization: Bearer YOUR_JWT_TOKEN_HERE
+
+{
+  "connectionId": "test-connection-id",
+  "question": "Show me all customers",
+  "conversationId": "test-conversation-id-3"
+}

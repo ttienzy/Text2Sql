@@ -11,7 +11,8 @@ import {
   ArrowDownOutlined,
   EditOutlined,
 } from '@ant-design/icons';
-import { MessageBubble, ChatInput, MessageSkeleton } from '../chat';
+import { MessageBubble, ChatInput, MessageSkeleton, ConversationStatus } from '../chat';
+import SmartProcessingProgress from '../chat/SmartProcessingProgress';
 import { ResponsiveChatMessageSkeleton } from '../common';
 import { useDelayedLoading } from '../../hooks/useDelayedLoading';
 import useConversationStore from '../../store/conversationStore';
@@ -19,6 +20,7 @@ import useConnectionStore from '../../store/connectionStore';
 import { useMessagesQuery } from '../../api/messages';
 import { useUpdateConversationMutation } from '../../api/conversations';
 import { useProcessMessageMutation } from '../../api/agent';
+// import { useProcessMessageV2Mutation } from '../../api/agent/v2';
 
 const { Title, Text } = Typography;
 
@@ -31,6 +33,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending }) => {
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState('');
+  const [currentQuestion, setCurrentQuestion] = useState(''); // Track current question for progress
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const isFirstMessageRef = useRef(false);
@@ -50,8 +53,12 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending }) => {
   const showMessagesSkeleton = useDelayedLoading(isLoadingMessages && messages.length === 0, 300);
 
   // React Query - process message mutation with optimistic updates
+  // Using v1 API (stable version)
   const processMessageMutation = useProcessMessageMutation({
     onMutate: async (variables) => {
+      // Store current question for progress display
+      setCurrentQuestion(variables.question);
+
       // Optimistically add user message
       const userMessage = {
         id: `temp-user-${Date.now()}`,
@@ -62,21 +69,14 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending }) => {
         isOptimistic: true,
       };
 
-      // Add pending assistant message
-      const assistantMessage = {
-        id: `temp-assistant-${Date.now()}`,
-        conversationId: currentConversation?.id,
-        role: 'assistant',
-        content: '',
-        isPending: true,
-        createdAt: new Date().toISOString(),
-      };
+      setMessages([...messages, userMessage]);
 
-      setMessages([...messages, userMessage, assistantMessage]);
-
-      return { userMessage, assistantMessage };
+      return { userMessage };
     },
     onSuccess: (data, variables, context) => {
+      // Clear current question
+      setCurrentQuestion('');
+
       // Remove optimistic messages and add real ones
       const filteredMessages = messages.filter(m => !m.isOptimistic && !m.isPending);
 
@@ -124,6 +124,9 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending }) => {
       message.success('Query executed successfully');
     },
     onError: (error, variables, context) => {
+      // Clear current question
+      setCurrentQuestion('');
+
       // Remove optimistic messages on error
       const filteredMessages = messages.filter(m => !m.isOptimistic && !m.isPending);
       setMessages(filteredMessages);
@@ -183,7 +186,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending }) => {
     }
 
     try {
-      // Use production API to process message
+      // Use production API to process message (v1 for now)
       await processMessageMutation.mutateAsync({
         connectionId: activeConnection.id,
         question: content,
@@ -341,9 +344,17 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending }) => {
               />
             ))}
 
-            {/* Show skeleton when processing */}
-            {isSending && (
-              <MessageSkeleton isUser={false} />
+            {/* Show enhanced progress when processing */}
+            {isSending && currentQuestion && (
+              <SmartProcessingProgress
+                question={currentQuestion}
+                isVisible={true}
+                connectionName={activeConnection?.name || 'Database'}
+                mode="enhanced" // Can be 'enhanced', 'simple', or 'streaming'
+                onStepComplete={(stepTitle, stepIndex) => {
+                  console.log(`Completed step: ${stepTitle} (${stepIndex})`);
+                }}
+              />
             )}
           </div>
         )}
@@ -380,6 +391,17 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending }) => {
           : "Select a connection first"
         }
       />
+
+      {/* Conversation Status */}
+      {currentConversation && messages.length > 0 && (
+        <ConversationStatus
+          conversationId={currentConversation.id}
+          messageCount={messages.length}
+          isConversationMode={true}
+          lastMessageTime={messages[messages.length - 1]?.createdAt}
+          compact={true}
+        />
+      )}
     </div>
   );
 };

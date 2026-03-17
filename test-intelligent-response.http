@@ -1,0 +1,26 @@
+### Test Intelligent Response System
+POST http://localhost:5251/api/agent/query
+Content-Type: application/json
+
+{
+  "question": "Có bao nhiêu người dùng trong hệ thống?",
+  "connectionId": "1"
+}
+
+### Test English Query
+POST http://localhost:5251/api/agent/query
+Content-Type: application/json
+
+{
+  "question": "Show me the top 5 users",
+  "connectionId": "1"
+}
+
+### Test Vietnamese Follow-up Query
+POST http://localhost:5251/api/agent/query
+Content-Type: application/json
+
+{
+  "question": "Hiển thị danh sách 10 người dùng đầu tiên",
+  "connectionId": "1"
+}

@@ -10,7 +10,7 @@ namespace TextToSqlAgent.Infrastructure.Agent;
 /// LLM-based tool selector for ReAct Agent
 /// Uses LLM to intelligently select tools and extract parameters
 /// </summary>
-public class LLMToolSelector
+public class LLMToolSelector : ILLMToolSelector
 {
     private readonly ILLMClient _llmClient;
     private readonly ILogger<LLMToolSelector> _logger;
@@ -27,8 +27,8 @@ public class LLMToolSelector
         string thought,
         string plan,
         AgentContext context,
-        List<ITool> availableTools,
-        CancellationToken ct)
+        IEnumerable<ITool> availableTools,
+        CancellationToken ct = default)
     {
         _logger.LogDebug("[LLMToolSelector] Selecting action from plan...");
 

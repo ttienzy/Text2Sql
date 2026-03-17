@@ -9,6 +9,7 @@ using TextToSqlAgent.API.Middleware;
 using TextToSqlAgent.API.Repositories;
 using TextToSqlAgent.API.Services;
 using TextToSqlAgent.Application.Services;
+using TextToSqlAgent.Infrastructure.Agent;
 using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Tasks;
 using TextToSqlAgent.Infrastructure.Analysis;
@@ -116,6 +117,9 @@ try
     var ragConfig = new RAGConfig();
     configuration.GetSection("RAG").Bind(ragConfig);
 
+    var conversationConfig = new ConversationConfig();
+    configuration.GetSection("Conversation").Bind(conversationConfig);
+
     var rateLimitOptions = new RateLimitOptions
     {
         EnableRateLimiting = false, // Disabled temporarily
@@ -141,6 +145,7 @@ try
     builder.Services.AddSingleton(agentConfig);
     builder.Services.AddSingleton(qdrantConfig);
     builder.Services.AddSingleton(ragConfig);
+    builder.Services.AddSingleton(conversationConfig);
 
     // ============================================
     // 2. REGISTER SERVICES
@@ -213,6 +218,7 @@ try
     builder.Services.AddTransient<SqlCorrectorPlugin>();
     builder.Services.AddTransient<QueryValidatorPlugin>();
     builder.Services.AddTransient<QueryExplainerPlugin>();
+    builder.Services.AddTransient<IntelligentResponsePlugin>();
 
     // ✅ NEW: Query Routing
     builder.Services.AddSingleton<TextToSqlAgent.Application.Routing.IQueryRouter, TextToSqlAgent.Application.Routing.QueryRouter>();
@@ -225,6 +231,9 @@ try
 
     // ✅ NEW: Enhanced Agentic AI Orchestrator (changed to Scoped to work with Scoped services)
     builder.Services.AddScoped<EnhancedAgentOrchestrator>();
+
+    // ✅ NEW: Conversation-Aware Services (v2 API)
+    builder.Services.AddScoped<ConversationAwareOrchestrator>();
 
     // ✅ NEW: Conversation Manager - required by EnhancedAgentOrchestrator
     builder.Services.AddSingleton<ConversationManager>();
@@ -245,6 +254,9 @@ try
     // Register ReAct Agent with full production features
     // This includes: Base Agent, Tools, RAG, Advanced Features, Observability
     builder.Services.AddReActAgentProduction();
+
+    // ✅ NEW: Conversation-Aware ReAct Agent (v2)
+    builder.Services.AddScoped<ConversationAwareReActAgent>();
 
     // ============================================
     // 3. API SERVICES

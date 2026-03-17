@@ -701,19 +701,39 @@ REQUIRED JSON FORMAT (all fields mandatory):
 - ALWAYS provide exactly 3 suggestions
 - Natural language questions (not SQL)
 - Must be directly related to the tables/data just queried
-- Explore: drill-down, filter, aggregate, compare, rank
-- Max 12 words each
-- In the SAME language as the user's question
+- Explore different angles: drill-down, filter, aggregate, compare, rank, trends
+- Max 15 words each
+- In the SAME language as the user's question (Vietnamese if user asks in Vietnamese)
+- Make them ACTIONABLE and INTERESTING for business users
+- Focus on business insights, not technical details
+
+# SUGGESTION EXAMPLES:
+
+For customer query → [""Khách hàng nào mua nhiều nhất?"", ""Phân tích khách hàng theo thành phố"", ""Khách hàng VIP có bao nhiêu?""]
+
+For sales query → [""Doanh thu theo tháng như thế nào?"", ""Sản phẩm nào bán chạy nhất?"", ""So sánh doanh thu năm nay với năm trước""]
+
+For product query → [""Sản phẩm nào có lợi nhuận cao nhất?"", ""Tồn kho hiện tại ra sao?"", ""Đánh giá sản phẩm theo danh mục""]
+
+For order query → [""Đơn hàng nào có giá trị cao nhất?"", ""Xu hướng đặt hàng theo thời gian"", ""Phân tích đơn hàng theo khu vực""]
+
+For employee query → [""Nhân viên nào có hiệu suất tốt nhất?"", ""Phân bố nhân viên theo phòng ban"", ""Lương trung bình theo vị trí""]
 
 # EXAMPLE OUTPUT:
 {
-  ""sql"": ""SELECT TOP 100 [CustomerId], [FullName] FROM [Customers]"",
+  ""sql"": ""SELECT TOP 100 [CustomerId], [FullName] FROM [Customers] ORDER BY [FullName]"",
   ""suggested_queries"": [
-    ""How many customers are in each city?"",
-    ""Show VIP customers only"",
-    ""Which customer placed the most orders?""
+    ""Khách hàng nào đặt hàng nhiều nhất?"",
+    ""Phân tích khách hàng theo khu vực"",
+    ""Tìm khách hàng VIP dựa trên doanh thu""
   ]
 }
+
+REMEMBER: 
+- ALWAYS include exactly 3 suggested_queries
+- Make suggestions RELEVANT and BUSINESS-FOCUSED
+- Use the same language as user's question
+- NO markdown formatting, just pure JSON
 
 ";
 
@@ -757,7 +777,10 @@ Schema Context:
         }
 
         prompt += "\n\nGenerate JSON response with SQL query and 3 suggested follow-up questions:";
-        prompt += "\nIMPORTANT: Select ONLY the columns that are relevant to the user's question. Do NOT use SELECT * unless the user explicitly asks for all columns.";
+        prompt += "\nIMPORTANT: Always include human-readable name/title columns for any entity being queried (ProductName, CustomerName, etc.), even if not explicitly listed in Desired Columns. Never return only ID columns as the sole identifier for an entity.";
+        prompt += "\nREQUIRED: Always include exactly 3 business-relevant suggested_queries in the same language as the user's question.";
+        prompt += "\nSuggestions should explore different aspects: drill-down analysis, filtering, comparisons, rankings, or trends.";
+        prompt += "\nCRITICAL: The suggested_queries field is MANDATORY - never omit it or the system will fail!";
 
         return prompt;
     }
@@ -802,7 +825,7 @@ Schema Context:
         }
 
         prompt += "\n\nGenerate SQL query (query only, no explanation, NO PARAMETERS):";
-        prompt += "\nIMPORTANT: Select ONLY the columns that are relevant to the user's question. Do NOT use SELECT * unless the user explicitly asks for all columns.";
+        prompt += "\nIMPORTANT: Always include human-readable name/title columns for any entity being queried (ProductName, CustomerName, etc.), even if not explicitly listed in Desired Columns. Never return only ID columns as the sole identifier for an entity.";
 
         return prompt;
     }

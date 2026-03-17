@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using TextToSqlAgent.Core.Agent;
+using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Tools;
 using TextToSqlAgent.Infrastructure.Agent;
 using TextToSqlAgent.Infrastructure.Tools;
@@ -40,6 +41,7 @@ public static class ServiceCollectionExtensions
 
         // ✅ NEW: LLM Tool Selector for intelligent tool selection
         services.AddSingleton<LLMToolSelector>();
+        services.AddSingleton<ILLMToolSelector>(sp => sp.GetRequiredService<LLMToolSelector>());
 
         // Register ReAct Agent (inner implementation)
         services.AddSingleton<ReActAgent>();
@@ -54,6 +56,9 @@ public static class ServiceCollectionExtensions
 
             return new ObservableAgent(innerAgent, telemetry, logger);
         });
+
+        // ✅ NEW: Register Conversation-Aware Agent (separate registration)
+        services.AddScoped<ConversationAwareReActAgent>();
 
         // Register Tools
         services.AddScoped<SchemaExplorerTool>();

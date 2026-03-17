@@ -19,6 +19,7 @@ import {
   HistoryOutlined,
 } from '@ant-design/icons';
 import { SchemaBrowserSkeleton } from '../common';
+import { ConversationContext } from '../chat';
 import axiosInstance from '../../api/axios';
 import { useRecentQueriesQuery } from '../../api/messages/queries';
 import useConnectionStore from '../../store/connectionStore';
@@ -33,7 +34,7 @@ const InfoPanel = ({ onSyncSchema }) => {
   const [isLoadingSchema, setIsLoadingSchema] = useState(false);
 
   const { activeConnection } = useConnectionStore();
-  const { currentConnection: currentConv } = useConversationStore();
+  const { currentConversation } = useConversationStore();
 
   // Fetch recent queries
   const { data: recentQueries, isLoading: isLoadingQueries } = useRecentQueriesQuery();
@@ -136,6 +137,14 @@ const InfoPanel = ({ onSyncSchema }) => {
           <div style={{ marginBottom: 16 }}>
             <QuotaProgress compact />
           </div>
+
+          {/* Conversation Analytics - Show when conversation is active */}
+          {currentConversation && (
+            <ConversationContext
+              conversationId={currentConversation.id}
+              visible={true}
+            />
+          )}
 
           {/* Recent Queries */}
           <div style={{ marginBottom: 16 }}>
@@ -241,15 +250,15 @@ const InfoPanel = ({ onSyncSchema }) => {
           </div>
 
           {/* Conversation Metadata */}
-          {currentConv && (
+          {currentConversation && (
             <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #f0f0f0' }}>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                Conversation: {currentConv.title || 'Untitled'}
+                Conversation: {currentConversation.title || 'Untitled'}
               </Text>
               <br />
               <Text type="secondary" style={{ fontSize: 12 }}>
-                Created: {currentConv.createdAt
-                  ? new Date(currentConv.createdAt).toLocaleDateString()
+                Created: {currentConversation.createdAt
+                  ? new Date(currentConversation.createdAt).toLocaleDateString()
                   : 'N/A'}
               </Text>
             </div>

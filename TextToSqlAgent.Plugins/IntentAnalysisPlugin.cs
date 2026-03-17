@@ -9,69 +9,61 @@ namespace TextToSqlAgent.Plugins;
 
 public class IntentAnalysisPlugin
 {
-    private readonly ILLMClient _llmClient;
-    private readonly ILogger<IntentAnalysisPlugin> _logger;
+  private readonly ILLMClient _llmClient;
+  private readonly ILogger<IntentAnalysisPlugin> _logger;
 
-    public IntentAnalysisPlugin(ILLMClient llmClient, ILogger<IntentAnalysisPlugin> logger)
+  public IntentAnalysisPlugin(ILLMClient llmClient, ILogger<IntentAnalysisPlugin> logger)
+  {
+    _llmClient = llmClient;
+    _logger = logger;
+  }
+
+  [KernelFunction, Description("Analyze user query and extract structured intent for SQL generation")]
+  public async Task<IntentAnalysis> AnalyzeIntentAsync(
+      [Description("User's natural language query")] string userQuery,
+      [Description("Available database tables")] List<string> availableTables,
+      CancellationToken cancellationToken = default)
+  {
+    try
     {
-        _llmClient = llmClient;
-        _logger = logger;
+      var systemPrompt = BuildSystemPrompt();
+      var schemaContext = string.Join(", ", availableTables);
+      var userPrompt = BuildUserPrompt(userQuery, schemaContext);
+
+      var response = await _llmClient.CompleteWithSystemPromptAsync(systemPrompt, userPrompt, cancellationToken);
+
+      // Clean the JSON response
+      var cleanedResponse = response
+          .Replace("```json", "")
+          .Replace("```", "")
+          .Trim();
+
+      // Deserialize the JSON response to IntentAnalysis object
+      var options = new JsonSerializerOptions
+      {
+        PropertyNameCaseInsensitive = true
+      };
+
+      var intentAnalysis = JsonSerializer.Deserialize<IntentAnalysis>(cleanedResponse, options);
+
+      if (intentAnalysis == null)
+      {
+        throw new InvalidOperationException("Failed to deserialize intent analysis response");
+      }
+
+      _logger.LogInformation("Intent analysis completed for query: {Query}", userQuery);
+      return intentAnalysis;
     }
-
-    [KernelFunction, Description("Analyze user intent from natural language question")]
-    public async Task<IntentAnalysis> AnalyzeIntentAsync(
-        string question,
-        List<string> availableTables,
-        CancellationToken cancellationToken = default)
+    catch (Exception ex)
     {
-        _logger.LogDebug("[Agent] Analyzing user intent...");
-
-        var systemPrompt = BuildSystemPrompt();
-        var userPrompt = BuildUserPrompt(question, availableTables);
-
-        var response = await _llmClient.CompleteWithSystemPromptAsync(
-            systemPrompt,
-            userPrompt,
-            cancellationToken);
-
-        _logger.LogDebug("[Agent] LLM Response: {Response}", response);
-
-        // Clean response (remove markdown code blocks if present)
-        var jsonResponse = CleanJsonResponse(response);
-
-        try
-        {
-            var intent = JsonSerializer.Deserialize<IntentAnalysis>(
-                jsonResponse,
-                new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                });
-
-            if (intent == null)
-            {
-                throw new InvalidOperationException("Failed to deserialize intent analysis");
-            }
-
-            _logger.LogInformation(
-                "[Agent] Intent: {Intent}, Target: {Target}",
-                intent.Intent,
-                intent.Target);
-
-            return intent;
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogError(ex, "[Agent] Failed to parse intent response: {Response}", jsonResponse);
-            throw new InvalidOperationException("Failed to parse LLM response", ex);
-        }
+      _logger.LogError(ex, "Error analyzing intent for query: {Query}", userQuery);
+      throw;
     }
+  }
 
-
-    public static string BuildSystemPrompt()
-    {
-        return @"
-You are an expert database query analyst with deep expertise in business intelligence, SQL, and natural language understanding.
+  public static string BuildSystemPrompt()
+  {
+    return @"You are an expert database query analyst with deep expertise in business intelligence, SQL, and natural language understanding.
 
 # YOUR MISSION
 Analyze Vietnamese/English natural language questions and extract structured intent for SQL generation.
@@ -119,13 +111,6 @@ Return ONLY valid JSON without any markdown formatting or explanations:
   }
 }
 
-## selectColumns Rules
-- For LIST/DETAIL queries: extract the SPECIFIC columns the user mentions
-- If user says ""show all"" or ""*"": leave selectColumns as empty array []
-- If user says ""get customer code, full name, email"": populate [""Customers.CustomerCode"", ""Customers.FullName"", ""Customers.Email""]
-- For AGGREGATE queries: leave empty (metrics define the output)
-- Always use Table.Column format when possible
-
 # INTENT TYPES (Hierarchical)
 
 ## SIMPLE INTENTS
@@ -163,328 +148,33 @@ Return ONLY valid JSON without any markdown formatting or explanations:
 **Complex** (6-8 points): 3+ joins, window functions, subqueries, complex date logic
 **Advanced** (9+ points): CTEs, window functions with PARTITION BY, YoY, running totals, percentage
 
-# CRITICAL RULES FOR FILTER VALUES
-
-**valueType** must be one of:
-- **""literal""**: Static value like ""Cancelled"", ""123"", ""2024-01-01""
-  - Backend wraps in quotes or uses SqlParameter
-- **""expression""**: SQL function/expression that backend should inject directly
-  - Examples: ""GETDATE()"", ""DATEADD(MONTH, -1, GETDATE())""
-  - Backend must NOT wrap in quotes
-- **""parameter""**: Placeholder for user input (use @ParamName format)
-  - Example: ""@CustomerId"", ""@StartDate""
-
-**IMPORTANT**: 
-- For date filters, use ""expression"" type with predefined expressions
-- For IN operator with multiple values, use comma-separated literals with ""literal"" type
-- NEVER mix expressions and literals in same value field
-
-# PREDEFINED DATE EXPRESSIONS (Use these exactly)
-
-- Current month start: ""DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE()), 0)""
-- Current year start: ""DATEADD(YEAR, DATEDIFF(YEAR, 0, GETDATE()), 0)""
-- Last month start: ""DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE())-1, 0)""
-- Last year start: ""DATEADD(YEAR, DATEDIFF(YEAR, 0, GETDATE())-1, 0)""
-- Today: ""CAST(GETDATE() AS DATE)""
-- N days ago: ""DATEADD(DAY, -N, CAST(GETDATE() AS DATE))""
-
-# TIME RANGE STRUCTURE (SIMPLIFIED)
-
-**Type: ""relative""** - Use for dynamic dates
-- relativeType: ""today"", ""this_week"", ""this_month"", ""this_year"", ""last_N_days"", ""last_month"", ""last_year""
-- relativeDays: Number of days (only for ""last_N_days"")
-
-**Type: ""absolute""** - Use for fixed dates
-- absoluteStart: ""2024-01-01""
-- absoluteEnd: ""2024-12-31""
-
-**Type: ""none""** - No time filtering
-
-# FEW-SHOT EXAMPLES
-
-## Example 1: Simple Count
-Input: ""Có bao nhiêu khách hàng?""
-Output:
-{
-  ""intent"": ""COUNT"",
-  ""complexity"": ""Simple"",
-  ""target"": ""Customers"",
-  ""relatedEntities"": [],
-  ""selectColumns"": [],
-  ""metrics"": [
-    {
-      ""name"": ""TotalCustomers"",
-      ""calculation"": ""COUNT(*)"",
-      ""alias"": ""Total""
-    }
-  ],
-  ""filters"": [],
-  ""groupBy"": [],
-  ""orderBy"": [],
-  ""limit"": null,
-  ""requiredFeatures"": [""AGGREGATE""],
-  ""timeRange"": {
-    ""type"": ""none"",
-    ""relativeType"": null,
-    ""relativeDays"": null,
-    ""absoluteStart"": null,
-    ""absoluteEnd"": null
-  }
-}
-
-## Example 2: Top N with Date Filter (FIXED)
-Input: ""Top 10 khách hàng có doanh thu cao nhất tháng này""
-Output:
-{
-  ""intent"": ""TOP_N"",
-  ""complexity"": ""Medium"",
-  ""target"": ""Customers"",
-  ""relatedEntities"": [""Orders""],
-  ""selectColumns"": [""Customers.Name""],
-  ""metrics"": [
-    {
-      ""name"": ""TotalRevenue"",
-      ""calculation"": ""SUM(Orders.TotalAmount)"",
-      ""alias"": ""Revenue""
-    }
-  ],
-  ""filters"": [
-    {
-      ""field"": ""Orders.OrderDate"",
-      ""operator"": "">="",
-      ""value"": ""DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE()), 0)"",
-      ""valueType"": ""expression"",
-      ""logicalOperator"": ""AND""
-    }
-  ],
-  ""groupBy"": [""Customers.Id"", ""Customers.Name""],
-  ""orderBy"": [
-    {
-      ""field"": ""Revenue"",
-      ""direction"": ""DESC""
-    }
-  ],
-  ""limit"": 10,
-  ""requiredFeatures"": [""AGGREGATE"", ""JOIN"", ""DATE_FUNCTION""],
-  ""timeRange"": {
-    ""type"": ""relative"",
-    ""relativeType"": ""this_month"",
-    ""relativeDays"": null,
-    ""absoluteStart"": null,
-    ""absoluteEnd"": null
-  }
-}
-
-## Example 3: Complex with Status Filter (FIXED)
-Input: ""Top 10 khách hàng có tổng đơn hàng cao nhất tháng này, loại trừ đơn bị hủy, hiển thị % so với tổng doanh thu""
-Output:
-{
-  ""intent"": ""TOP_N"",
-  ""complexity"": ""Advanced"",
-  ""target"": ""Customers"",
-  ""relatedEntities"": [""Orders""],
-  ""selectColumns"": [""Customers.Name""],
-  ""metrics"": [
-    {
-      ""name"": ""TotalRevenue"",
-      ""calculation"": ""SUM(Orders.TotalAmount)"",
-      ""alias"": ""Revenue""
-    },
-    {
-      ""name"": ""PercentOfTotal"",
-      ""calculation"": ""Revenue * 100.0 / SUM(Revenue) OVER ()"",
-      ""alias"": ""PercentOfTotal""
-    }
-  ],
-  ""filters"": [
-    {
-      ""field"": ""Orders.OrderDate"",
-      ""operator"": "">="",
-      ""value"": ""DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE()), 0)"",
-      ""valueType"": ""expression"",
-      ""logicalOperator"": ""AND""
-    },
-    {
-      ""field"": ""Orders.Status"",
-      ""operator"": ""!="",
-      ""value"": ""Cancelled"",
-      ""valueType"": ""literal"",
-      ""logicalOperator"": ""AND""
-    }
-  ],
-  ""groupBy"": [""Customers.Id"", ""Customers.Name""],
-  ""orderBy"": [
-    {
-      ""field"": ""Revenue"",
-      ""direction"": ""DESC""
-    }
-  ],
-  ""limit"": 10,
-  ""requiredFeatures"": [""AGGREGATE"", ""JOIN"", ""WINDOW_FUNCTION"", ""DATE_FUNCTION""],
-  ""timeRange"": {
-    ""type"": ""relative"",
-    ""relativeType"": ""this_month"",
-    ""relativeDays"": null,
-    ""absoluteStart"": null,
-    ""absoluteEnd"": null
-  }
-}
-
-## Example 4: Year-over-Year Comparison (FIXED)
-Input: ""So sánh doanh thu theo tháng năm nay với năm trước, tính growth rate""
-Output:
-{
-  ""intent"": ""COMPARISON"",
-  ""complexity"": ""Advanced"",
-  ""target"": ""Orders"",
-  ""relatedEntities"": [],
-  ""selectColumns"": [],
-  ""metrics"": [
-    {
-      ""name"": ""CurrentYearRevenue"",
-      ""calculation"": ""SUM(CASE WHEN YEAR(OrderDate) = YEAR(GETDATE()) THEN TotalAmount ELSE 0 END)"",
-      ""alias"": ""ThisYear""
-    },
-    {
-      ""name"": ""PreviousYearRevenue"",
-      ""calculation"": ""SUM(CASE WHEN YEAR(OrderDate) = YEAR(GETDATE())-1 THEN TotalAmount ELSE 0 END)"",
-      ""alias"": ""LastYear""
-    },
-    {
-      ""name"": ""GrowthRate"",
-      ""calculation"": ""(ThisYear - LastYear) * 100.0 / NULLIF(LastYear, 0)"",
-      ""alias"": ""GrowthPercent""
-    }
-  ],
-  ""filters"": [
-    {
-      ""field"": ""YEAR(Orders.OrderDate)"",
-      ""operator"": "">="",
-      ""value"": ""YEAR(GETDATE())-1"",
-      ""valueType"": ""expression"",
-      ""logicalOperator"": ""AND""
-    }
-  ],
-  ""groupBy"": [""MONTH(Orders.OrderDate)""],
-  ""orderBy"": [
-    {
-      ""field"": ""MONTH(Orders.OrderDate)"",
-      ""direction"": ""ASC""
-    }
-  ],
-  ""limit"": null,
-  ""requiredFeatures"": [""AGGREGATE"", ""DATE_FUNCTION"", ""CASE_WHEN"", ""CTE""],
-  ""timeRange"": {
-    ""type"": ""relative"",
-    ""relativeType"": ""last_year"",
-    ""relativeDays"": null,
-    ""absoluteStart"": null,
-    ""absoluteEnd"": null
-  }
-}
-
-## Example 5: Multiple Values IN Operator (FIXED)
-Input: ""Khách hàng ở Hà Nội, Đà Nẵng, TP.HCM""
-Output:
-{
-  ""intent"": ""LIST"",
-  ""complexity"": ""Simple"",
-  ""target"": ""Customers"",
-  ""relatedEntities"": [],
-  ""selectColumns"": [],
-  ""metrics"": [],
-  ""filters"": [
-    {
-      ""field"": ""Customers.City"",
-      ""operator"": ""IN"",
-      ""value"": ""Hà Nội,Đà Nẵng,TP.HCM"",
-      ""valueType"": ""literal"",
-      ""logicalOperator"": ""AND""
-    }
-  ],
-  ""groupBy"": [],
-  ""orderBy"": [],
-  ""limit"": null,
-  ""requiredFeatures"": [],
-  ""timeRange"": {
-    ""type"": ""none"",
-    ""relativeType"": null,
-    ""relativeDays"": null,
-    ""absoluteStart"": null,
-    ""absoluteEnd"": null
-  }
-}
-
-## Example 6: Running Total (FIXED)
-Input: ""Liệt kê tất cả đơn hàng tháng này kèm running total""
-Output:
-{
-  ""intent"": ""RUNNING_TOTAL"",
-  ""complexity"": ""Advanced"",
-  ""target"": ""Orders"",
-  ""relatedEntities"": [""Customers""],
-  ""selectColumns"": [],
-  ""metrics"": [
-    {
-      ""name"": ""OrderAmount"",
-      ""calculation"": ""TotalAmount"",
-      ""alias"": ""Amount""
-    },
-    {
-      ""name"": ""RunningTotal"",
-      ""calculation"": ""SUM(TotalAmount) OVER (ORDER BY OrderDate, Id ROWS UNBOUNDED PRECEDING)"",
-      ""alias"": ""CumulativeTotal""
-    }
-  ],
-  ""filters"": [
-    {
-      ""field"": ""Orders.OrderDate"",
-      ""operator"": "">="",
-      ""value"": ""DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE()), 0)"",
-      ""valueType"": ""expression"",
-      ""logicalOperator"": ""AND""
-    }
-  ],
-  ""groupBy"": [],
-  ""orderBy"": [
-    {
-      ""field"": ""OrderDate"",
-      ""direction"": ""ASC""
-    },
-    {
-      ""field"": ""Id"",
-      ""direction"": ""ASC""
-    }
-  ],
-  ""limit"": null,
-  ""requiredFeatures"": [""WINDOW_FUNCTION"", ""DATE_FUNCTION"", ""JOIN""],
-  ""timeRange"": {
-    ""type"": ""relative"",
-    ""relativeType"": ""this_month"",
-    ""relativeDays"": null,
-    ""absoluteStart"": null,
-    ""absoluteEnd"": null
-  }
-}
-
 # VIETNAMESE LANGUAGE MAPPING
 
-## Time Expressions
-- ""hôm nay"" → relativeType: ""today""
-- ""tuần này"" → relativeType: ""this_week""
-- ""tháng này"" → relativeType: ""this_month""
-- ""năm nay"" → relativeType: ""this_year""
-- ""30 ngày qua"" → relativeType: ""last_N_days"", relativeDays: 30
-- ""năm trước/ngoái"" → relativeType: ""last_year""
-- ""tháng trước"" → relativeType: ""last_month""
+Map Vietnamese business terms to SQL:
 
-## Aggregation Terms
-- ""tổng"" → SUM, ""trung bình"" → AVG, ""cao nhất"" → MAX
-- ""thấp nhất"" → MIN, ""đếm/số lượng"" → COUNT
+| Vietnamese | SQL Equivalent |
+|------------|----------------|
+| tháng này | MONTH(GETDATE()) |
+| năm nay | YEAR(GETDATE()) |
+| hôm nay | CAST(GETDATE() AS DATE) |
+| tuần này | DATEPART(WEEK, GETDATE()) |
+| quý này | DATEPART(QUARTER, GETDATE()) |
+| 30 ngày qua | DATEADD(DAY, -30, GETDATE()) |
+| top 10 | TOP 10 |
+| cao nhất | ORDER BY ... DESC |
+| thấp nhất | ORDER BY ... ASC |
+| trung bình | AVG(...) |
+| tổng | SUM(...) |
+| đếm | COUNT(...) |
+| phần trăm / % | * 100.0 / (cast to DECIMAL) |
+| tăng trưởng | (Current - Previous) / Previous * 100 |
+| so sánh | CASE WHEN or JOIN |
+| loại trừ | WHERE ... NOT IN or != |
+| bao gồm | WHERE ... IN or = |
+| xếp hạng | ROW_NUMBER() / RANK() |
+| running total | SUM() OVER (...) |
 
-## Filter Terms
-- ""loại trừ/ngoại trừ"" → operator: ""!="" or ""NOT IN""
-- ""chỉ/duy nhất"" → operator: ""="" or ""IN""
+**CRITICAL**: Always use N prefix for Vietnamese strings: N'Nguyễn Văn A'
 
 # INSTRUCTIONS
 
@@ -507,29 +197,20 @@ Output:
 ❌ Never mix SQL expressions in literal values
 ❌ Never use undefined relativeType values
 ❌ Never return incomplete JSON
-❌ Never add markdown or explanations
+❌ Never add markdown or explanations";
+  }
 
-";
-    }
+  private static string BuildUserPrompt(string userQuery, string schemaContext)
+  {
+    var prompt = $"User Query: {userQuery}";
 
-
-    private string BuildUserPrompt(string question, List<string> availableTables)
+    if (!string.IsNullOrEmpty(schemaContext))
     {
-        return $@"Available Tables: {string.Join(", ", availableTables)}
-
-User Question: ""{question}""
-
-Analyze and respond with JSON only:";
+      prompt += $"\n\nAvailable Tables: {schemaContext}";
     }
 
-    private string CleanJsonResponse(string response)
-    {
-        // Remove markdown code blocks
-        var cleaned = response
-            .Replace("```json", "")
-            .Replace("```", "")
-            .Trim();
+    prompt += "\n\nAnalyze this query and return the structured intent as JSON:";
 
-        return cleaned;
-    }
+    return prompt;
+  }
 }

@@ -401,6 +401,13 @@ public class SqlGeneratorPlugin
                 result.SuggestedQueries.Count,
                 string.Join(", ", result.SuggestedQueries.Take(3).Select(s => $"\"{s}\"")));
 
+            // ✅ Debug: Log if no suggestions found
+            if (result.SuggestedQueries.Count == 0)
+            {
+                _logger.LogWarning("[SqlGenerator] ⚠️ No suggested queries found in LLM response. Raw response: {Raw}",
+                    raw.Length > 500 ? raw.Substring(0, 500) + "..." : raw);
+            }
+
             return result;
         }
         catch (JsonException ex)
@@ -414,6 +421,154 @@ public class SqlGeneratorPlugin
                 SuggestedQueries = new List<string>()
             };
         }
+    }
+
+    /// <summary>
+    /// Generate contextual suggestions based on actual query results
+    /// </summary>
+    [KernelFunction, Description("Generate contextual suggestions based on actual query results")]
+    public async Task<List<string>> GenerateContextualSuggestionsAsync(
+        string originalQuestion,
+        string sqlQuery,
+        SqlExecutionResult queryResult,
+        IntentAnalysis intent,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("[SqlGenerator] Generating contextual suggestions based on actual results...");
+
+        try
+        {
+            var prompt = BuildContextualSuggestionsPrompt(originalQuestion, sqlQuery, queryResult, intent);
+
+            var response = await _llmClient.CompleteWithSystemPromptAsync(
+                GetContextualSuggestionsSystemPrompt(),
+                prompt,
+                cancellationToken);
+
+            var suggestions = ParseSuggestionsFromResponse(response);
+
+            _logger.LogDebug("[SqlGenerator] Generated {Count} contextual suggestions", suggestions.Count);
+
+            return suggestions;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[SqlGenerator] Failed to generate contextual suggestions, using fallback");
+            return GenerateFallbackSuggestions(intent, originalQuestion);
+        }
+    }
+
+    private string BuildContextualSuggestionsPrompt(string originalQuestion, string sqlQuery, SqlExecutionResult queryResult, IntentAnalysis intent)
+    {
+        var prompt = $@"
+User asked: ""{originalQuestion}""
+
+SQL executed: {sqlQuery}
+
+Query Results:
+- Row count: {queryResult.RowCount}
+- Columns: {string.Join(", ", queryResult.Columns)}";
+
+        // Add sample data if available
+        if (queryResult.Rows?.Count > 0)
+        {
+            prompt += "\n- Sample data (first 3 rows):";
+            var sampleRows = queryResult.Rows.Take(3);
+            foreach (var row in sampleRows)
+            {
+                var values = queryResult.Columns.Select(col =>
+                    row.ContainsKey(col) ? row[col]?.ToString() ?? "null" : "null");
+                prompt += $"\n  [{string.Join(", ", values)}]";
+            }
+        }
+
+        prompt += $@"
+
+Based on the ACTUAL RESULTS above, generate 3 natural follow-up questions that a business user would realistically ask.
+
+Requirements:
+- Use Vietnamese language (same as user's question)
+- Be specific to the actual data returned
+- Focus on business insights and next steps
+- Make them actionable and interesting
+- Consider the data patterns, values, and trends visible in results
+
+Examples of good contextual suggestions:
+- If showing top customers → ""Khách hàng này mua sản phẩm gì nhiều nhất?""
+- If showing revenue by month → ""Tháng nào có doanh thu thấp nhất và tại sao?""
+- If showing product sales → ""So sánh với cùng kỳ năm trước như thế nào?""
+
+Return ONLY a JSON array of 3 strings:
+[""suggestion 1"", ""suggestion 2"", ""suggestion 3""]";
+
+        return prompt;
+    }
+
+    private string GetContextualSuggestionsSystemPrompt()
+    {
+        return @"You are a business intelligence expert who helps users explore their data.
+Your job is to suggest natural, contextual follow-up questions based on actual query results.
+
+CRITICAL RULES:
+1. Analyze the ACTUAL DATA returned, not just the query
+2. Suggest questions that build on what the user just discovered
+3. Use Vietnamese language naturally
+4. Focus on business insights and actionable next steps
+5. Be specific to the data patterns you see
+6. Return ONLY a JSON array of exactly 3 strings
+7. No explanations, no markdown, just the JSON array
+
+The suggestions should feel like what a curious business analyst would ask next.";
+    }
+
+    private List<string> ParseSuggestionsFromResponse(string response)
+    {
+        try
+        {
+            // Clean the response
+            var cleaned = response.Trim();
+
+            // Remove any markdown or extra text, find JSON array
+            var jsonStart = cleaned.IndexOf('[');
+            var jsonEnd = cleaned.LastIndexOf(']');
+
+            if (jsonStart >= 0 && jsonEnd > jsonStart)
+            {
+                cleaned = cleaned.Substring(jsonStart, jsonEnd - jsonStart + 1);
+            }
+
+            var suggestions = JsonSerializer.Deserialize<List<string>>(cleaned);
+            return suggestions?.Where(s => !string.IsNullOrWhiteSpace(s)).ToList() ?? new List<string>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[SqlGenerator] Failed to parse suggestions from response: {Response}", response);
+            return new List<string>();
+        }
+    }
+
+    private List<string> GenerateFallbackSuggestions(IntentAnalysis intent, string originalQuestion)
+    {
+        // Simple fallback based on intent
+        var isVietnamese = originalQuestion.Contains("hiển thị") || originalQuestion.Contains("lấy") ||
+                          originalQuestion.Contains("đếm") || originalQuestion.Contains("tổng");
+
+        if (isVietnamese)
+        {
+            return new List<string>
+            {
+                "Xem chi tiết dữ liệu này",
+                "So sánh với thời kỳ khác",
+                "Phân tích xu hướng theo thời gian"
+            };
+        }
+
+        return new List<string>
+        {
+            "Show more details about this data",
+            "Compare with other periods",
+            "Analyze trends over time"
+        };
     }
 
 }

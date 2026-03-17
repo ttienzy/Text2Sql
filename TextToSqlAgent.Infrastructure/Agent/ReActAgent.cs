@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using TextToSqlAgent.Core.Agent;
+using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Tools;
 
 namespace TextToSqlAgent.Infrastructure.Agent;
