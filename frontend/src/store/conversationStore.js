@@ -1,16 +1,17 @@
 /**
  * Conversation Store - Zustand
- * Manages conversation state with sessionStorage for active conversation persistence
+ * Manages conversation state with limited localStorage persistence
  */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { handleQuotaExceeded, clearNonEssentialStorage } from '../utils/storageUtils';
 
 // SessionStorage key for active conversation
 const SESSION_ACTIVE_CONVERSATION_KEY = 'activeConversationId';
 
 /**
- * Create the conversation store
- * Note: We don't persist the entire store - only active conversation ID in sessionStorage
+ * Create the conversation store with selective persistence
+ * Only persist essential data to avoid localStorage quota issues
  */
 const useConversationStore = create(
   persist(
@@ -121,7 +122,7 @@ const useConversationStore = create(
       restoreActiveConversation: () => {
         const { conversations } = get();
         const lastConversationId = sessionStorage.getItem(SESSION_ACTIVE_CONVERSATION_KEY);
-        
+
         if (lastConversationId && conversations.length > 0) {
           const conversation = conversations.find((c) => c.id === lastConversationId);
           if (conversation) {
@@ -131,9 +132,78 @@ const useConversationStore = create(
         }
         return null;
       },
+
+      // Clear localStorage data (for quota issues)
+      clearStorageData: () => {
+        try {
+          // Clear conversation store from localStorage
+          localStorage.removeItem('conversation-store');
+          sessionStorage.removeItem(SESSION_ACTIVE_CONVERSATION_KEY);
+
+          // Clear other non-essential storage
+          clearNonEssentialStorage();
+
+          // Reset state
+          set({
+            conversations: [],
+            currentConversation: null,
+            messages: [],
+            currentConnectionId: null,
+            error: null,
+            isLoading: false,
+            isSending: false,
+          });
+
+          console.log('✅ Cleared conversation storage data');
+        } catch (error) {
+          console.error('❌ Error clearing storage data:', error);
+        }
+      },
     }),
     {
       name: 'conversation-store',
+      // Only persist essential data to avoid quota issues
+      partialize: (state) => ({
+        currentConnectionId: state.currentConnectionId,
+        // Don't persist conversations, messages, or other large data
+      }),
+      // Custom storage with quota handling
+      storage: {
+        getItem: (name) => {
+          try {
+            const item = localStorage.getItem(name);
+            return item ? JSON.parse(item) : null;
+          } catch (error) {
+            console.error('❌ Error reading from localStorage:', error);
+            return null;
+          }
+        },
+        setItem: (name, value) => {
+          return handleQuotaExceeded(() => {
+            localStorage.setItem(name, JSON.stringify(value));
+          });
+        },
+        removeItem: (name) => {
+          try {
+            localStorage.removeItem(name);
+          } catch (error) {
+            console.error('❌ Error removing from localStorage:', error);
+          }
+        },
+      },
+      // Add error handling for quota exceeded
+      onRehydrateStorage: () => (state, error) => {
+        if (error) {
+          console.error('❌ Error rehydrating conversation store:', error);
+          // Clear storage if there's an error
+          try {
+            localStorage.removeItem('conversation-store');
+            clearNonEssentialStorage();
+          } catch (e) {
+            console.error('❌ Error clearing conversation store:', e);
+          }
+        }
+      },
     },
   )
 );

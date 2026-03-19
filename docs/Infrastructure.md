@@ -66,6 +66,7 @@ TextToSqlAgent.Infrastructure/
 
 | File                                                                                      | Responsibility                          |
 | ----------------------------------------------------------------------------------------- | --------------------------------------- |
+| [`CollectionNameHelper.cs`](TextToSqlAgent.Infrastructure/VectorDB/CollectionNameHelper.cs) | Helper for managing Qdrant collection naming and hashing. |
 | [`QdrantVectorStore.cs`](TextToSqlAgent.Infrastructure/VectorDB/QdrantVectorStore.cs)     | Qdrant vector database implementation.  |
 | [`QdrantService.cs`](TextToSqlAgent.Infrastructure/VectorDB/QdrantService.cs)             | Qdrant API service.                     |
 | [`InMemoryVectorStore.cs`](TextToSqlAgent.Infrastructure/VectorDB/InMemoryVectorStore.cs) | In-memory fallback for development.     |

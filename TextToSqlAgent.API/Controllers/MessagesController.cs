@@ -29,11 +29,15 @@ public class MessagesController : ControllerBase
     /// <summary>
     /// Get messages for a conversation
     /// </summary>
+    /// <remarks>
+    /// Returns all messages with metadata. When totalCount >= 50, limitReached is true and
+    /// the client should disable input and ask the user to start a new conversation.
+    /// </remarks>
     [HttpGet("conversation/{conversationId}")]
-    public async Task<ActionResult<IEnumerable<Message>>> GetMessages(
+    public async Task<ActionResult<ConversationMessagesResponse>> GetMessages(
         string conversationId,
         [FromQuery] int offset = 0,
-        [FromQuery] int limit = 50)
+        [FromQuery] int limit = 9999)
     {
         try
         {
@@ -50,8 +54,19 @@ public class MessagesController : ControllerBase
                 return NotFound("Conversation not found");
             }
 
-            var messages = await _unitOfWork.Messages.GetByConversationIdAsync(conversationId, skip: offset, take: limit);
-            return Ok(messages);
+            // Fetch all messages to get an accurate count
+            var allMessages = await _unitOfWork.Messages.GetByConversationIdAsync(conversationId, skip: offset, take: limit);
+            var messageList = allMessages.ToList();
+            var totalCount = messageList.Count;
+            const int MessageLimit = 50;
+
+            return Ok(new ConversationMessagesResponse
+            {
+                Messages = messageList,
+                TotalCount = totalCount,
+                LimitReached = totalCount >= MessageLimit,
+                MessageLimit = MessageLimit,
+            });
         }
         catch (Exception ex)
         {
@@ -270,6 +285,24 @@ public class MessagesController : ControllerBase
             return this.CreateProblemDetails("Failed to delete message", 500);
         }
     }
+}
+
+/// <summary>
+/// Wrapped response for conversation messages with limit metadata.
+/// </summary>
+public class ConversationMessagesResponse
+{
+    /// <summary>List of messages in the conversation.</summary>
+    public List<Message> Messages { get; set; } = [];
+
+    /// <summary>Total number of messages in the conversation.</summary>
+    public int TotalCount { get; set; }
+
+    /// <summary>Whether the conversation has reached the context limit.</summary>
+    public bool LimitReached { get; set; }
+
+    /// <summary>The configured message limit (default: 50).</summary>
+    public int MessageLimit { get; set; } = 50;
 }
 
 /// <summary>

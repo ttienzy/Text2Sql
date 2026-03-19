@@ -1,6 +1,9 @@
 using Microsoft.EntityFrameworkCore;
-using TextToSqlAgent.API.Data;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using TextToSqlAgent.Infrastructure.Entities;
+using TextToSqlAgent.Infrastructure.Data;
 
 namespace TextToSqlAgent.API.Repositories;
 

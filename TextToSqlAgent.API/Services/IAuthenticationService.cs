@@ -7,28 +7,21 @@ namespace TextToSqlAgent.API.Services;
 /// </summary>
 public interface IAuthenticationService
 {
-    /// <summary>
-    /// Register a new user account
-    /// </summary>
     Task<AuthResult> RegisterAsync(RegisterRequest request);
-
-    /// <summary>
-    /// Authenticate user and return JWT tokens
-    /// </summary>
     Task<AuthResult> LoginAsync(LoginRequest request);
-
-    /// <summary>
-    /// Refresh access token using refresh token
-    /// </summary>
     Task<AuthResult> RefreshTokenAsync(string refreshToken);
-
-    /// <summary>
-    /// Revoke a refresh token
-    /// </summary>
     Task<bool> RevokeTokenAsync(string refreshToken);
-
-    /// <summary>
-    /// Validate an access token
-    /// </summary>
     Task<bool> ValidateTokenAsync(string token);
-}
+
+    /// <summary>Verify Google ID token and return system JWT (find-or-create user).</summary>
+    Task<AuthResult> GoogleLoginAsync(string idToken);
+
+    /// <summary>Send 6-digit password-reset code to the user's email.</summary>
+    Task<(bool Success, string? Error)> ForgotPasswordAsync(string email);
+
+    /// <summary>Verify 6-digit code and set new password.</summary>
+    Task<(bool Success, string? Error)> ResetPasswordAsync(string email, string code, string newPassword);
+
+    /// <summary>Return profile DTO including list of linked OAuth providers.</summary>
+    Task<UserProfileResponse?> GetProfileAsync(string userId);
+}

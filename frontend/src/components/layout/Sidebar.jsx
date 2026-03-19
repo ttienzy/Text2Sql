@@ -171,12 +171,30 @@ const Sidebar = ({ onConversationSelect, onNewConversation }) => {
                   }}
                   onClick={() => handleConversationClick(conversation)}
                 >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <Text ellipsis style={{ display: 'block' }}>
+                  <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                    <Text
+                      ellipsis
+                      style={{
+                        display: 'block',
+                        fontWeight: currentConversation?.id === conversation.id ? 600 : 400,
+                        maxWidth: '100%',
+                      }}
+                    >
                       {conversation.title || 'Untitled'}
                     </Text>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {conversation.messageCount || 0} messages
+                    <Text
+                      type="secondary"
+                      style={{
+                        fontSize: 12,
+                        display: 'block',
+                        overflow: 'hidden',
+                        whiteSpace: 'nowrap',
+                        textOverflow: 'ellipsis',
+                        maxWidth: '100%',
+                      }}
+                    >
+                      {conversation.messageCount ?? 0} messages
+                      {conversation.lastQuery ? ` · ${conversation.lastQuery}` : ''}
                     </Text>
                   </div>
                   <Dropdown

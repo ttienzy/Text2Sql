@@ -13,6 +13,21 @@ public class ApplicationUser : IdentityUser
     public string? FullName { get; set; }
 
     /// <summary>
+    /// Profile picture URL (from Google or uploaded)
+    /// </summary>
+    public string? AvatarUrl { get; set; }
+
+    /// <summary>
+    /// Hashed 6-digit OTP for password reset
+    /// </summary>
+    public string? PasswordResetCode { get; set; }
+
+    /// <summary>
+    /// Expiry time for password reset code (15 minutes)
+    /// </summary>
+    public DateTime? PasswordResetCodeExpiry { get; set; }
+
+    /// <summary>
     /// Navigation property for connections owned by this user
     /// </summary>
     public virtual ICollection<Connection> Connections { get; set; } = new List<Connection>();

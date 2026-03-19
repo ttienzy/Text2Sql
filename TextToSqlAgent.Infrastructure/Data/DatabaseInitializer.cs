@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using TextToSqlAgent.Infrastructure.Entities;
 
-namespace TextToSqlAgent.API.Data;
+namespace TextToSqlAgent.Infrastructure.Data;
 
 /// <summary>
 /// Database initialization and health check service
@@ -12,15 +14,14 @@ public class DatabaseInitializer
     private readonly AppDbContext _context;
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly ILogger<DatabaseInitializer> _logger;
-    private readonly IWebHostEnvironment _environment;
-
+    private readonly IHostEnvironment _environment;
     private readonly ILoggerFactory _loggerFactory;
 
     public DatabaseInitializer(
         AppDbContext context,
         UserManager<ApplicationUser> userManager,
         ILogger<DatabaseInitializer> logger,
-        IWebHostEnvironment environment,
+        IHostEnvironment environment,
         ILoggerFactory loggerFactory)
     {
         _context = context;

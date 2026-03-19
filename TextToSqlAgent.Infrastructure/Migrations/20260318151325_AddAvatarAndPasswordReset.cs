@@ -3,44 +3,14 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace TextToSqlAgent.Infrastructure.Data.Migrations
+namespace TextToSqlAgent.Infrastructure.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialCreate : Migration
+    public partial class AddAvatarAndPasswordReset : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.CreateTable(
-                name: "AgentJobs",
-                columns: table => new
-                {
-                    Id = table.Column<string>(type: "nvarchar(450)", nullable: false),
-                    UserId = table.Column<string>(type: "nvarchar(450)", nullable: false),
-                    Question = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    ConnectionId = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    Status = table.Column<int>(type: "int", nullable: false),
-                    SqlQuery = table.Column<string>(type: "nvarchar(max)", maxLength: 10000, nullable: true),
-                    Result = table.Column<string>(type: "nvarchar(max)", maxLength: 50000, nullable: true),
-                    RowCount = table.Column<int>(type: "int", nullable: true),
-                    ErrorMessage = table.Column<string>(type: "nvarchar(2000)", maxLength: 2000, nullable: true),
-                    Explanation = table.Column<string>(type: "nvarchar(max)", maxLength: 5000, nullable: true),
-                    InputTokens = table.Column<int>(type: "int", nullable: true),
-                    OutputTokens = table.Column<int>(type: "int", nullable: true),
-                    TotalTokens = table.Column<int>(type: "int", nullable: true),
-                    Cost = table.Column<decimal>(type: "decimal(18,6)", precision: 18, scale: 6, nullable: true),
-                    Model = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
-                    HangfireJobId = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
-                    CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    StartedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
-                    CompletedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
-                    ProcessingTimeSeconds = table.Column<int>(type: "int", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_AgentJobs", x => x.Id);
-                });
-
             migrationBuilder.CreateTable(
                 name: "AspNetRoles",
                 columns: table => new
@@ -61,6 +31,9 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                 {
                     Id = table.Column<string>(type: "nvarchar(450)", nullable: false),
                     FullName = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
+                    AvatarUrl = table.Column<string>(type: "nvarchar(1024)", maxLength: 1024, nullable: true),
+                    PasswordResetCode = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
+                    PasswordResetCodeExpiry = table.Column<DateTime>(type: "datetime2", nullable: true),
                     UserName = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
                     NormalizedUserName = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
                     Email = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
@@ -191,19 +164,19 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                 name: "Connections",
                 columns: table => new
                 {
-                    Id = table.Column<string>(type: "nvarchar(450)", nullable: false),
+                    Id = table.Column<string>(type: "nvarchar(50)", maxLength: 50, nullable: false),
                     UserId = table.Column<string>(type: "nvarchar(450)", nullable: false),
                     Name = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: false),
                     Provider = table.Column<string>(type: "nvarchar(50)", maxLength: 50, nullable: false),
-                    Host = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    Host = table.Column<string>(type: "nvarchar(255)", maxLength: 255, nullable: false),
                     Port = table.Column<int>(type: "int", nullable: false),
-                    Database = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    Username = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    Database = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: false),
+                    Username = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: false),
                     EncryptedPassword = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     ConnectionString = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     Description = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: true),
                     IsDefault = table.Column<bool>(type: "bit", nullable: false, defaultValue: false),
-                    IsDeleted = table.Column<bool>(type: "bit", nullable: false),
+                    IsDeleted = table.Column<bool>(type: "bit", nullable: false, defaultValue: false),
                     CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
                     LastUsedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
                     SchemaSyncedAt = table.Column<DateTime>(type: "datetime2", nullable: true)
@@ -227,7 +200,7 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                     Token = table.Column<string>(type: "nvarchar(512)", maxLength: 512, nullable: false),
                     UserId = table.Column<string>(type: "nvarchar(450)", nullable: false),
                     ExpiresAt = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    IsRevoked = table.Column<bool>(type: "bit", nullable: false),
+                    IsRevoked = table.Column<bool>(type: "bit", nullable: false, defaultValue: false),
                     CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
                     RevokedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
                     ReplacedByTokenId = table.Column<string>(type: "nvarchar(max)", nullable: true),
@@ -246,14 +219,56 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "AgentJobs",
+                columns: table => new
+                {
+                    Id = table.Column<string>(type: "nvarchar(50)", maxLength: 50, nullable: false),
+                    UserId = table.Column<string>(type: "nvarchar(450)", maxLength: 450, nullable: false),
+                    Question = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    ConnectionId = table.Column<string>(type: "nvarchar(50)", maxLength: 50, nullable: false),
+                    Status = table.Column<int>(type: "int", nullable: false),
+                    SqlQuery = table.Column<string>(type: "nvarchar(max)", maxLength: 10000, nullable: true),
+                    Result = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    RowCount = table.Column<int>(type: "int", nullable: true),
+                    ErrorMessage = table.Column<string>(type: "nvarchar(2000)", maxLength: 2000, nullable: true),
+                    Explanation = table.Column<string>(type: "nvarchar(max)", maxLength: 5000, nullable: true),
+                    InputTokens = table.Column<int>(type: "int", nullable: true),
+                    OutputTokens = table.Column<int>(type: "int", nullable: true),
+                    TotalTokens = table.Column<int>(type: "int", nullable: true),
+                    Cost = table.Column<decimal>(type: "decimal(18,6)", precision: 18, scale: 6, nullable: true),
+                    Model = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
+                    HangfireJobId = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    StartedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    CompletedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    ProcessingTimeSeconds = table.Column<int>(type: "int", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AgentJobs", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_AgentJobs_AspNetUsers_UserId",
+                        column: x => x.UserId,
+                        principalTable: "AspNetUsers",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_AgentJobs_Connections_ConnectionId",
+                        column: x => x.ConnectionId,
+                        principalTable: "Connections",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Conversations",
                 columns: table => new
                 {
                     Id = table.Column<string>(type: "nvarchar(450)", nullable: false),
                     UserId = table.Column<string>(type: "nvarchar(450)", nullable: false),
-                    ConnectionId = table.Column<string>(type: "nvarchar(450)", nullable: false),
+                    ConnectionId = table.Column<string>(type: "nvarchar(50)", nullable: false),
                     Title = table.Column<string>(type: "nvarchar(500)", maxLength: 500, nullable: false),
-                    IsArchived = table.Column<bool>(type: "bit", nullable: false),
+                    IsArchived = table.Column<bool>(type: "bit", nullable: false, defaultValue: false),
                     CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
                     UpdatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
                     LastActiveAt = table.Column<DateTime>(type: "datetime2", nullable: false),
@@ -272,7 +287,8 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                         name: "FK_Conversations_Connections_ConnectionId",
                         column: x => x.ConnectionId,
                         principalTable: "Connections",
-                        principalColumn: "Id");
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
@@ -280,17 +296,17 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                 columns: table => new
                 {
                     Id = table.Column<string>(type: "nvarchar(450)", nullable: false),
-                    ConnectionId = table.Column<string>(type: "nvarchar(450)", nullable: false),
-                    TableName = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    SchemaName = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    ColumnName = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    DataType = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    ConnectionId = table.Column<string>(type: "nvarchar(50)", nullable: false),
+                    TableName = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: false),
+                    SchemaName = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
+                    ColumnName = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: false),
+                    DataType = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
                     IsNullable = table.Column<bool>(type: "bit", nullable: false),
                     IsPrimaryKey = table.Column<bool>(type: "bit", nullable: false),
                     IsForeignKey = table.Column<bool>(type: "bit", nullable: false),
-                    ReferencedTable = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    ReferencedColumn = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    DefaultValue = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    ReferencedTable = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
+                    ReferencedColumn = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
+                    DefaultValue = table.Column<string>(type: "nvarchar(512)", maxLength: 512, nullable: true),
                     OrdinalPosition = table.Column<int>(type: "int", nullable: false),
                     IsIndexed = table.Column<bool>(type: "bit", nullable: false),
                     CharacterMaximumLength = table.Column<int>(type: "int", nullable: true),
@@ -318,15 +334,22 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                     Role = table.Column<string>(type: "nvarchar(50)", maxLength: 50, nullable: false),
                     Content = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     SqlQuery = table.Column<string>(type: "nvarchar(max)", maxLength: 10000, nullable: true),
-                    Results = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    Results = table.Column<string>(type: "nvarchar(max)", maxLength: 50000, nullable: true),
                     RowCount = table.Column<int>(type: "int", nullable: true),
                     ErrorMessage = table.Column<string>(type: "nvarchar(2000)", maxLength: 2000, nullable: true),
-                    Explanation = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    Explanation = table.Column<string>(type: "nvarchar(max)", maxLength: 5000, nullable: true),
+                    ProcessingSteps = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    SuggestedQueries = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    CorrectionHistory = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    WasCorrected = table.Column<bool>(type: "bit", nullable: false),
+                    CorrectionAttempts = table.Column<int>(type: "int", nullable: false),
+                    QueryExplanation = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    Success = table.Column<bool>(type: "bit", nullable: false),
                     InputTokens = table.Column<int>(type: "int", nullable: true),
                     OutputTokens = table.Column<int>(type: "int", nullable: true),
                     TotalTokens = table.Column<int>(type: "int", nullable: true),
-                    Cost = table.Column<decimal>(type: "decimal(18,2)", nullable: true),
-                    Model = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    Cost = table.Column<decimal>(type: "decimal(18,6)", precision: 18, scale: 6, nullable: true),
+                    Model = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
                     CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
                 constraints: table =>
@@ -347,7 +370,7 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                     Id = table.Column<string>(type: "nvarchar(450)", nullable: false),
                     UserId = table.Column<string>(type: "nvarchar(450)", nullable: false),
                     ConversationId = table.Column<string>(type: "nvarchar(450)", nullable: true),
-                    ConnectionId = table.Column<string>(type: "nvarchar(450)", nullable: true),
+                    ConnectionId = table.Column<string>(type: "nvarchar(50)", nullable: true),
                     InputTokens = table.Column<int>(type: "int", nullable: false),
                     OutputTokens = table.Column<int>(type: "int", nullable: false),
                     TotalTokens = table.Column<int>(type: "int", nullable: false),
@@ -377,19 +400,29 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_AgentJobs_CreatedAt",
+                name: "IX_AgentJob_HangfireJobId",
                 table: "AgentJobs",
-                column: "CreatedAt");
+                column: "HangfireJobId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_AgentJobs_Status",
+                name: "IX_AgentJob_Status",
                 table: "AgentJobs",
                 column: "Status");
 
             migrationBuilder.CreateIndex(
-                name: "IX_AgentJobs_UserId",
+                name: "IX_AgentJob_UserId",
                 table: "AgentJobs",
                 column: "UserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AgentJobs_ConnectionId",
+                table: "AgentJobs",
+                column: "ConnectionId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AgentJobs_CreatedAt",
+                table: "AgentJobs",
+                column: "CreatedAt");
 
             migrationBuilder.CreateIndex(
                 name: "IX_AspNetRoleClaims_RoleId",
@@ -421,9 +454,7 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
             migrationBuilder.CreateIndex(
                 name: "EmailIndex",
                 table: "AspNetUsers",
-                column: "NormalizedEmail",
-                unique: true,
-                filter: "[NormalizedEmail] IS NOT NULL");
+                column: "NormalizedEmail");
 
             migrationBuilder.CreateIndex(
                 name: "UserNameIndex",
@@ -433,9 +464,19 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                 filter: "[NormalizedUserName] IS NOT NULL");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Connections_UserId_IsDefault",
+                name: "IX_Connection_UserId",
+                table: "Connections",
+                column: "UserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Connection_UserId_IsDefault",
                 table: "Connections",
                 columns: new[] { "UserId", "IsDefault" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Conversation_UserId_IsArchived",
+                table: "Conversations",
+                columns: new[] { "UserId", "IsArchived" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_Conversations_ConnectionId",
@@ -453,17 +494,22 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                 column: "LastActiveAt");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Conversations_UserId",
-                table: "Conversations",
-                column: "UserId");
-
-            migrationBuilder.CreateIndex(
                 name: "IX_DatabaseSchemas_ConnectionId",
                 table: "DatabaseSchemas",
                 column: "ConnectionId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Messages_ConversationId",
+                name: "IX_DatabaseSchemas_ConnectionId_TableName",
+                table: "DatabaseSchemas",
+                columns: new[] { "ConnectionId", "TableName" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_DatabaseSchemas_ConnectionId_TableName_ColumnName",
+                table: "DatabaseSchemas",
+                columns: new[] { "ConnectionId", "TableName", "ColumnName" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Message_ConversationId",
                 table: "Messages",
                 column: "ConversationId");
 
@@ -473,20 +519,20 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                 column: "CreatedAt");
 
             migrationBuilder.CreateIndex(
-                name: "IX_RefreshTokens_ExpiresAt",
-                table: "RefreshTokens",
-                column: "ExpiresAt");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_RefreshTokens_Token",
+                name: "IX_RefreshToken_Token",
                 table: "RefreshTokens",
                 column: "Token",
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_RefreshTokens_UserId",
+                name: "IX_RefreshToken_UserId",
                 table: "RefreshTokens",
                 column: "UserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RefreshTokens_ExpiresAt",
+                table: "RefreshTokens",
+                column: "ExpiresAt");
 
             migrationBuilder.CreateIndex(
                 name: "IX_TokenUsages_ConnectionId",

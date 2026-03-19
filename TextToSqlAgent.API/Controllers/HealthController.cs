@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using System.Diagnostics;
-using TextToSqlAgent.API.Data;
+using TextToSqlAgent.Infrastructure.Data;
 
 namespace TextToSqlAgent.API.Controllers;
 

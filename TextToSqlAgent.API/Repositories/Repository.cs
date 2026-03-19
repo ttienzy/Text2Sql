@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using System.Linq.Expressions;
-using TextToSqlAgent.API.Data;
+using TextToSqlAgent.Infrastructure.Data;
 
 namespace TextToSqlAgent.API.Repositories;
 

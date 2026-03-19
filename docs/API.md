@@ -13,8 +13,16 @@ TextToSqlAgent.API/
 ├── Controllers/
 │   ├── AgentController.cs         # Main agent endpoints
 │   ├── AuthController.cs          # Authentication endpoints
-│   ├── ObservabilityController.cs # Health & metrics
-│   └── ProductionAgentController.cs # Production endpoints
+│   ├── BaseController.cs          # Base controller abstraction
+│   ├── ConnectionsController.cs   # Database connections management
+│   ├── ConversationAwareAgentController.cs # Agent endpoints with conversation support
+│   ├── ConversationsController.cs # Conversation management endpoints
+│   ├── HealthController.cs        # Health check endpoints
+│   ├── JobsController.cs          # Background jobs and task tracking
+│   ├── MessagesController.cs      # Chat message endpoints
+│   ├── ObservabilityController.cs # Metrics and status endpoints
+│   ├── ProductionAgentController.cs # Production endpoints
+│   └── TestController.cs          # Test endpoints
 ├── Data/
 │   ├── AppDbContext.cs            # EF Core DbContext for Identity
 │   └── ApplicationUser.cs        # Identity user entity
@@ -39,8 +47,16 @@ TextToSqlAgent.API/
 | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`AgentController.cs`](TextToSqlAgent.API/Controllers/AgentController.cs)                     | Main REST endpoints: `/api/agent/query`, `/api/agent/chat`. Handles query execution, conversation management, and result formatting. Supports both legacy orchestrator and new agentic mode. |
 | [`AuthController.cs`](TextToSqlAgent.API/Controllers/AuthController.cs)                       | User authentication: register, login, profile. Uses ASP.NET Core Identity with JWT tokens.                                                                                                   |
-| [`ObservabilityController.cs`](TextToSqlAgent.API/Controllers/ObservabilityController.cs)     | System health checks, metrics, and status endpoints for monitoring.                                                                                                                          |
+| [`BaseController.cs`](TextToSqlAgent.API/Controllers/BaseController.cs)                       | Base class providing common utility methods and standardized responses for controllers.                                                                                                        |
+| [`ConnectionsController.cs`](TextToSqlAgent.API/Controllers/ConnectionsController.cs)         | Manages database connections settings dynamically during runtime.                                                                                                                              |
+| [`ConversationAwareAgentController.cs`](TextToSqlAgent.API/Controllers/ConversationAwareAgentController.cs) | Enhanced agent endpoints that specifically handle multi-turn context and contextual conversation workflows.                                                                                    |
+| [`ConversationsController.cs`](TextToSqlAgent.API/Controllers/ConversationsController.cs)     | Endpoints to fetch, list, and manage conversation sessions and metadata.                                                                                                                     |
+| [`HealthController.cs`](TextToSqlAgent.API/Controllers/HealthController.cs)                   | Standard liveness/readiness health-check endpoints.                                                                                                                                          |
+| [`JobsController.cs`](TextToSqlAgent.API/Controllers/JobsController.cs)                       | Endpoints to monitor and manage background jobs and long-running tasks.                                                                                                                      |
+| [`MessagesController.cs`](TextToSqlAgent.API/Controllers/MessagesController.cs)               | Endpoints to retrieve messages within a specific conversation context.                                                                                                                       |
+| [`ObservabilityController.cs`](TextToSqlAgent.API/Controllers/ObservabilityController.cs)     | System health metrics, performance stats, and verbose status endpoints for monitoring.                                                                                                       |
 | [`ProductionAgentController.cs`](TextToSqlAgent.API/Controllers/ProductionAgentController.cs) | Production-optimized endpoints with additional validation and error handling.                                                                                                                |
+| [`TestController.cs`](TextToSqlAgent.API/Controllers/TestController.cs)                       | Developer/integration testing endpoints.                                                                                                                                                     |
 
 ### DTOs
 
@@ -79,6 +95,21 @@ TextToSqlAgent.API/
 | POST   | `/api/agent/chat`             | Start a chat session           |
 | GET    | `/api/agent/chat/{sessionId}` | Get chat history               |
 | POST   | `/api/agent/validate`         | Validate SQL query             |
+
+### Conversations & Messages Controller
+
+| Method | Endpoint                                       | Description                              |
+| ------ | ---------------------------------------------- | ---------------------------------------- |
+| GET    | `/api/conversations`                           | List existing conversations              |
+| GET    | `/api/conversations/{id}`                      | Get conversation details                 |
+| GET    | `/api/conversations/{sessionId}/messages`      | Get messages inside a conversation       |
+
+### Connections Controller
+
+| Method | Endpoint                      | Description                              |
+| ------ | ----------------------------- | ---------------------------------------- |
+| GET    | `/api/connections`            | List available database connections      |
+| POST   | `/api/connections`            | Add a new active connection              |
 
 ### Auth Controller
 

@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { API_BASE_URL, HTTP_STATUS } from '../constants';
 import { extractErrorMessage, createError } from '../utils/errorHandler';
+import { safeSetItem } from '../utils/storageUtils';
 
 // LocalStorage keys (must match authStore.js)
 const STORAGE_KEYS = {
@@ -81,8 +82,17 @@ axiosInstance.interceptors.response.use(
       try {
         // If already refreshing, wait for that promise
         if (refreshTokenPromise) {
+          console.log('🔄 Waiting for existing refresh token promise...');
           await refreshTokenPromise;
-          return axiosInstance(originalRequest);
+
+          // Get the new token and retry
+          const newToken = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
+          if (newToken) {
+            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+            return axiosInstance(originalRequest);
+          } else {
+            throw new Error('No token after refresh');
+          }
         }
 
         // Start refresh process
@@ -90,12 +100,14 @@ axiosInstance.interceptors.response.use(
 
         if (!refreshToken) {
           // No refresh token, force logout
+          console.log('❌ No refresh token available, forcing logout');
           window.dispatchEvent(new CustomEvent('auth:logout', { detail: { reason: 'token_expired' } }));
           return Promise.reject(standardizedError);
         }
 
-        // Create refresh promise
+        // Create refresh promise with better error handling
         refreshTokenPromise = (async () => {
+          console.log('🔄 Starting token refresh...');
           try {
             const response = await axios.post(`${API_BASE_URL}/api/auth/refresh`, {
               refreshToken,
@@ -103,27 +115,42 @@ axiosInstance.interceptors.response.use(
 
             const { accessToken, refreshToken: newRefreshToken } = response.data;
 
-            // Update localStorage
-            localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
+            // Update localStorage with quota handling
+            safeSetItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
             if (newRefreshToken) {
-              localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, newRefreshToken);
+              safeSetItem(STORAGE_KEYS.REFRESH_TOKEN, newRefreshToken);
             }
 
+            console.log('✅ Token refresh successful');
             return accessToken;
           } catch (refreshError) {
-            // Refresh failed, force logout
-            window.dispatchEvent(new CustomEvent('auth:logout', { detail: { reason: 'refresh_failed' } }));
+            console.error('❌ Token refresh failed:', refreshError);
+
+            // Clear tokens and force logout
+            localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
+            localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
+
+            window.dispatchEvent(new CustomEvent('auth:logout', {
+              detail: { reason: 'refresh_failed' }
+            }));
+
             throw refreshError;
           } finally {
             refreshTokenPromise = null;
           }
         })();
 
-        // Wait for refresh and retry
-        await refreshTokenPromise;
+        // Wait for refresh and retry original request
+        const newAccessToken = await refreshTokenPromise;
+
+        // Update the original request with new token
+        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+
+        console.log('🔄 Retrying original request with new token');
         return axiosInstance(originalRequest);
 
       } catch (refreshError) {
+        console.error('❌ Token refresh process failed:', refreshError);
         return Promise.reject({
           ...standardizedError,
           message: extractErrorMessage(refreshError),

@@ -213,7 +213,105 @@ public class AuthController : ControllerBase
             return StatusCode(500, new { Message = "An error occurred while retrieving quota information" });
         }
     }
+
+    // ─── Google OAuth ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Exchange a Google ID Token for a system JWT
+    /// </summary>
+    [HttpPost("google")]
+    [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GoogleLogin([FromBody] GoogleLoginRequest request)
+    {
+        if (!ModelState.IsValid) return BadRequest(ModelState);
+
+        try
+        {
+            var result = await _authenticationService.GoogleLoginAsync(request.IdToken);
+            if (result.IsSuccess) return Ok(result.Data);
+            return BadRequest(new { Message = result.ErrorMessage });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Google login failed");
+            return StatusCode(500, new { Message = "An error occurred during Google login" });
+        }
+    }
+
+    // ─── Profile ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Get current user's profile including linked OAuth providers
+    /// </summary>
+    [HttpGet("profile")]
+    [Authorize]
+    [ProducesResponseType(typeof(UserProfileResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetProfile()
+    {
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+        var profile = await _authenticationService.GetProfileAsync(userId);
+        if (profile == null) return NotFound();
+        return Ok(profile);
+    }
+
+    // ─── Forgot Password ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Send a 6-digit password-reset code to the user's email
+    /// </summary>
+    [HttpPost("forgot-password")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
+    {
+        if (!ModelState.IsValid) return BadRequest(ModelState);
+
+        try
+        {
+            var (success, error) = await _authenticationService.ForgotPasswordAsync(request.Email);
+            if (!success) return BadRequest(new { Message = error });
+            // Always return 200 to avoid email enumeration
+            return Ok(new { Message = "If that email exists, a reset code has been sent." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in forgot-password for {Email}", request.Email);
+            return StatusCode(500, new { Message = "An error occurred. Please try again." });
+        }
+    }
+
+    // ─── Reset Password ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Verify the 6-digit code and set a new password
+    /// </summary>
+    [HttpPost("reset-password")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
+    {
+        if (!ModelState.IsValid) return BadRequest(ModelState);
+
+        try
+        {
+            var (success, error) = await _authenticationService.ResetPasswordAsync(
+                request.Email, request.Code, request.NewPassword);
+
+            if (!success) return BadRequest(new { Message = error });
+            return Ok(new { Message = "Password reset successfully. You can now log in." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in reset-password for {Email}", request.Email);
+            return StatusCode(500, new { Message = "An error occurred. Please try again." });
+        }
+    }
 }
+
 
 /// <summary>
 /// Response model for quota information

@@ -30,7 +30,7 @@ public class ConversationsController : ControllerBase
     /// Get all conversations for the current user
     /// </summary>
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<Conversation>>> GetConversations(
+    public async Task<ActionResult<IEnumerable<ConversationSummary>>> GetConversations(
         [FromQuery] int skip = 0,
         [FromQuery] int take = 50,
         [FromQuery] bool includeArchived = false)
@@ -43,20 +43,42 @@ public class ConversationsController : ControllerBase
                 return Unauthorized();
             }
 
-            var conversations = await _unitOfWork.Conversations.GetByUserIdAsync(userId);
+            var conversations = await _unitOfWork.Conversations.GetConversationsWithMessageCountAsync(userId);
 
-            // Apply filters on the client side
-            var filteredConversations = conversations.AsEnumerable();
-
+            // Apply filters
+            var filtered = conversations.AsEnumerable();
             if (!includeArchived)
-            {
-                filteredConversations = filteredConversations.Where(c => !c.IsArchived);
-            }
+                filtered = filtered.Where(c => !c.IsArchived);
 
-            // Apply pagination
-            filteredConversations = filteredConversations.Skip(skip).Take(take);
+            // Project to DTO with messageCount and lastQuery
+            var summaries = filtered
+                .Skip(skip).Take(take)
+                .Select(c =>
+                {
+                    var lastUserMsg = c.Messages
+                        .Where(m => m.Role == "user")
+                        .OrderByDescending(m => m.CreatedAt)
+                        .FirstOrDefault();
 
-            return Ok(filteredConversations);
+                    var lastQuery = lastUserMsg?.Content;
+                    const int MaxChars = 80;
+                    if (lastQuery?.Length > MaxChars)
+                        lastQuery = lastQuery[..MaxChars] + "...";
+
+                    return new ConversationSummary
+                    {
+                        Id = c.Id,
+                        ConnectionId = c.ConnectionId,
+                        Title = c.Title,
+                        IsArchived = c.IsArchived,
+                        CreatedAt = c.CreatedAt,
+                        LastActiveAt = c.LastActiveAt,
+                        MessageCount = c.Messages.Count,
+                        LastQuery = lastQuery,
+                    };
+                });
+
+            return Ok(summaries);
         }
         catch (Exception ex)
         {
@@ -312,6 +334,23 @@ public class ConversationsController : ControllerBase
             return this.CreateProblemDetails("Failed to send message", 500);
         }
     }
+}
+
+/// <summary>
+/// Summary DTO for conversation list – includes message count and last query.
+/// </summary>
+public class ConversationSummary
+{
+    public string Id { get; set; } = string.Empty;
+    public string ConnectionId { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public bool IsArchived { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime LastActiveAt { get; set; }
+    /// <summary>Total number of messages in the conversation.</summary>
+    public int MessageCount { get; set; }
+    /// <summary>Last user message content, truncated to 80 characters.</summary>
+    public string? LastQuery { get; set; }
 }
 
 /// <summary>

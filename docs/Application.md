@@ -26,10 +26,15 @@ TextToSqlAgent.Application/
 │   ├── IQueryRouter.cs            # Query router interface
 │   └── QueryRouter.cs             # Query router implementation
 ├── Services/
+│   ├── AgentOrchestrator.cs       # Core orchestrator implementation
+│   ├── ConversationAwareOrchestrator.cs # Orchestrator for multi-turn conversations
 │   ├── ConversationManager.cs     # Conversation management
 │   ├── EnhancedAgentOrchestrator.cs # Enhanced ReAct orchestrator
 │   ├── FastPathQueryRouter.cs     # Fast path routing
+│   ├── HumanInTheLoopOrchestrator.cs # Human-in-the-loop verification
+│   ├── IAgentOrchestrator.cs      # Base interface for orchestrators
 │   ├── LazyAgentServiceFactory.cs # Lazy service factory
+│   ├── RuleBasedSuggestionService.cs # Rule-based query suggestions
 │   └── TextToSqlAgentOrchestrator.cs # Main orchestrator
 └── TextToSqlAgent.Application.csproj
 ```
@@ -40,7 +45,12 @@ TextToSqlAgent.Application/
 
 | File                                                                                                 | Responsibility                                                                                                                                                                                                         |
 | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`EnhancedAgentOrchestrator.cs`](TextToSqlAgent.Application/Services/EnhancedAgentOrchestrator.cs)   | **Main orchestrator** with ReAct pattern. Features: lazy loading, query validation, multi-turn conversation, SQL explanation, intelligent error handling. Uses `IAgentServiceFactory` for lazy service initialization. |
+| [`AgentOrchestrator.cs`](TextToSqlAgent.Application/Services/AgentOrchestrator.cs)                   | Core orchestrator implementation managing standard query flows.                                                                                                                                                        |
+| [`ConversationAwareOrchestrator.cs`](TextToSqlAgent.Application/Services/ConversationAwareOrchestrator.cs) | Specialized orchestrator managing stateful, multi-turn context-aware interactions.                                                                                                                                     |
+| [`EnhancedAgentOrchestrator.cs`](TextToSqlAgent.Application/Services/EnhancedAgentOrchestrator.cs)   | Advanced orchestrator with ReAct pattern. Features: lazy loading, query validation, SQL explanation, intelligent error handling.                                                                                       |
+| [`HumanInTheLoopOrchestrator.cs`](TextToSqlAgent.Application/Services/HumanInTheLoopOrchestrator.cs) | Orchestrator implementing HITL steps (e.g. clarification and confirmation requests) before execution.                                                                                                                  |
+| [`IAgentOrchestrator.cs`](TextToSqlAgent.Application/Services/IAgentOrchestrator.cs)                 | Base contract interface for all orchestrator types within the system.                                                                                                                                                  |
+| [`RuleBasedSuggestionService.cs`](TextToSqlAgent.Application/Services/RuleBasedSuggestionService.cs) | Evaluates and provides rule-based prompt and query suggestions.                                                                                                                                                        |
 | [`TextToSqlAgentOrchestrator.cs`](TextToSqlAgent.Application/Services/TextToSqlAgentOrchestrator.cs) | Legacy orchestrator. Processes queries through validation → RAG → SQL generation → execution → formatting.                                                                                                             |
 | [`FastPathQueryRouter.cs`](TextToSqlAgent.Application/Services/FastPathQueryRouter.cs)               | Optimized routing for simple queries. Bypasses full agent for known patterns.                                                                                                                                          |
 | [`LazyAgentServiceFactory.cs`](TextToSqlAgent.Application/Services/LazyAgentServiceFactory.cs)       | Factory for lazy service initialization. Enables fast startup by deferring expensive operations.                                                                                                                       |

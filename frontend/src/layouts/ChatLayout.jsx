@@ -93,7 +93,7 @@ const ChatLayout = () => {
         overflow: 'hidden',
         flex: 1, // Cho phép mở rộng để lấp đầy không gian còn lại
       }}>
-        <ChatArea />
+        <ChatArea onNewConversation={handleNewConversation} />
       </Content>
 
       {/* Right Info Panel - Always visible and fixed to right */}

@@ -82,3 +82,48 @@ public class AuthResult
         };
     }
 }
+
+// ─── New Auth Request Models ──────────────────────────────────────────────────
+
+public class GoogleLoginRequest
+{
+    [Required]
+    public string IdToken { get; set; } = string.Empty;
+}
+
+public class ForgotPasswordRequest
+{
+    [Required]
+    [EmailAddress]
+    public string Email { get; set; } = string.Empty;
+}
+
+public class ResetPasswordRequest
+{
+    [Required]
+    [EmailAddress]
+    public string Email { get; set; } = string.Empty;
+
+    [Required]
+    [StringLength(6, MinimumLength = 6, ErrorMessage = "Code must be 6 digits")]
+    public string Code { get; set; } = string.Empty;
+
+    [Required]
+    [StringLength(100, MinimumLength = 6)]
+    public string NewPassword { get; set; } = string.Empty;
+}
+
+// ─── Profile DTO ──────────────────────────────────────────────────────────────
+
+public class UserProfileResponse
+{
+    public string Id { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string? FullName { get; set; }
+    public string? AvatarUrl { get; set; }
+    public bool HasPassword { get; set; }
+    public bool GoogleLinked { get; set; }
+    public bool FacebookLinked { get; set; }
+    public List<string> LinkedProviders { get; set; } = [];
+}
+

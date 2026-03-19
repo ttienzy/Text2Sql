@@ -12,6 +12,7 @@
  */
 import { create } from 'zustand';
 import axiosInstance from '../api/axios';
+import { safeSetItem } from '../utils/storageUtils';
 import { TOKEN_REFRESH_BUFFER_MS, ACCESS_TOKEN_EXPIRY_MS, SILENT_REFRESH_INTERVAL_MS, API_ENDPOINTS } from '../constants';
 
 // LocalStorage keys with prefix
@@ -37,12 +38,12 @@ const useAuthStore = create((set, get) => ({
 
   // Actions
   setToken: (accessToken, refreshToken) => {
-    // Store both tokens in localStorage
+    // Store both tokens in localStorage with quota handling
     if (accessToken) {
-      localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
+      safeSetItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
     }
     if (refreshToken) {
-      localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, refreshToken);
+      safeSetItem(STORAGE_KEYS.REFRESH_TOKEN, refreshToken);
     }
 
     set({
@@ -68,10 +69,10 @@ const useAuthStore = create((set, get) => ({
       // API returns camelCase: accessToken, refreshToken
       const { accessToken, refreshToken, email: user } = data;
 
-      // Store both tokens in localStorage
-      localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
+      // Store both tokens in localStorage with quota handling
+      safeSetItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
       if (refreshToken) {
-        localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, refreshToken);
+        safeSetItem(STORAGE_KEYS.REFRESH_TOKEN, refreshToken);
       }
 
       set({
@@ -86,6 +87,65 @@ const useAuthStore = create((set, get) => ({
       get().startSilentRefresh();
     } catch (error) {
       set({ isLoading: false });
+      throw error;
+    }
+  },
+
+  loginWithGoogle: async (idToken) => {
+    set({ isLoading: true });
+    try {
+      const response = await axiosInstance.post(API_ENDPOINTS.AUTH.GOOGLE_LOGIN, { idToken });
+      const data = response.data;
+      const { accessToken, refreshToken, email: user } = data;
+      
+      safeSetItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
+      if (refreshToken) {
+        safeSetItem(STORAGE_KEYS.REFRESH_TOKEN, refreshToken);
+      }
+
+      set({
+        accessToken,
+        refreshToken,
+        user,
+        isAuthenticated: true,
+        isLoading: false,
+      });
+
+      get().startSilentRefresh();
+    } catch (error) {
+      set({ isLoading: false });
+      throw error;
+    }
+  },
+
+  forgotPassword: async (email) => {
+    set({ isLoading: true });
+    try {
+      await axiosInstance.post(API_ENDPOINTS.AUTH.FORGOT_PASSWORD, { email });
+      set({ isLoading: false });
+    } catch (error) {
+      set({ isLoading: false });
+      throw error;
+    }
+  },
+
+  resetPassword: async (email, code, newPassword) => {
+    set({ isLoading: true });
+    try {
+      await axiosInstance.post(API_ENDPOINTS.AUTH.RESET_PASSWORD, { email, code, newPassword });
+      set({ isLoading: false });
+    } catch (error) {
+      set({ isLoading: false });
+      throw error;
+    }
+  },
+
+  fetchProfile: async () => {
+    try {
+      const response = await axiosInstance.get(API_ENDPOINTS.AUTH.PROFILE);
+      return response.data;
+    } catch (error) {
+      console.error('Fetch profile failed:', error);
       throw error;
     }
   },
@@ -161,10 +221,10 @@ const useAuthStore = create((set, get) => ({
         const data = response.data;
         const { accessToken, refreshToken: newRefreshToken } = data;
 
-        // Update localStorage
-        localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
+        // Update localStorage with quota handling
+        safeSetItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
         if (newRefreshToken) {
-          localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, newRefreshToken);
+          safeSetItem(STORAGE_KEYS.REFRESH_TOKEN, newRefreshToken);
         }
 
         set({ accessToken, refreshToken: newRefreshToken });

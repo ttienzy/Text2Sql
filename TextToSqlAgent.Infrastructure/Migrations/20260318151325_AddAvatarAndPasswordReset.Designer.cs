@@ -3,21 +3,24 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using TextToSqlAgent.Infrastructure.Data;
 
 #nullable disable
 
-namespace TextToSqlAgent.Infrastructure.Data.Migrations
+namespace TextToSqlAgent.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260318151325_AddAvatarAndPasswordReset")]
+    partial class AddAvatarAndPasswordReset
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "9.0.1")
+                .HasAnnotation("ProductVersion", "10.0.5")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -158,14 +161,16 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
             modelBuilder.Entity("TextToSqlAgent.Infrastructure.Entities.AgentJob", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("nvarchar(450)");
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("datetime2");
 
                     b.Property<string>("ConnectionId")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<decimal?>("Cost")
                         .HasPrecision(18, 6)
@@ -204,7 +209,6 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Result")
-                        .HasMaxLength(50000)
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<int?>("RowCount")
@@ -225,15 +229,23 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
 
                     b.Property<string>("UserId")
                         .IsRequired()
+                        .HasMaxLength(450)
                         .HasColumnType("nvarchar(450)");
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ConnectionId");
+
                     b.HasIndex("CreatedAt");
 
-                    b.HasIndex("Status");
+                    b.HasIndex("HangfireJobId")
+                        .HasDatabaseName("IX_AgentJob_HangfireJobId");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("Status")
+                        .HasDatabaseName("IX_AgentJob_Status");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("IX_AgentJob_UserId");
 
                     b.ToTable("AgentJobs");
                 });
@@ -245,6 +257,10 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
 
                     b.Property<int>("AccessFailedCount")
                         .HasColumnType("int");
+
+                    b.Property<string>("AvatarUrl")
+                        .HasMaxLength(1024)
+                        .HasColumnType("nvarchar(1024)");
 
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
@@ -278,6 +294,13 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                     b.Property<string>("PasswordHash")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("PasswordResetCode")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<DateTime?>("PasswordResetCodeExpiry")
+                        .HasColumnType("datetime2");
+
                     b.Property<string>("PhoneNumber")
                         .HasColumnType("nvarchar(max)");
 
@@ -297,9 +320,7 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("NormalizedEmail")
-                        .IsUnique()
-                        .HasDatabaseName("EmailIndex")
-                        .HasFilter("[NormalizedEmail] IS NOT NULL");
+                        .HasDatabaseName("EmailIndex");
 
                     b.HasIndex("NormalizedUserName")
                         .IsUnique()
@@ -312,7 +333,8 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
             modelBuilder.Entity("TextToSqlAgent.Infrastructure.Entities.Connection", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("nvarchar(450)");
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<string>("ConnectionString")
                         .IsRequired()
@@ -323,7 +345,8 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
 
                     b.Property<string>("Database")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
@@ -335,7 +358,8 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
 
                     b.Property<string>("Host")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
 
                     b.Property<bool>("IsDefault")
                         .ValueGeneratedOnAdd()
@@ -343,7 +367,9 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                         .HasDefaultValue(false);
 
                     b.Property<bool>("IsDeleted")
-                        .HasColumnType("bit");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
 
                     b.Property<DateTime?>("LastUsedAt")
                         .HasColumnType("datetime2");
@@ -370,11 +396,16 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
 
                     b.Property<string>("Username")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId", "IsDefault");
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("IX_Connection_UserId");
+
+                    b.HasIndex("UserId", "IsDefault")
+                        .HasDatabaseName("IX_Connection_UserId_IsDefault");
 
                     b.ToTable("Connections");
                 });
@@ -386,7 +417,7 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
 
                     b.Property<string>("ConnectionId")
                         .IsRequired()
-                        .HasColumnType("nvarchar(450)");
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<string>("ContextJson")
                         .HasMaxLength(10000)
@@ -396,7 +427,9 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<bool>("IsArchived")
-                        .HasColumnType("bit");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
 
                     b.Property<DateTime>("LastActiveAt")
                         .HasColumnType("datetime2");
@@ -421,7 +454,8 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
 
                     b.HasIndex("LastActiveAt");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("UserId", "IsArchived")
+                        .HasDatabaseName("IX_Conversation_UserId_IsArchived");
 
                     b.ToTable("Conversations");
                 });
@@ -436,18 +470,21 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
 
                     b.Property<string>("ColumnName")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<string>("ConnectionId")
                         .IsRequired()
-                        .HasColumnType("nvarchar(450)");
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<string>("DataType")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
 
                     b.Property<string>("DefaultValue")
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
 
                     b.Property<bool>("IsForeignKey")
                         .HasColumnType("bit");
@@ -471,25 +508,33 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                         .HasColumnType("int");
 
                     b.Property<string>("ReferencedColumn")
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<string>("ReferencedTable")
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<string>("SchemaName")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
 
                     b.Property<DateTime>("SyncedAt")
                         .HasColumnType("datetime2");
 
                     b.Property<string>("TableName")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
 
                     b.HasKey("Id");
 
                     b.HasIndex("ConnectionId");
+
+                    b.HasIndex("ConnectionId", "TableName");
+
+                    b.HasIndex("ConnectionId", "TableName", "ColumnName");
 
                     b.ToTable("DatabaseSchemas");
                 });
@@ -507,8 +552,15 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(450)");
 
+                    b.Property<int>("CorrectionAttempts")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CorrectionHistory")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<decimal?>("Cost")
-                        .HasColumnType("decimal(18,2)");
+                        .HasPrecision(18, 6)
+                        .HasColumnType("decimal(18,6)");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
@@ -518,18 +570,27 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                         .HasColumnType("nvarchar(2000)");
 
                     b.Property<string>("Explanation")
+                        .HasMaxLength(5000)
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<int?>("InputTokens")
                         .HasColumnType("int");
 
                     b.Property<string>("Model")
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<int?>("OutputTokens")
                         .HasColumnType("int");
 
+                    b.Property<string>("ProcessingSteps")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("QueryExplanation")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("Results")
+                        .HasMaxLength(50000)
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Role")
@@ -544,12 +605,22 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                         .HasMaxLength(10000)
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<bool>("Success")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("SuggestedQueries")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int?>("TotalTokens")
                         .HasColumnType("int");
 
+                    b.Property<bool>("WasCorrected")
+                        .HasColumnType("bit");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("ConversationId");
+                    b.HasIndex("ConversationId")
+                        .HasDatabaseName("IX_Message_ConversationId");
 
                     b.HasIndex("CreatedAt");
 
@@ -572,7 +643,9 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                         .HasColumnType("nvarchar(45)");
 
                     b.Property<bool>("IsRevoked")
-                        .HasColumnType("bit");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
 
                     b.Property<string>("ReplacedByTokenId")
                         .HasColumnType("nvarchar(max)");
@@ -598,9 +671,11 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                     b.HasIndex("ExpiresAt");
 
                     b.HasIndex("Token")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("IX_RefreshToken_Token");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("IX_RefreshToken_UserId");
 
                     b.ToTable("RefreshTokens");
                 });
@@ -611,7 +686,7 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                         .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("ConnectionId")
-                        .HasColumnType("nvarchar(450)");
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<string>("ConversationId")
                         .HasColumnType("nvarchar(450)");
@@ -705,6 +780,21 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("TextToSqlAgent.Infrastructure.Entities.AgentJob", b =>
+                {
+                    b.HasOne("TextToSqlAgent.Infrastructure.Entities.Connection", null)
+                        .WithMany()
+                        .HasForeignKey("ConnectionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TextToSqlAgent.Infrastructure.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("TextToSqlAgent.Infrastructure.Entities.Connection", b =>
                 {
                     b.HasOne("TextToSqlAgent.Infrastructure.Entities.ApplicationUser", "User")
@@ -721,7 +811,7 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                     b.HasOne("TextToSqlAgent.Infrastructure.Entities.Connection", "Connection")
                         .WithMany("Conversations")
                         .HasForeignKey("ConnectionId")
-                        .OnDelete(DeleteBehavior.NoAction)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("TextToSqlAgent.Infrastructure.Entities.ApplicationUser", "User")
@@ -772,11 +862,13 @@ namespace TextToSqlAgent.Infrastructure.Data.Migrations
                 {
                     b.HasOne("TextToSqlAgent.Infrastructure.Entities.Connection", "Connection")
                         .WithMany()
-                        .HasForeignKey("ConnectionId");
+                        .HasForeignKey("ConnectionId")
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("TextToSqlAgent.Infrastructure.Entities.Conversation", "Conversation")
                         .WithMany()
-                        .HasForeignKey("ConversationId");
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("TextToSqlAgent.Infrastructure.Entities.ApplicationUser", "User")
                         .WithMany("TokenUsages")

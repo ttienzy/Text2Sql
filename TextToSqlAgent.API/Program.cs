@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Serilog;
 using System.Text.Json.Serialization;
-using TextToSqlAgent.API.Data;
+using TextToSqlAgent.Infrastructure.Data;
 using TextToSqlAgent.API.Extensions;
 using TextToSqlAgent.API.Middleware;
 using TextToSqlAgent.API.Repositories;
@@ -60,7 +60,7 @@ try
     builder.Services.AddConfigurationServices(builder.Configuration);
 
     // ============================================
-    // 3. CONFIGURATION VALIDATION
+    // 3. CONFIGURATION VALIDATION (Temporarily disabled for local development)
     // ============================================
     var configuration = builder.Configuration;
 
@@ -69,6 +69,8 @@ try
         new Microsoft.Extensions.Logging.Abstractions.NullLogger<ConfigurationService>(),
         builder.Environment);
 
+    // TODO: Re-enable validation when API keys are configured
+    /*
     var validationResult = configService.ValidateConfiguration();
     if (!validationResult.IsValid)
     {
@@ -79,6 +81,10 @@ try
         }
         throw new InvalidOperationException("Configuration validation failed. Check logs for details.");
     }
+    */
+
+    logger.Warning("⚠️  Configuration validation is DISABLED for local development");
+    logger.Warning("⚠️  Please configure API keys before production deployment");
 
     // Load Config Objects with environment variable support
     var geminiConfig = new GeminiConfig();
@@ -264,6 +270,7 @@ try
 
     // Authentication Services
     builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
+    builder.Services.AddScoped<IEmailService, EmailService>();
 
     // Token Quota Service
     builder.Services.AddScoped<TextToSqlAgent.Infrastructure.Services.ITokenQuotaService, TextToSqlAgent.Infrastructure.Services.TokenQuotaService>();
@@ -309,20 +316,17 @@ try
     logger.Information("Using database connection: {DatabaseType}",
         connectionString.Contains("Data Source=") ? "SQLite" : "SQL Server");
 
-    // Register API DbContext
-    builder.Services.AddDbContext<TextToSqlAgent.API.Data.AppDbContext>(options =>
-        options.UseSqlServer(connectionString));
-
-    // Register Infrastructure DbContext for TokenQuotaService
     builder.Services.AddDbContext<TextToSqlAgent.Infrastructure.Data.AppDbContext>(options =>
         options.UseSqlServer(connectionString));
+
+
 
     // ============================================
     // 4. HEALTH CHECKS
     // ============================================
 
     builder.Services.AddHealthChecks()
-        .AddDbContextCheck<TextToSqlAgent.API.Data.AppDbContext>("database")
+        .AddDbContextCheck<TextToSqlAgent.Infrastructure.Data.AppDbContext>("database")
         .AddCheck("api", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("API is running"));
 
     // Identity using Infrastructure ApplicationUser
@@ -339,7 +343,7 @@ try
         options.User.RequireUniqueEmail = true;
         options.SignIn.RequireConfirmedEmail = false;
     })
-        .AddEntityFrameworkStores<TextToSqlAgent.API.Data.AppDbContext>()
+        .AddEntityFrameworkStores<TextToSqlAgent.Infrastructure.Data.AppDbContext>()
         .AddDefaultTokenProviders();
 
     // JWT Authentication with secure key management
@@ -458,8 +462,10 @@ try
         }
     }
 
-    // Validate configuration on startup
-    app.ValidateConfigurationOnStartup();
+    // Validate configuration on startup (Temporarily disabled for local development)
+    // TODO: Re-enable when API keys are configured
+    // app.ValidateConfigurationOnStartup();
+    logger.Warning("⚠️  Configuration validation on startup is DISABLED for local development");
 
     logger.Information("TextToSqlAgent API started successfully");
     logger.Information("Environment: {Environment}", app.Environment.EnvironmentName);

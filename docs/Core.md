@@ -19,6 +19,9 @@ TextToSqlAgent.Core/
 │   ├── AgentResult.cs          # Agent result model
 │   ├── AgentState.cs           # Agent state
 │   ├── AgentStep.cs            # Agent step
+│   ├── AgentStepEvent.cs       # Event streams for frontend real-time updates
+│   ├── ClarificationRequest.cs # For user clarification requests
+│   ├── ConversationAwareAgentRequest.cs # Specialized request for context
 │   ├── IAgent.cs               # Agent interface
 │   ├── IReasoningEngine.cs     # Reasoning engine interface
 │   └── IReflectionEngine.cs   # Reflection engine interface
@@ -76,6 +79,9 @@ TextToSqlAgent.Core/
 | [`AgentAction.cs`](TextToSqlAgent.Core/Agent/AgentAction.cs)             | Action definition: tool name, input, parameters.             |
 | [`AgentObservation.cs`](TextToSqlAgent.Core/Agent/AgentObservation.cs)   | Observation from tool execution.                             |
 | [`AgentReflection.cs`](TextToSqlAgent.Core/Agent/AgentReflection.cs)     | Reflection for self-correction.                              |
+| [`AgentStepEvent.cs`](TextToSqlAgent.Core/Agent/AgentStepEvent.cs)       | Event definition for real-time frontend streaming updates.   |
+| [`ClarificationRequest.cs`](TextToSqlAgent.Core/Agent/ClarificationRequest.cs) | Data model handles agent asking user for clarifications.     |
+| [`ConversationAwareAgentRequest.cs`](TextToSqlAgent.Core/Agent/ConversationAwareAgentRequest.cs) | Specialized request containing context history and IDs.      |
 | [`IReasoningEngine.cs`](TextToSqlAgent.Core/Agent/IReasoningEngine.cs)   | Interface for reasoning engine.                              |
 | [`IReflectionEngine.cs`](TextToSqlAgent.Core/Agent/IReflectionEngine.cs) | Interface for reflection engine.                             |
 

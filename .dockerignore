@@ -1,0 +1,68 @@
+# Global .dockerignore for root context
+
+# Build artifacts
+**/bin/
+**/obj/
+**/out/
+**/publish/
+**/TestResults/
+
+# IDE files
+.vs/
+.vscode/
+**/*.user
+**/*.suo
+**/.idea/
+
+# Logs
+**/logs/
+**/*.log
+
+# Environment files
+**/.env
+**/.env.local
+**/.env.production
+
+# Temporary files
+**/Thumbs.db
+**/.DS_Store
+
+# Node modules
+**/node_modules/
+**/dist/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Docker
+**/Dockerfile
+**/.dockerignore
+
+# Documentation
+**/*.md
+**/docs/
+README*
+
+# Test files
+**/*Tests/
+**/*Test/
+
+# Package files
+**/*.nupkg
+**/*.snupkg
+
+# Large files
+**/*.zip
+**/*.tar
+**/*.gz
+
+# Frontend specific
+frontend/dist/
+frontend/node_modules/
+frontend/.env*
+
+# Exclude specific large directories
+**/packages/
+**/.nuget/

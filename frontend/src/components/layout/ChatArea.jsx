@@ -13,6 +13,7 @@ import {
 } from '@ant-design/icons';
 import { MessageBubble, ChatInput, MessageSkeleton, ConversationStatus } from '../chat';
 import SmartProcessingProgress from '../chat/SmartProcessingProgress';
+import ConversationLimitBanner from '../chat/ConversationLimitBanner';
 import { ResponsiveChatMessageSkeleton } from '../common';
 import { useDelayedLoading } from '../../hooks/useDelayedLoading';
 import useConversationStore from '../../store/conversationStore';
@@ -20,15 +21,17 @@ import useConnectionStore from '../../store/connectionStore';
 import { useMessagesQuery } from '../../api/messages';
 import { useUpdateConversationMutation } from '../../api/conversations';
 import { useProcessMessageMutation } from '../../api/agent';
+import { useQueryClient } from '@tanstack/react-query';
+import { conversationKeys } from '../../api/conversations/queries';
 // import { useProcessMessageV2Mutation } from '../../api/agent/v2';
 
 const { Title, Text } = Typography;
 
 /**
  * ChatArea - Main chat area component with messages display and input
- * Features: auto-scroll, optimistic updates, auto-title generation
+ * Features: auto-scroll, optimistic updates, auto-title generation, 50-message context limit
  */
-const ChatArea = ({ onSendMessage, isSending: externalIsSending }) => {
+const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversation }) => {
 
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -40,6 +43,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending }) => {
 
   const { currentConversation, messages, setMessages, updateConversationInList } = useConversationStore();
   const { activeConnection } = useConnectionStore();
+  const queryClient = useQueryClient();
 
   // React Query - fetch messages
   const {
@@ -48,6 +52,11 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending }) => {
   } = useMessagesQuery(currentConversation?.id, {
     enabled: !!currentConversation?.id,
   });
+
+  // Derive limit state from the query result
+  const isLimitReached = messagesData?.limitReached ?? false;
+  const messageTotalCount = messagesData?.totalCount ?? 0;
+  const messageLimit = messagesData?.messageLimit ?? 50;
 
   // Use delayed loading to prevent skeleton flashing
   const showMessagesSkeleton = useDelayedLoading(isLoadingMessages && messages.length === 0, 300);
@@ -121,6 +130,9 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending }) => {
         });
       }
 
+      // Invalidate the conversations list query to update the message count
+      queryClient.invalidateQueries({ queryKey: conversationKeys.lists() });
+
       message.success('Query executed successfully');
     },
     onError: (error, variables, context) => {
@@ -148,10 +160,38 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending }) => {
     },
   });
 
-  // Sync messages from query to store
+  // Sync messages from query to store with error handling
   useEffect(() => {
-    if (messagesData && Array.isArray(messagesData)) {
-      setMessages(messagesData);
+    // messagesData is now { messages, totalCount, limitReached, messageLimit }
+    const newMessages = messagesData?.messages;
+    if (newMessages && Array.isArray(newMessages)) {
+      try {
+        setMessages(newMessages);
+      } catch (error) {
+        console.error('❌ Error setting messages:', error);
+
+        // Handle localStorage quota exceeded
+        if (error.name === 'QuotaExceededError') {
+          console.warn('⚠️ LocalStorage quota exceeded, clearing conversation data...');
+
+          // Clear conversation store data
+          const { clearStorageData } = useConversationStore.getState();
+          clearStorageData();
+
+          // Show user-friendly message
+          message.warning('Storage limit reached. Conversation history has been cleared to continue.');
+
+          // Retry setting messages with cleared storage
+          try {
+            setMessages(newMessages);
+          } catch (retryError) {
+            console.error('❌ Failed to set messages after clearing storage:', retryError);
+            message.error('Unable to load messages. Please refresh the page.');
+          }
+        } else {
+          message.error('Failed to load conversation messages');
+        }
+      }
     }
   }, [messagesData, setMessages]);
 
@@ -381,14 +421,25 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending }) => {
         </Tooltip>
       )}
 
+      {/* Conversation Limit Banner */}
+      <ConversationLimitBanner
+        visible={isLimitReached}
+        totalCount={messageTotalCount}
+        messageLimit={messageLimit}
+        onNewConversation={onNewConversation}
+      />
+
       {/* Chat Input */}
       <ChatInput
         onSend={handleSend}
         isLoading={isSending}
-        disabled={!activeConnection}
-        placeholder={activeConnection
-          ? "Ask a question about your database..."
-          : "Select a connection first"
+        disabled={!activeConnection || isLimitReached}
+        placeholder={
+          isLimitReached
+            ? `Context limit reached (${messageTotalCount}/${messageLimit} messages). Please start a new conversation.`
+            : activeConnection
+            ? 'Ask a question about your database...'
+            : 'Select a connection first'
         }
       />
 

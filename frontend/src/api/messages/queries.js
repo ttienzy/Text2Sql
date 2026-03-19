@@ -17,19 +17,28 @@ export const messageKeys = {
 };
 
 /**
- * useMessagesQuery - Get messages for a conversation
+ * useMessagesQuery - Get messages for a conversation.
+ * The API now returns a wrapped response with limitReached metadata.
  */
 export const useMessagesQuery = (conversationId, options = {}) => {
   return useQuery({
     queryKey: messageKeys.list({ conversationId }),
     queryFn: async () => {
       const response = await axiosInstance.get(`/api/messages/conversation/${conversationId}`);
-      return response.data;
+      // API returns: { messages, totalCount, limitReached, messageLimit }
+      const data = response.data;
+      return {
+        messages: data.messages ?? [],
+        totalCount: data.totalCount ?? 0,
+        limitReached: data.limitReached ?? false,
+        messageLimit: data.messageLimit ?? 50,
+      };
     },
     enabled: !!conversationId,
     ...options,
   });
 };
+
 
 /**
  * useRecentQueriesQuery - Get recent SQL queries for the current user

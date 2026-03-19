@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore.Storage;
-using TextToSqlAgent.API.Data;
+using TextToSqlAgent.Infrastructure.Data;
 
 namespace TextToSqlAgent.API.Repositories;
 

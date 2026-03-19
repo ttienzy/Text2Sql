@@ -1,0 +1,56 @@
+# Build artifacts
+**/bin/
+**/obj/
+**/out/
+**/publish/
+
+# IDE files
+.vs/
+.vscode/
+**/*.user
+**/*.suo
+
+# Logs
+**/logs/
+**/*.log
+
+# Environment files
+**/.env
+**/.env.local
+**/.env.production
+
+# Temporary files
+**/Thumbs.db
+**/.DS_Store
+
+# Node modules (nếu có)
+**/node_modules/
+
+# Git
+.git/
+.gitignore
+
+# Docker
+**/Dockerfile
+**/.dockerignore
+
+# Documentation
+**/*.md
+**/docs/
+
+# Test files
+**/TestResults/
+**/*Tests/
+
+# Package files
+**/*.nupkg
+**/*.snupkg
+
+# Frontend build
+**/frontend/dist/
+**/frontend/node_modules/
+
+# Large files
+**/*.zip
+**/*.tar
+**/*.gz

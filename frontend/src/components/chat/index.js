@@ -12,6 +12,7 @@ export { default as EnhancedProcessingProgress } from './EnhancedProcessingProgr
 export { default as SmartProcessingProgress } from './SmartProcessingProgress';
 export { default as ConversationContext } from './ConversationContext';
 export { default as ConversationIndicator } from './ConversationIndicator';
+export { default as ConversationLimitBanner } from './ConversationLimitBanner';
 export { default as ConversationStatus } from './ConversationStatus';
 export { default as ConversationSwitcher } from './ConversationSwitcher';
 export { ClarificationType } from '../../constants/clarification';

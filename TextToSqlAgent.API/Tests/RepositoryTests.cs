@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using TextToSqlAgent.API.Data;
+using TextToSqlAgent.Infrastructure.Data;
 using TextToSqlAgent.API.Repositories;
 using TextToSqlAgent.Infrastructure.Entities;
 using Xunit;

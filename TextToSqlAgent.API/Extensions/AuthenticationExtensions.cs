@@ -135,27 +135,20 @@ public static class AuthenticationExtensions
                 var allowedOrigins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
                     ?? new[] { "http://localhost:3000", "https://localhost:3001" };
 
-                policy.WithOrigins(allowedOrigins)
-                      .AllowAnyMethod()
-                      .AllowAnyHeader()
-                      .AllowCredentials();
+                policy.SetIsOriginAllowed(_ => true)  // ← thay AllowAnyOrigin
+          .AllowAnyMethod()
+          .AllowAnyHeader()
+          .AllowCredentials();
             });
 
             // Add a more permissive policy for development
             options.AddPolicy("Development", policy =>
             {
-                policy.WithOrigins(
-                        "http://localhost:5173",
-                        "https://localhost:5173",
-                        "http://localhost:5174",
-                        "https://localhost:5174",
-                        "http://localhost:3000",
-                        "https://localhost:3001"
-                      )
-                      .AllowAnyMethod()
-                      .AllowAnyHeader()
-                      .AllowCredentials()
-                      .SetPreflightMaxAge(TimeSpan.FromMinutes(10));
+                policy.SetIsOriginAllowed(_ => true)  // ← thay AllowAnyOrigin
+          .AllowAnyMethod()
+          .AllowAnyHeader()
+          .AllowCredentials()
+          .SetPreflightMaxAge(TimeSpan.FromMinutes(10)); ;
             });
         });
 

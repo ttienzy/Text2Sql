@@ -1,0 +1,69 @@
+services:
+  api:
+    build:
+      context: .  # Build từ root để access tất cả projects
+      dockerfile: TextToSqlAgent.API/Dockerfile
+    ports:
+      - "5251:5251"  # Keep development port for consistency
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Đảm bảo resolve được trên mọi OS
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:5251
+      # SQL Server trên host machine (host.docker.internal)
+      - ConnectionStrings__DefaultConnection=Server=host.docker.internal,1433;Database=TextToSqlAgentDB;User Id=sa;Password=123;TrustServerCertificate=True;Encrypt=False;
+      - Database__ConnectionString=Server=host.docker.internal,1433;Database=TextToSqlAgent;User Id=sa;Password=123;TrustServerCertificate=True;Encrypt=False;
+      - DATABASE_CONNECTION_STRING=Server=host.docker.internal,1433;Database=TextToSqlAgent;User Id=sa;Password=123;TrustServerCertificate=True;Encrypt=False;
+      # Qdrant trong Docker network
+      - Qdrant__Url=http://qdrant:6333
+      - QDRANT_URL=http://qdrant:6333
+      # JWT và API Keys
+      - Jwt__Key=TextToSqlAgentDevKey2024Secure!ThisIsLongEnough32+
+      - Jwt__Issuer=TextToSqlAgentAPI
+      - Jwt__Audience=TextToSqlAgentClient
+      - JWT_SECRET=TextToSqlAgentDevKey2024Secure!ThisIsLongEnough32+
+      - JWT_ISSUER=TextToSqlAgentAPI
+      - JWT_AUDIENCE=TextToSqlAgentClient
+      - OpenAI__ApiKey=
+      - OPENAI_API_KEY=
+      - Encryption__Key=DefaultEncryptionKey32CharactersLong!
+      - ENCRYPTION_KEY=DefaultEncryptionKey32CharactersLong!
+      # LLM Provider
+      - LLMProvider=OpenAI
+      # CORS - Allow frontend access
+      - Cors__AllowedOrigins__0=http://localhost:5173
+      - Cors__AllowedOrigins__1=https://localhost:5173
+    depends_on:
+      - qdrant
+    networks:
+      - app-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=http://localhost:5251  # Match API port
+    ports:
+      - "5173:80"  # Keep development port for consistency
+    depends_on:
+      - api
+    networks:
+      - app-network
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - app-network
+
+volumes:
+  qdrant_data:
+
+networks:
+  app-network:
+    driver: bridge
