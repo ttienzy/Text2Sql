@@ -99,10 +99,11 @@ public class ConversationAwareAgentController : BaseController
                 // Get the working orchestrator instead of conversation-aware one
                 var orchestrator = scopedServices.GetRequiredService<EnhancedAgentOrchestrator>();
 
-                // Process the query using existing working orchestrator
+                // Process the query using existing working orchestrator with conversation history
                 var response = await orchestrator.ProcessQueryAsync(
                     request.Question,
                     request.ConversationId,
+                    conversationHistory,  // ✅ Pass conversation history for context awareness
                     CancellationToken.None);
 
                 // Ensure conversation ID is set
@@ -211,7 +212,11 @@ public class ConversationAwareAgentController : BaseController
                     // Enhanced conversation context
                     ConversationTurns = conversationHistory.Count / 2, // Approximate turns
                     HasConversationContext = conversationHistory.Any(),
-                    ConversationStartedAt = conversationHistory.FirstOrDefault()?.CreatedAt
+                    ConversationStartedAt = conversationHistory.FirstOrDefault()?.CreatedAt,
+                    // ✅ Context awareness for pronoun resolution
+                    ContextEntities = response.ContextEntities,
+                    PrimaryEntity = response.PrimaryEntity,
+                    PronounsResolved = response.PronounsResolved
                 };
 
                 return Ok(result);
@@ -362,6 +367,11 @@ public class ConversationAwareProcessResponse
     public int ConversationTurns { get; set; }
     public bool HasConversationContext { get; set; }
     public DateTime? ConversationStartedAt { get; set; }
+
+    // ✅ NEW: Context awareness for pronoun resolution
+    public List<string> ContextEntities { get; set; } = new();
+    public string? PrimaryEntity { get; set; }
+    public bool PronounsResolved { get; set; }
 }
 
 /// <summary>

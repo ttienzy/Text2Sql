@@ -438,8 +438,8 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
           isLimitReached
             ? `Context limit reached (${messageTotalCount}/${messageLimit} messages). Please start a new conversation.`
             : activeConnection
-            ? 'Ask a question about your database...'
-            : 'Select a connection first'
+              ? 'Ask a question about your database...'
+              : 'Select a connection first'
         }
       />
 
@@ -450,6 +450,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
           messageCount={messages.length}
           isConversationMode={true}
           lastMessageTime={messages[messages.length - 1]?.createdAt}
+          contextMessagesCount={Math.min(messages.length, 6)}  // ✅ Show last 6 messages used as context
           compact={true}
         />
       )}

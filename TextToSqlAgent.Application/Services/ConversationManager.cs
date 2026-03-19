@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using TextToSqlAgent.Core.Models;
+using TextToSqlAgent.Core.Helpers;
 
 namespace TextToSqlAgent.Application.Services;
 
@@ -10,16 +11,19 @@ namespace TextToSqlAgent.Application.Services;
 public class ConversationManager
 {
     private readonly ILogger<ConversationManager> _logger;
+    private readonly CoreferenceResolver _coreferenceResolver;
     private readonly Dictionary<string, ConversationContext> _conversations = new();
     private readonly int _maxHistorySize;
     private readonly TimeSpan _conversationTimeout;
 
     public ConversationManager(
         ILogger<ConversationManager> logger,
+        CoreferenceResolver coreferenceResolver,
         int maxHistorySize = 10,
         TimeSpan? conversationTimeout = null)
     {
         _logger = logger;
+        _coreferenceResolver = coreferenceResolver;
         _maxHistorySize = maxHistorySize;
         _conversationTimeout = conversationTimeout ?? TimeSpan.FromMinutes(30);
     }
@@ -63,7 +67,7 @@ public class ConversationManager
     }
 
     /// <summary>
-    /// Add turn to conversation history
+    /// Add turn to conversation history with structured context extraction
     /// </summary>
     public void AddTurn(
         ConversationContext context,
@@ -84,6 +88,23 @@ public class ConversationManager
             TargetTable = targetTable,
             Success = success
         };
+
+        // ✅ NEW: Extract structured context from SQL
+        if (!string.IsNullOrEmpty(sqlQuery))
+        {
+            var (tables, primaryTable, columns, intentType) = SqlContextExtractor.ExtractFullContext(sqlQuery);
+
+            turn.EntitiesReferenced = tables;
+            turn.PrimaryEntity = primaryTable ?? targetTable;
+            turn.Columns = columns;
+            turn.QueryIntentType = intentType;
+
+            _logger.LogDebug(
+                "[ConversationManager] 📦 Extracted context: Primary={Primary}, Entities=[{Entities}], Intent={Intent}",
+                turn.PrimaryEntity,
+                string.Join(", ", turn.EntitiesReferenced),
+                turn.QueryIntentType);
+        }
 
         context.History.Add(turn);
 
@@ -179,18 +200,48 @@ public class ConversationManager
 
     /// <summary>
     /// Enrich question with context from previous turns
+    /// ✅ PHASE 2: Smart pronoun resolution + context enrichment
     /// </summary>
     public string EnrichQuestionWithContext(ConversationContext context, string question)
     {
-        if (context.History.Count == 0 || !IsFollowUpQuestion(context, question))
+        if (context.History.Count == 0)
+        {
+            _logger.LogDebug("[ConversationManager] No history, skipping enrichment");
+            return question;
+        }
+
+        // ✅ STEP 1: Check for pronouns FIRST
+        var hasPronouns = _coreferenceResolver.ContainsPronouns(question);
+
+        if (hasPronouns)
+        {
+            var detectedPronouns = _coreferenceResolver.GetDetectedPronouns(question);
+            _logger.LogInformation(
+                "[ConversationManager] 🔍 Detected pronouns: [{Pronouns}]",
+                string.Join(", ", detectedPronouns));
+
+            // ✅ STEP 2: Resolve pronouns and rewrite question
+            var rewritten = _coreferenceResolver.ResolveAndRewrite(question, context);
+
+            if (rewritten != question)
+            {
+                _logger.LogInformation(
+                    "[ConversationManager] ✏️ Question rewritten: '{Original}' → '{Rewritten}'",
+                    question,
+                    rewritten);
+
+                question = rewritten;
+            }
+        }
+
+        // ✅ STEP 3: Apply additional context enrichment if needed
+        if (!IsFollowUpQuestion(context, question))
         {
             return question;
         }
 
         var lastTurn = context.History.Last();
         var enriched = question;
-
-        // ✅ PHASE 4: Structured context carryover
 
         // Add table context if missing
         if (!string.IsNullOrEmpty(lastTurn.TargetTable) &&
@@ -213,10 +264,13 @@ public class ConversationManager
             enriched += $" [context tables: {string.Join(", ", context.RecentTables)}]";
         }
 
-        _logger.LogDebug(
-            "[ConversationManager] Enriched question: {Original} → {Enriched}",
-            question,
-            enriched);
+        if (enriched != question)
+        {
+            _logger.LogDebug(
+                "[ConversationManager] 📝 Additional enrichment: {Original} → {Enriched}",
+                question,
+                enriched);
+        }
 
         return enriched;
     }

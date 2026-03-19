@@ -189,6 +189,7 @@ public class SqlGeneratorPlugin
     IntentAnalysis intent,
     RetrievedSchemaContext schemaContext,
     string? originalQuestion = null,
+    List<TextToSqlAgent.Infrastructure.Entities.Message>? conversationHistory = null,
     CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("[SqlGenerator] Generating SQL query with RAG context for {Provider}...", _adapter.Provider);
@@ -202,7 +203,8 @@ public class SqlGeneratorPlugin
             intent.Filters.Select(f => $"{f.Field} {f.Operator} {ConvertFilterValue(f.Value)}").ToList(),
             intent.Metrics.Select(m => $"{m.Alias}: {m.Calculation}").ToList(),
             originalQuestion,
-            intent.SelectColumns);
+            intent.SelectColumns,
+            conversationHistory);
 
         // Use enhanced system prompt for JSON output
         var systemPrompt = SqlGenerationPrompt.SystemPromptWithSuggestions;
@@ -228,9 +230,10 @@ public class SqlGeneratorPlugin
     IntentAnalysis intent,
     RetrievedSchemaContext schemaContext,
     string? originalQuestion = null,
+    List<TextToSqlAgent.Infrastructure.Entities.Message>? conversationHistory = null,
     CancellationToken cancellationToken = default)
     {
-        var result = await GenerateSqlWithContextAsync(intent, schemaContext, originalQuestion, cancellationToken);
+        var result = await GenerateSqlWithContextAsync(intent, schemaContext, originalQuestion, conversationHistory, cancellationToken);
         return result.Sql;
     }
 

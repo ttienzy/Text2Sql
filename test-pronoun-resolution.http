@@ -1,0 +1,125 @@
+### Test Pronoun Resolution Feature
+### Phase 1: Create conversation and ask first question
+
+# Step 1: Login
+POST https://localhost:7189/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "Admin@123"
+}
+
+### Save token from response above, then use in next requests
+@token = YOUR_TOKEN_HERE
+@connectionId = YOUR_CONNECTION_ID_HERE
+
+###
+# Step 2: Get connections
+GET https://localhost:7189/api/connections
+Authorization: Bearer {{token}}
+
+###
+# Step 3: Create new conversation
+POST https://localhost:7189/api/conversations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "title": "Test Pronoun Resolution",
+  "connectionId": "{{connectionId}}"
+}
+
+### Save conversationId from response
+@conversationId = YOUR_CONVERSATION_ID_HERE
+
+###
+# Step 4: First question - "Show me all products"
+POST https://localhost:7189/api/v2/agent/process
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "connectionId": "{{connectionId}}",
+  "question": "Show me all products",
+  "conversationId": "{{conversationId}}"
+}
+
+### Expected: Should return products list with SQL query
+### Check logs for:
+### - [EnhancedAgent] 📦 Extracted context from history
+### - Primary entity: Products
+
+###
+# Step 5: Follow-up question with pronoun - "How many of them are in stock?"
+POST https://localhost:7189/api/v2/agent/process
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "connectionId": "{{connectionId}}",
+  "question": "How many of them are in stock?",
+  "conversationId": "{{conversationId}}"
+}
+
+### Expected behavior:
+### ✅ Should detect pronoun "them"
+### ✅ Should rewrite to "How many Products are in stock?"
+### ✅ Should NOT ask for clarification
+### ✅ Should reach 12 processing steps (not just 1)
+### ✅ Response should include:
+###    - contextEntities: ["Products"]
+###    - primaryEntity: "Products"
+###    - pronounsResolved: true
+###
+### Check logs for:
+### [ConversationManager] 🔍 Detected pronouns: [them]
+### [CoreferenceResolver] ✏️ Rewritten: 'How many of them...' → 'How many Products...'
+### [EnhancedAgent] 📦 Context entities: [Products], Primary: Products
+### [EnhancedAgent] 🔄 Question enriched
+
+###
+# Step 6: Vietnamese test - "Có bao nhiêu cái đang còn hàng?"
+POST https://localhost:7189/api/v2/agent/process
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "connectionId": "{{connectionId}}",
+  "question": "Có bao nhiêu cái đang còn hàng?",
+  "conversationId": "{{conversationId}}"
+}
+
+### Expected:
+### ✅ Should detect Vietnamese pronoun "cái"
+### ✅ Should rewrite to include "Products"
+### ✅ Should work without clarification
+
+###
+# Step 7: Test with "those"
+POST https://localhost:7189/api/v2/agent/process
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "connectionId": "{{connectionId}}",
+  "question": "Show me those with price > 100",
+  "conversationId": "{{conversationId}}"
+}
+
+### Expected:
+### ✅ Should detect pronoun "those"
+### ✅ Should rewrite to "Show me Products with price > 100"
+
+###
+# Step 8: Get conversation messages to verify context
+GET https://localhost:7189/api/conversations/{{conversationId}}/messages
+Authorization: Bearer {{token}}
+
+### Expected:
+### ✅ Should show all messages with structured context
+### ✅ Each assistant message should have:
+###    - sqlQuery
+###    - targetTable (extracted)
+###    - entitiesReferenced (from SQL parser)
+###    - primaryEntity

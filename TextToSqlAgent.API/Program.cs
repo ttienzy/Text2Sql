@@ -242,6 +242,7 @@ try
     builder.Services.AddScoped<ConversationAwareOrchestrator>();
 
     // ✅ NEW: Conversation Manager - required by EnhancedAgentOrchestrator
+    builder.Services.AddSingleton<CoreferenceResolver>();
     builder.Services.AddSingleton<ConversationManager>();
 
     // ============================================

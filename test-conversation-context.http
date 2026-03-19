@@ -1,0 +1,44 @@
+### Test Conversation Context Feature
+### This file tests the new conversation history feature
+
+@baseUrl = http://localhost:5000
+@token = YOUR_JWT_TOKEN_HERE
+@connectionId = YOUR_CONNECTION_ID
+@conversationId = YOUR_CONVERSATION_ID
+
+### 1. First message - Create conversation context
+POST {{baseUrl}}/api/v2/agent/process
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "connectionId": "{{connectionId}}",
+  "question": "Show me all products",
+  "conversationId": null
+}
+
+### 2. Follow-up question - Should use context from previous message
+POST {{baseUrl}}/api/v2/agent/process
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "connectionId": "{{connectionId}}",
+  "question": "How many of them are in stock?",
+  "conversationId": "{{conversationId}}"
+}
+
+### 3. Another follow-up - Should understand "those" refers to products
+POST {{baseUrl}}/api/v2/agent/process
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "connectionId": "{{connectionId}}",
+  "question": "What about those with price > 100?",
+  "conversationId": "{{conversationId}}"
+}
+
+### 4. Get conversation context to verify history
+GET {{baseUrl}}/api/v2/agent/conversation/{{conversationId}}/context
+Authorization: Bearer {{token}}

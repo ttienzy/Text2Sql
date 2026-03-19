@@ -220,6 +220,7 @@ public class TextToSqlAgentOrchestrator
                 intent,
                 relevantSchema,
                 normalized.NormalizedText,  // Pass original question to LLM
+                null,  // No conversation history for legacy orchestrator
                 cancellationToken);
 
             var sql = sqlResult.Sql;
@@ -455,6 +456,7 @@ public class TextToSqlAgentOrchestrator
                 intent,
                 relevantSchema,
                 normalized.NormalizedText,  // Pass original question to LLM
+                null,  // No conversation history for legacy orchestrator
                 cancellationToken);
 
             var sql = sqlResult.Sql;
@@ -1008,3 +1010,4 @@ public class TextToSqlAgentOrchestrator
         };
     }
 }
+

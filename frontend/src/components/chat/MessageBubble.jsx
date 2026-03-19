@@ -20,6 +20,7 @@ import SqlBlock from './SqlBlock';
 import ResultTable from './ResultTable';
 import TokenInfo from './TokenInfo';
 import EnhancedMessageInfo from './EnhancedMessageInfo';
+import ConversationContextIndicator from './ConversationContextIndicator';
 import { escapeHtml } from '../../utils/security';
 import { extractErrorMessage, hasError } from '../../utils/errorHandler';
 
@@ -156,6 +157,15 @@ const MessageBubble = ({ message, onSuggestedQueryClick }) => {
               Error: {errorMessage}
             </Text>
           </div>
+        )}
+
+        {/* Context Indicator - Show when AI used context to understand pronouns */}
+        {!isUser && message.contextEntities && (
+          <ConversationContextIndicator
+            contextEntities={message.contextEntities || []}
+            primaryEntity={message.primaryEntity}
+            show={true}
+          />
         )}
 
         {/* User/Assistant text content - escape HTML for security */}

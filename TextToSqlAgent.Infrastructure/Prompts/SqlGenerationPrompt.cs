@@ -744,9 +744,42 @@ REMEMBER:
         List<string>? filters = null,
         List<string>? metrics = null,
         string? originalQuestion = null,
-        List<string>? selectColumns = null)
+        List<string>? selectColumns = null,
+        List<TextToSqlAgent.Infrastructure.Entities.Message>? conversationHistory = null)
     {
         var prompt = "";
+
+        // ✅ NEW: Add conversation history context
+        if (conversationHistory?.Any() == true)
+        {
+            prompt += "📝 Previous Conversation Context:\n";
+            prompt += "---\n";
+
+            // Take last 6 messages (3 turns) for context
+            var recentMessages = conversationHistory
+                .OrderBy(m => m.CreatedAt)
+                .TakeLast(6)
+                .ToList();
+
+            foreach (var msg in recentMessages)
+            {
+                if (msg.Role == "user")
+                {
+                    prompt += $"User: {msg.Content}\n";
+                }
+                else if (msg.Role == "assistant")
+                {
+                    prompt += $"Assistant: {msg.Content}\n";
+                    if (!string.IsNullOrEmpty(msg.SqlQuery))
+                    {
+                        prompt += $"  SQL: {msg.SqlQuery}\n";
+                    }
+                }
+            }
+
+            prompt += "---\n\n";
+            prompt += "⚠️ IMPORTANT: Use the conversation history above to understand context and references (like 'them', 'those', 'also', 'same table', etc.)\n\n";
+        }
 
         // Include original question so LLM knows exactly what user wants
         if (!string.IsNullOrWhiteSpace(originalQuestion))
@@ -792,9 +825,42 @@ Schema Context:
         List<string>? filters = null,
         List<string>? metrics = null,
         string? originalQuestion = null,
-        List<string>? selectColumns = null)
+        List<string>? selectColumns = null,
+        List<TextToSqlAgent.Infrastructure.Entities.Message>? conversationHistory = null)
     {
         var prompt = "";
+
+        // ✅ NEW: Add conversation history context
+        if (conversationHistory?.Any() == true)
+        {
+            prompt += "📝 Previous Conversation Context:\n";
+            prompt += "---\n";
+
+            // Take last 6 messages (3 turns) for context
+            var recentMessages = conversationHistory
+                .OrderBy(m => m.CreatedAt)
+                .TakeLast(6)
+                .ToList();
+
+            foreach (var msg in recentMessages)
+            {
+                if (msg.Role == "user")
+                {
+                    prompt += $"User: {msg.Content}\n";
+                }
+                else if (msg.Role == "assistant")
+                {
+                    prompt += $"Assistant: {msg.Content}\n";
+                    if (!string.IsNullOrEmpty(msg.SqlQuery))
+                    {
+                        prompt += $"  SQL: {msg.SqlQuery}\n";
+                    }
+                }
+            }
+
+            prompt += "---\n\n";
+            prompt += "⚠️ IMPORTANT: Use the conversation history above to understand context and references (like 'them', 'those', 'also', 'same table', etc.)\n\n";
+        }
 
         // Include original question so LLM knows exactly what user wants
         if (!string.IsNullOrWhiteSpace(originalQuestion))

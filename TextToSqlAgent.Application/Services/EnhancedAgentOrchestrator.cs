@@ -8,6 +8,7 @@ using TextToSqlAgent.Infrastructure.Database;
 using TextToSqlAgent.Infrastructure.RAG;
 using TextToSqlAgent.Infrastructure.VectorDB;
 using TextToSqlAgent.Plugins;
+using Message = TextToSqlAgent.Infrastructure.Entities.Message;
 
 namespace TextToSqlAgent.Application.Services;
 
@@ -50,6 +51,7 @@ public class EnhancedAgentOrchestrator
     public async Task<AgentResponse> ProcessQueryAsync(
         string userQuestion,
         string? conversationId = null,
+        List<TextToSqlAgent.Infrastructure.Entities.Message>? conversationHistory = null,
         CancellationToken cancellationToken = default)
     {
         var response = new AgentResponse();
@@ -58,6 +60,12 @@ public class EnhancedAgentOrchestrator
         try
         {
             _logger.LogInformation("[EnhancedAgent] 🤖 Processing query with agentic AI");
+
+            // Log conversation context
+            if (conversationHistory?.Any() == true)
+            {
+                _logger.LogInformation("[EnhancedAgent] 💬 Using conversation history: {Count} messages", conversationHistory.Count);
+            }
 
             // Get services on-demand (lazy loading)
             QueryValidatorPlugin queryValidator;
@@ -81,11 +89,117 @@ public class EnhancedAgentOrchestrator
             try
             {
                 context = conversationManager.GetOrCreateContext(conversationId);
+
+                // ✅ CRITICAL FIX: Populate context with conversation history from database
+                if (conversationHistory?.Any() == true)
+                {
+                    _logger.LogInformation("[EnhancedAgent] 📚 Populating context with {Count} messages from database", conversationHistory.Count);
+
+                    // Convert database messages to conversation turns
+                    var turns = new List<ConversationTurn>();
+                    Message? lastUserMessage = null;
+
+                    foreach (var msg in conversationHistory.OrderBy(m => m.CreatedAt))
+                    {
+                        if (msg.Role == "user")
+                        {
+                            lastUserMessage = msg;
+                        }
+                        else if (msg.Role == "assistant" && lastUserMessage != null)
+                        {
+                            // ✅ Extract structured context from SQL query
+                            string? targetTable = null;
+                            List<string> entitiesReferenced = new();
+                            string? primaryEntity = null;
+                            Dictionary<string, string> columns = new();
+                            string? queryIntentType = null;
+
+                            if (!string.IsNullOrEmpty(msg.SqlQuery))
+                            {
+                                // Use SqlContextExtractor for full context extraction
+                                var (tables, primary, cols, intentType) = Core.Helpers.SqlContextExtractor.ExtractFullContext(msg.SqlQuery);
+
+                                entitiesReferenced = tables;
+                                primaryEntity = primary;
+                                targetTable = primary;
+                                columns = cols;
+                                queryIntentType = intentType;
+
+                                _logger.LogDebug(
+                                    "[EnhancedAgent] 📦 Extracted context from history: Primary={Primary}, Entities=[{Entities}], Intent={Intent}",
+                                    primaryEntity,
+                                    string.Join(", ", entitiesReferenced),
+                                    queryIntentType);
+                            }
+
+                            // Create a turn from user + assistant pair
+                            turns.Add(new ConversationTurn
+                            {
+                                TurnNumber = turns.Count + 1,
+                                UserQuestion = lastUserMessage.Content ?? string.Empty,
+                                SystemResponse = msg.Content ?? string.Empty,
+                                SqlQuery = msg.SqlQuery,
+                                TargetTable = targetTable,
+                                EntitiesReferenced = entitiesReferenced,
+                                PrimaryEntity = primaryEntity,
+                                Columns = columns,
+                                QueryIntentType = queryIntentType,
+                                Timestamp = msg.CreatedAt,
+                                Success = msg.Success
+                            });
+                            lastUserMessage = null;
+                        }
+                    }
+
+                    // Replace context history with database history
+                    context.History = turns;
+
+                    _logger.LogInformation("[EnhancedAgent] ✅ Context populated with {TurnCount} conversation turns", turns.Count);
+                }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[EnhancedAgent] Failed to create conversation context: {Message}", ex.Message);
                 throw new InvalidOperationException($"Failed to create conversation context: {ex.Message}", ex);
+            }
+
+            // ====================================
+            // STEP 0.5: Enrich question with conversation context (BEFORE validation)
+            // ====================================
+            // ✅ CRITICAL: Enrich question FIRST so validator understands context
+            var pronounsDetected = false;
+            if (context.History.Count > 0)
+            {
+                var resolver = _serviceFactory.GetOrCreate<CoreferenceResolver>();
+                pronounsDetected = resolver.ContainsPronouns(userQuestion);
+            }
+
+            var enrichedQuestion = conversationManager.EnrichQuestionWithContext(context, userQuestion);
+
+            if (enrichedQuestion != userQuestion)
+            {
+                _logger.LogInformation(
+                    "[EnhancedAgent] 🔄 Question enriched:\n  Original: '{Original}'\n  Enriched: '{Enriched}'",
+                    userQuestion,
+                    enrichedQuestion);
+
+                // Log context entities if available
+                if (context.History.Any())
+                {
+                    var lastTurn = context.History.Last();
+                    if (lastTurn.EntitiesReferenced.Any())
+                    {
+                        _logger.LogInformation(
+                            "[EnhancedAgent] 📦 Context entities: [{Entities}], Primary: {Primary}",
+                            string.Join(", ", lastTurn.EntitiesReferenced),
+                            lastTurn.PrimaryEntity ?? "none");
+
+                        // ✅ Store context info for response
+                        response.ContextEntities = lastTurn.EntitiesReferenced;
+                        response.PrimaryEntity = lastTurn.PrimaryEntity;
+                        response.PronounsResolved = pronounsDetected;
+                    }
+                }
             }
 
             // ====================================
@@ -98,8 +212,9 @@ public class EnhancedAgentOrchestrator
             QueryValidationResult validation;
             try
             {
+                // ✅ Use enriched question for validation
                 validation = await queryValidator.ValidateQueryAsync(
-                    userQuestion,
+                    enrichedQuestion,  // Use enriched instead of raw userQuestion
                     new List<string>(), // Empty list - validator will use heuristics only
                     cancellationToken);
             }
@@ -174,9 +289,7 @@ public class EnhancedAgentOrchestrator
             // ====================================
             steps.Add("Step 2: Normalize with conversation context");
 
-            // Enrich question with context if it's a follow-up
-            var enrichedQuestion = conversationManager.EnrichQuestionWithContext(context, userQuestion);
-
+            // Question already enriched in Step 0.5
             NormalizedPrompt normalized;
             try
             {
@@ -262,11 +375,12 @@ public class EnhancedAgentOrchestrator
 
             var sqlGenerator = _serviceFactory.GetSqlGenerator();
 
-            // ✅ Get SQL + suggestions in one API call
+            // ✅ Get SQL + suggestions in one API call with conversation history
             var sqlResult = await sqlGenerator.GenerateSqlWithContextAsync(
                 intent,
                 relevantSchema,
                 normalized.NormalizedText,  // Pass original question to LLM
+                conversationHistory,  // ✅ Pass conversation history for context
                 cancellationToken);
 
             var sql = sqlResult.Sql;
@@ -1070,3 +1184,4 @@ public class EnhancedAgentOrchestrator
         };
     }
 }
+

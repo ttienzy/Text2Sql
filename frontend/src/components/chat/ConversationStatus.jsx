@@ -17,7 +17,8 @@ const ConversationStatus = ({
     messageCount = 0,
     isConversationMode = false,
     lastMessageTime = null,
-    compact = false
+    compact = false,
+    contextMessagesCount = 0  // ✅ NEW: Number of messages used as context
 }) => {
     if (!conversationId && messageCount === 0) {
         return null;
@@ -34,6 +35,12 @@ const ConversationStatus = ({
         if (diffMinutes < 1440) return `${Math.floor(diffMinutes / 60)}h ago`;
         return time.toLocaleDateString();
     };
+
+    // ✅ Calculate context info
+    const hasContext = contextMessagesCount > 0 || messageCount > 1;
+    const contextTooltip = contextMessagesCount > 0
+        ? `Using last ${contextMessagesCount} messages as context for better responses`
+        : 'Agent is using conversation history to provide better responses';
 
     if (compact) {
         return (
@@ -81,15 +88,17 @@ const ConversationStatus = ({
                         </Text>
                     </Space>
 
-                    {isConversationMode && (
-                        <Tooltip title="Agent is using conversation history to provide better responses">
+                    {(isConversationMode || hasContext) && (
+                        <Tooltip title={contextTooltip}>
                             <Tag
                                 icon={<LinkOutlined />}
                                 color="blue"
                                 size="small"
                                 style={{ fontSize: 10, margin: 0 }}
                             >
-                                Context-Aware Mode
+                                {contextMessagesCount > 0
+                                    ? `Context: ${contextMessagesCount} msgs`
+                                    : 'Context-Aware Mode'}
                             </Tag>
                         </Tooltip>
                     )}

@@ -100,4 +100,26 @@ public class ConversationTurn
     /// Whether query was successful
     /// </summary>
     public bool Success { get; set; }
+
+    // ✅ NEW - Structured Context Snapshot
+
+    /// <summary>
+    /// All entities (tables) referenced in this turn
+    /// </summary>
+    public List<string> EntitiesReferenced { get; set; } = new();
+
+    /// <summary>
+    /// Primary entity being queried
+    /// </summary>
+    public string? PrimaryEntity { get; set; }
+
+    /// <summary>
+    /// Columns mentioned/used (alias → actual column name)
+    /// </summary>
+    public Dictionary<string, string> Columns { get; set; } = new();
+
+    /// <summary>
+    /// High-level query intent (LIST, COUNT, FILTER, etc.)
+    /// </summary>
+    public string? QueryIntentType { get; set; }
 }

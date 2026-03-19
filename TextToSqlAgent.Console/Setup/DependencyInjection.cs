@@ -232,6 +232,7 @@ public static class DependencyInjection
         services.AddSingleton<TextToSqlAgentOrchestrator>();
 
         // Conversation Manager - required by CommandHandler and LazyAgentServiceFactory
+        services.AddSingleton<CoreferenceResolver>();
         services.AddSingleton<ConversationManager>();
 
         // PHASE 1: Register Core Ports with Adapters
