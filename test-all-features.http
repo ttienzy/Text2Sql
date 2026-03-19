@@ -1,0 +1,206 @@
+### Test All DB Explorer Features
+### Update these variables with your actual values
+
+@baseUrl = https://localhost:7189
+@connectionId = YOUR_CONNECTION_ID_HERE
+@token = YOUR_JWT_TOKEN_HERE
+
+### ============================================
+### PHASE 1: ER DIAGRAM
+### ============================================
+
+### 1. Get Graph Data (with columns)
+GET {{baseUrl}}/api/db-explorer/{{connectionId}}/graph
+Authorization: Bearer {{token}}
+
+### Expected: nodes array with columns property populated
+### Verify: Each node has columns array with name, type, isPrimaryKey, isForeignKey
+
+### ============================================
+### PHASE 2: QUERY SUGGESTIONS
+### ============================================
+
+### 2. Get Query Suggestions for a Table
+GET {{baseUrl}}/api/db-explorer/{{connectionId}}/tables/Categories/suggestions
+Authorization: Bearer {{token}}
+
+### Expected: suggestions array with 5-7 queries
+### Verify: Each suggestion has title, query, category, complexity
+
+### ============================================
+### PHASE 3: CHAT INTEGRATION
+### ============================================
+
+### 3. Get Tables List (for table name detection)
+GET {{baseUrl}}/api/db-explorer/{{connectionId}}/tables
+Authorization: Bearer {{token}}
+
+### Expected: tables array with tableName property
+### Verify: Table names can be used for detection in chat
+
+### ============================================
+### PHASE 4: SCHEMA CHANGE DETECTION
+### ============================================
+
+### 4. Get Schema Changes
+GET {{baseUrl}}/api/db-explorer/{{connectionId}}/changes
+Authorization: Bearer {{token}}
+
+### Expected: hasChanges, newTables, deletedTables, modifiedTables
+### Verify: Changes detected correctly, color coding works
+
+### ============================================
+### SUPPORTING ENDPOINTS
+### ============================================
+
+### 5. Get Status
+GET {{baseUrl}}/api/db-explorer/{{connectionId}}/status
+Authorization: Bearer {{token}}
+
+### 6. Get Overview
+GET {{baseUrl}}/api/db-explorer/{{connectionId}}/overview
+Authorization: Bearer {{token}}
+
+### 7. Get Table Detail
+GET {{baseUrl}}/api/db-explorer/{{connectionId}}/tables/Categories
+Authorization: Bearer {{token}}
+
+### 8. Get Health Report
+GET {{baseUrl}}/api/db-explorer/{{connectionId}}/health
+Authorization: Bearer {{token}}
+
+### 9. Get Sample Data
+GET {{baseUrl}}/api/db-explorer/{{connectionId}}/tables/Categories/sample
+Authorization: Bearer {{token}}
+
+### ============================================
+### CACHE MANAGEMENT
+### ============================================
+
+### 10. Clear Cache (if needed)
+DELETE {{baseUrl}}/api/db-explorer/{{connectionId}}/cache
+Authorization: Bearer {{token}}
+
+### 11. Re-analyze Database
+POST {{baseUrl}}/api/db-explorer/{{connectionId}}/analyze?forceRefresh=true
+Authorization: Bearer {{token}}
+
+### ============================================
+### TEST SCENARIOS
+### ============================================
+
+### Scenario 1: First Time Analysis
+# 1. Check status (should be hasData: false)
+# 2. Run analyze
+# 3. Check status again (should be hasData: true)
+# 4. Get overview, tables, graph
+
+### Scenario 2: Schema Change Detection
+# 1. Get current schema (via analyze)
+# 2. Make a schema change in database (add/remove table)
+# 3. Get changes endpoint
+# 4. Verify changes detected
+# 5. Re-analyze to update cache
+
+### Scenario 3: Query Suggestions
+# 1. Get table detail
+# 2. Get suggestions for that table
+# 3. Verify suggestions are relevant
+# 4. Test copy to clipboard in UI
+# 5. Test execute in chat
+
+### Scenario 4: Chat Integration
+# 1. Navigate from DB Explorer to Chat (Query button)
+# 2. Verify context message appears
+# 3. AI responds with table names
+# 4. Verify table names are clickable links
+# 5. Click link to navigate back to DB Explorer
+
+### ============================================
+### PERFORMANCE TESTS
+### ============================================
+
+### Test 1: Large Database (100+ tables)
+# Measure: Graph rendering time
+# Expected: <2 seconds
+
+### Test 2: Query Suggestions
+# Measure: LLM response time
+# Expected: <3 seconds
+
+### Test 3: Schema Change Detection
+# Measure: Comparison time
+# Expected: <100ms (fingerprint check)
+
+### ============================================
+### ERROR SCENARIOS
+### ============================================
+
+### Error 1: Invalid Connection ID
+GET {{baseUrl}}/api/db-explorer/invalid-id/status
+Authorization: Bearer {{token}}
+### Expected: 404 Not Found
+
+### Error 2: No Cached Data
+GET {{baseUrl}}/api/db-explorer/{{connectionId}}/changes
+Authorization: Bearer {{token}}
+### Expected: 404 with message "No cached schema available"
+
+### Error 3: Invalid Table Name
+GET {{baseUrl}}/api/db-explorer/{{connectionId}}/tables/InvalidTable
+Authorization: Bearer {{token}}
+### Expected: 404 Not Found
+
+### ============================================
+### FRONTEND TESTING CHECKLIST
+### ============================================
+
+# Phase 1: ER Diagram
+# [ ] Open DB Explorer
+# [ ] Click "ER Diagram" tab
+# [ ] Verify diagram renders
+# [ ] Verify columns show in nodes
+# [ ] Verify PK/FK icons
+# [ ] Test module filter
+# [ ] Test click navigation
+# [ ] Test zoom/pan
+
+# Phase 2: Query Suggestions
+# [ ] Select a table
+# [ ] Click "Suggestions" tab
+# [ ] Verify suggestions load
+# [ ] Test copy button
+# [ ] Test "Execute in Chat" button
+# [ ] Verify navigation to chat
+
+# Phase 3: Chat Integration
+# [ ] Click "Query" button in table detail
+# [ ] Verify navigation to chat
+# [ ] Verify context message
+# [ ] Click "Explain Relations" button
+# [ ] Verify relationship context
+# [ ] Click "Check Quality" button
+# [ ] Verify quality context
+# [ ] In chat, verify table names are links
+# [ ] Click table link
+# [ ] Verify navigation to DB Explorer
+
+# Phase 4: Schema Changes
+# [ ] Click "Changes" button in overview
+# [ ] Verify modal opens
+# [ ] Verify tabs (New/Deleted/Modified)
+# [ ] Verify color coding
+# [ ] Test expandable rows
+# [ ] Click "Re-analyze" button
+# [ ] Verify cache updates
+
+### ============================================
+### SUCCESS CRITERIA
+### ============================================
+
+# All endpoints return 200 OK
+# All features work as expected
+# No console errors
+# Performance within acceptable limits
+# UI is responsive and intuitive
+# Error handling works correctly

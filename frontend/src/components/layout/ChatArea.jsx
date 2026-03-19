@@ -11,6 +11,7 @@ import {
   ArrowDownOutlined,
   EditOutlined,
 } from '@ant-design/icons';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { MessageBubble, ChatInput, MessageSkeleton, ConversationStatus } from '../chat';
 import SmartProcessingProgress from '../chat/SmartProcessingProgress';
 import ConversationLimitBanner from '../chat/ConversationLimitBanner';
@@ -23,6 +24,7 @@ import { useUpdateConversationMutation } from '../../api/conversations';
 import { useProcessMessageMutation } from '../../api/agent';
 import { useQueryClient } from '@tanstack/react-query';
 import { conversationKeys } from '../../api/conversations/queries';
+import { useTablesQuery } from '../../api/dbExplorer';
 // import { useProcessMessageV2Mutation } from '../../api/agent/v2';
 
 const { Title, Text } = Typography;
@@ -37,10 +39,13 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState('');
   const [currentQuestion, setCurrentQuestion] = useState(''); // Track current question for progress
+  const [contextMessage, setContextMessage] = useState(''); // Context from DB Explorer
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const isFirstMessageRef = useRef(false);
 
+  const location = useLocation();
+  const navigate = useNavigate();
   const { currentConversation, messages, setMessages, updateConversationInList } = useConversationStore();
   const { activeConnection } = useConnectionStore();
   const queryClient = useQueryClient();
@@ -52,6 +57,16 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
   } = useMessagesQuery(currentConversation?.id, {
     enabled: !!currentConversation?.id,
   });
+
+  // Fetch table names for link detection
+  const {
+    data: tablesData,
+  } = useTablesQuery(activeConnection?.id, {}, {
+    enabled: !!activeConnection?.id,
+  });
+
+  // Extract table names from tables data
+  const tableNames = tablesData?.tables?.map(t => t.tableName) || [];
 
   // Derive limit state from the query result
   const isLimitReached = messagesData?.limitReached ?? false;
@@ -160,6 +175,25 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
     },
   });
 
+  // Handle context from DB Explorer navigation
+  useEffect(() => {
+    if (location.state?.contextMessage) {
+      const { contextMessage: msg, contextTable, contextType } = location.state;
+
+      // Set the context message to populate the input
+      setContextMessage(msg);
+
+      // Show info message about the context
+      const contextTypeLabel = contextType === 'query' ? 'Query' :
+        contextType === 'relationships' ? 'Relationships' :
+          contextType === 'quality' ? 'Quality Check' : 'Context';
+      message.info(`${contextTypeLabel}: ${contextTable}`, 3);
+
+      // Clear the location state to prevent re-triggering
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state, location.pathname, navigate]);
+
   // Sync messages from query to store with error handling
   useEffect(() => {
     // messagesData is now { messages, totalCount, limitReached, messageLimit }
@@ -226,6 +260,9 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
     }
 
     try {
+      // Clear context message after sending
+      setContextMessage('');
+
       // Use production API to process message (v1 for now)
       await processMessageMutation.mutateAsync({
         connectionId: activeConnection.id,
@@ -381,6 +418,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
                 key={messageItem.id || index}
                 message={messageItem}
                 onSuggestedQueryClick={handleSend}
+                tableNames={tableNames}
               />
             ))}
 
@@ -441,6 +479,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
               ? 'Ask a question about your database...'
               : 'Select a connection first'
         }
+        initialValue={contextMessage}
       />
 
       {/* Conversation Status */}

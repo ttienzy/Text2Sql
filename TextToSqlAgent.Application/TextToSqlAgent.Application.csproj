@@ -6,6 +6,10 @@
     <ProjectReference Include="..\TextToSqlAgent.Plugins\TextToSqlAgent.Plugins.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="StackExchange.Redis" Version="2.12.1" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

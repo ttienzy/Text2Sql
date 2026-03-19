@@ -23,6 +23,7 @@ const { Text } = Typography;
  * @param {boolean} props.disabled - Whether input is disabled
  * @param {string} props.placeholder - Placeholder text
  * @param {number} props.maxLength - Maximum character length
+ * @param {string} props.initialValue - Initial value for the input (from context)
  */
 const ChatInput = ({
   onSend,
@@ -30,10 +31,22 @@ const ChatInput = ({
   disabled = false,
   placeholder = 'Ask a question about your database...',
   maxLength = 5000,
+  initialValue = '',
 }) => {
-  const [value, setValue] = useState('');
+  const [value, setValue] = useState(initialValue);
   const [isFocused, setIsFocused] = useState(false);
   const textAreaRef = useRef(null);
+
+  // Update value when initialValue changes (from context)
+  useEffect(() => {
+    if (initialValue) {
+      setValue(initialValue);
+      // Focus the textarea after setting value
+      setTimeout(() => {
+        textAreaRef.current?.focus?.();
+      }, 100);
+    }
+  }, [initialValue]);
 
   // Auto-resize textarea
   useEffect(() => {

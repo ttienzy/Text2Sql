@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Serilog;
+using StackExchange.Redis;
 using System.Text.Json.Serialization;
 using TextToSqlAgent.Infrastructure.Data;
 using TextToSqlAgent.API.Extensions;
@@ -9,6 +10,7 @@ using TextToSqlAgent.API.Middleware;
 using TextToSqlAgent.API.Repositories;
 using TextToSqlAgent.API.Services;
 using TextToSqlAgent.Application.Services;
+using TextToSqlAgent.Application.Services.DbExplorer;
 using TextToSqlAgent.Infrastructure.Agent;
 using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Tasks;
@@ -187,6 +189,16 @@ try
         options.SizeLimit = 1000; // Limit to 1000 entries
     });
 
+    // ✅ Redis for DB Explorer caching
+    var redisConnection = configuration["Redis:Connection"] ?? "127.0.0.1:6379";
+    builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+    {
+        var config = ConfigurationOptions.Parse(redisConnection);
+        config.AbortOnConnectFail = false; // Don't crash if Redis is unavailable
+        return ConnectionMultiplexer.Connect(config);
+    });
+    logger.Information("Redis configured: {RedisConnection}", redisConnection);
+
     // ✅ NEW: Vector Store Abstraction with Fallback Strategy
     builder.Services.AddSingleton<QdrantVectorStore>();
     builder.Services.AddSingleton<InMemoryVectorStore>();
@@ -244,6 +256,16 @@ try
     // ✅ NEW: Conversation Manager - required by EnhancedAgentOrchestrator
     builder.Services.AddSingleton<CoreferenceResolver>();
     builder.Services.AddSingleton<ConversationManager>();
+
+    // ============================================
+    // DB EXPLORER SERVICES
+    // ============================================
+    builder.Services.AddScoped<EnhancedSchemaScanner>();
+    builder.Services.AddScoped<DatabaseAnalyzer>();
+    builder.Services.AddScoped<GraphDataBuilder>();
+    builder.Services.AddScoped<QuerySuggestionService>();
+    builder.Services.AddScoped<SchemaChangeDetector>();
+    builder.Services.AddSingleton<DbExplorerCacheService>();
 
     // ============================================
     // REACT AGENT SYSTEM (Phase 7)

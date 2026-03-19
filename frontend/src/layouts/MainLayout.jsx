@@ -13,6 +13,7 @@ import {
   LeftOutlined,
   RightOutlined,
   InfoCircleOutlined,
+  AppstoreOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useLayout } from '../contexts/LayoutContext';
@@ -70,6 +71,11 @@ const MainLayout = () => {
       key: '/chat',
       icon: <MessageOutlined />,
       label: 'Chat',
+    },
+    {
+      key: '/explorer',
+      icon: <AppstoreOutlined />,
+      label: 'DB Explorer',
     },
     {
       key: '/connections',

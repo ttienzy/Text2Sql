@@ -1,0 +1,301 @@
+### DB Explorer API Tests
+### Sprint 1 & 2: Backend Foundation + AI Layer
+
+### Variables
+@baseUrl = https://localhost:7189
+@token = YOUR_TOKEN_HERE
+@connectionId = YOUR_CONNECTION_ID_HERE
+
+###
+# Step 1: Login
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "Admin@123"
+}
+
+### Save token from response above
+
+###
+# Step 2: Get connections list
+GET {{baseUrl}}/api/connections
+Authorization: Bearer {{token}}
+
+### Save connectionId from response
+
+###
+# Step 3: Get cache status
+# Check if analysis data is available
+GET {{baseUrl}}/api/db-explorer/{{connectionId}}/status
+Authorization: Bearer {{token}}
+
+### Expected response:
+# {
+#   "hasData": true,
+#   "schemaAvailable": true,
+#   "analysisAvailable": true,
+#   "graphAvailable": true,
+#   "scannedAt": "2024-03-19T...",
+#   "tableCount": 18,
+#   "issueCount": 2
+# }
+
+###
+# Step 4: Analyze database (trigger full crawl + AI analysis)
+# This will:
+# - Scan schema with statistics
+# - Run AI analysis (domain classification, table roles, health check)
+# - Build graph data
+# - Cache everything
+POST {{baseUrl}}/api/db-explorer/{{connectionId}}/analyze
+Authorization: Bearer {{token}}
+
+### Expected response:
+# {
+#   "message": "Analysis complete",
+#   "tables": 18,
+#   "issues": 2,
+#   "domain": "E-commerce Platform",
+#   "cached": false
+# }
+
+###
+# Step 4: Get database overview (summary card data)
+GET {{baseUrl}}/api/db-explorer/{{connectionId}}/overview
+Authorization: Bearer {{token}}
+
+### Expected response:
+# {
+#   "domain": "E-commerce Platform",
+#   "summary": "System for managing...",
+#   "tableCount": 18,
+#   "columnCount": 156,
+#   "totalRows": 2300000,
+#   "modules": [
+#     {
+#       "name": "Product Catalog",
+#       "description": "...",
+#       "tables": ["Products", "Categories"]
+#     }
+#   ],
+#   "issueCount": 2,
+#   "scannedAt": "2024-03-19T...",
+#   "confidence": 0.95
+# }
+
+###
+# Step 5: Get table list (all tables)
+GET {{baseUrl}}/api/db-explorer/{{connectionId}}/tables
+Authorization: Bearer {{token}}
+
+### Expected response:
+# {
+#   "tables": [
+#     {
+#       "tableName": "Products",
+#       "schema": "dbo",
+#       "role": "master",
+#       "module": "Product Catalog",
+#       "rowCount": 1500,
+#       "columnCount": 12,
+#       "foreignKeyCount": 1,
+#       "description": "Core product catalog..."
+#     }
+#   ]
+# }
+
+###
+# Step 6: Get table list filtered by role
+GET {{baseUrl}}/api/db-explorer/{{connectionId}}/tables?role=master
+Authorization: Bearer {{token}}
+
+###
+# Step 7: Get table list filtered by module
+GET {{baseUrl}}/api/db-explorer/{{connectionId}}/tables?module=Product%20Catalog
+Authorization: Bearer {{token}}
+
+###
+# Step 8: Search tables
+GET {{baseUrl}}/api/db-explorer/{{connectionId}}/tables?search=order
+Authorization: Bearer {{token}}
+
+###
+# Step 9: Get table detail
+GET {{baseUrl}}/api/db-explorer/{{connectionId}}/tables/Products
+Authorization: Bearer {{token}}
+
+### Expected response:
+# {
+#   "tableName": "Products",
+#   "schema": "dbo",
+#   "role": "master",
+#   "module": "Product Catalog",
+#   "rowCount": 1500,
+#   "description": "...",
+#   "columns": [
+#     {
+#       "columnName": "ProductID",
+#       "dataType": "int",
+#       "isNullable": false,
+#       "isPrimaryKey": true,
+#       "isForeignKey": false,
+#       "statistics": {
+#         "nullRate": 0,
+#         "distinctCount": 1500,
+#         "minValue": 1,
+#         "maxValue": 1500
+#       }
+#     }
+#   ],
+#   "relationships": [
+#     {
+#       "direction": "outgoing",
+#       "relatedTable": "Categories",
+#       "viaColumn": "CategoryID",
+#       "type": "references"
+#     },
+#     {
+#       "direction": "incoming",
+#       "relatedTable": "OrderItems",
+#       "viaColumn": "ProductID",
+#       "type": "referenced_by"
+#     }
+#   ],
+#   "indexes": [
+#     {
+#       "indexName": "PK_Products",
+#       "columns": ["ProductID"],
+#       "isUnique": true,
+#       "isPrimaryKey": true
+#     }
+#   ]
+# }
+
+###
+# Step 10: Get health check report
+GET {{baseUrl}}/api/db-explorer/{{connectionId}}/health
+Authorization: Bearer {{token}}
+
+### Expected response:
+# {
+#   "totalIssues": 2,
+#   "criticalCount": 0,
+#   "warningCount": 1,
+#   "infoCount": 1,
+#   "issues": [
+#     {
+#       "severity": "warning",
+#       "type": "missing_index",
+#       "table": "Orders",
+#       "column": "CustomerID",
+#       "description": "Foreign key column 'CustomerID' has no index",
+#       "recommendation": "CREATE INDEX IX_Orders_CustomerID ON [Orders]([CustomerID])"
+#     },
+#     {
+#       "severity": "info",
+#       "type": "orphan_table",
+#       "table": "TempData",
+#       "description": "Table 'TempData' has no relationships with other tables",
+#       "recommendation": "Verify if this table is still needed..."
+#     }
+#   ]
+# }
+
+###
+# Step 11: Get graph data for ER diagram
+GET {{baseUrl}}/api/db-explorer/{{connectionId}}/graph
+Authorization: Bearer {{token}}
+
+### Expected response:
+# {
+#   "nodes": [
+#     {
+#       "id": "Products",
+#       "label": "Products",
+#       "role": "master",
+#       "rowCount": 1500,
+#       "columnCount": 12,
+#       "module": "Product Catalog"
+#     }
+#   ],
+#   "edges": [
+#     {
+#       "id": "edge_0",
+#       "source": "OrderItems",
+#       "target": "Products",
+#       "via": "ProductID",
+#       "type": "many_to_one",
+#       "strength": "moderate"
+#     }
+#   ]
+# }
+
+###
+# Step 12: Invalidate cache (force refresh)
+DELETE {{baseUrl}}/api/db-explorer/{{connectionId}}/cache
+Authorization: Bearer {{token}}
+
+### Expected response:
+# {
+#   "message": "Cache invalidated successfully"
+# }
+
+###
+# Step 13: Re-analyze with force refresh
+POST {{baseUrl}}/api/db-explorer/{{connectionId}}/analyze?forceRefresh=true
+Authorization: Bearer {{token}}
+
+### Expected response:
+# {
+#   "message": "Analysis complete",
+#   "tables": 18,
+#   "issues": 2,
+#   "domain": "E-commerce Platform",
+#   "cached": false
+# }
+
+## 🎯 Testing Checklist
+
+### ✅ Phase 1 - Schema Crawler
+- [ ] POST /analyze - Crawls schema successfully
+- [ ] GET /tables - Returns all tables with row counts
+- [ ] GET /tables/{name} - Returns table detail with columns, indexes
+- [ ] Statistics collected (row count, null rate, distinct count)
+
+### ✅ Phase 2 - AI Analyzer
+- [ ] Domain classification works (E-commerce, CRM, etc.)
+- [ ] Table roles assigned correctly (Master, Transaction, Bridge, etc.)
+- [ ] Modules identified and grouped
+- [ ] Health issues detected (missing indexes, orphan tables, etc.)
+
+### ✅ Phase 3 - Graph Builder
+- [ ] GET /graph - Returns nodes and edges
+- [ ] Nodes have correct role colors
+- [ ] Edges show relationships correctly
+- [ ] Relationship types detected (one-to-many, many-to-many)
+
+### ✅ Phase 4 - Caching
+- [ ] First call triggers analysis
+- [ ] Second call uses cache (fast response)
+- [ ] DELETE /cache invalidates successfully
+- [ ] forceRefresh=true bypasses cache
+
+## 📝 Notes
+
+### Performance
+- First analysis: 5-10 seconds (depends on DB size)
+- Cached responses: <100ms
+- Statistics collection: Optional, can be disabled for large tables
+
+### AI Analysis
+- Uses LLM to classify domain and assign roles
+- Fallback to heuristics if LLM fails
+- Confidence score indicates reliability
+
+### Cache Strategy
+- Schema: 1 hour TTL
+- Analysis: 24 hours TTL
+- Graph: 24 hours TTL
+- Auto-invalidation on schema change (fingerprint check)

@@ -5,7 +5,7 @@ import { ConfigProvider } from 'antd';
 import { GoogleOAuthProvider } from '@react-oauth/google'; // Added for Google Login
 import { PrivateRoute, ConnectionGuard, ErrorBoundary } from './components';
 import { MainLayout, AuthLayout } from './layouts';
-import { LoginPage, RegisterPage, ForgotPasswordPage, ChatPage, ConnectionsPage, SettingsPage } from './pages';
+import { LoginPage, RegisterPage, ForgotPasswordPage, ChatPage, ConnectionsPage, SettingsPage, DbExplorerPage } from './pages';
 import { LayoutProvider } from './contexts/LayoutContext';
 import useAuthStore from './store/authStore';
 
@@ -52,21 +52,22 @@ function App() {
                   {/* Protected Routes */}
                   <Route element={<PrivateRoute><MainLayout /></PrivateRoute>}>
                     <Route path="/chat" element={<ConnectionGuard><ChatPage /></ConnectionGuard>} />
+                    <Route path="/explorer" element={<ConnectionGuard><DbExplorerPage /></ConnectionGuard>} />
                     <Route path="/connections" element={<ConnectionsPage />} />
                     <Route path="/connections/new" element={<ConnectionsPage />} />
                     <Route path="/settings" element={<SettingsPage />} />
 
                     {/* Default redirect */}
                     <Route path="/" element={<Navigate to="/chat" replace />} />
-                  <Route path="*" element={<Navigate to="/chat" replace />} />
-                </Route>
+                    <Route path="*" element={<Navigate to="/chat" replace />} />
+                  </Route>
 
-                {/* Public fallback */}
-                <Route path="*" element={<Navigate to="/login" replace />} />
-              </Routes>
-            </BrowserRouter>
-          </LayoutProvider>
-        </QueryClientProvider>
+                  {/* Public fallback */}
+                  <Route path="*" element={<Navigate to="/login" replace />} />
+                </Routes>
+              </BrowserRouter>
+            </LayoutProvider>
+          </QueryClientProvider>
         </GoogleOAuthProvider>
       </ConfigProvider>
     </ErrorBoundary>

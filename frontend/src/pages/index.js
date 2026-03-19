@@ -4,3 +4,4 @@ export { default as ForgotPasswordPage } from './ForgotPassword';
 export { default as ChatPage } from './Chat';
 export { default as ConnectionsPage } from './Connections';
 export { default as SettingsPage } from './Settings';
+export { default as DbExplorerPage } from './DbExplorer';

@@ -1,0 +1,21 @@
+### Test Graph API to check if columns are included
+
+@baseUrl = https://localhost:7189
+@connectionId = c1034bfe-ede7-4291-8ba2-0feef5c75fd5
+@token = YOUR_JWT_TOKEN_HERE
+
+### 1. Get Graph Data
+GET {{baseUrl}}/api/db-explorer/{{connectionId}}/graph
+Authorization: Bearer {{token}}
+
+### 2. Clear Cache (if needed)
+DELETE {{baseUrl}}/api/db-explorer/{{connectionId}}/cache
+Authorization: Bearer {{token}}
+
+### 3. Re-analyze Database
+POST {{baseUrl}}/api/db-explorer/{{connectionId}}/analyze?forceRefresh=true
+Authorization: Bearer {{token}}
+
+### 4. Get Graph Data Again (should have columns now)
+GET {{baseUrl}}/api/db-explorer/{{connectionId}}/graph
+Authorization: Bearer {{token}}

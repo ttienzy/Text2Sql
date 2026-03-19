@@ -5,6 +5,7 @@ import {
   Space,
   Spin,
   Tooltip,
+  Tag,
 } from 'antd';
 import {
   UserOutlined,
@@ -13,6 +14,7 @@ import {
   CopyOutlined,
   CheckOutlined,
   ClockCircleOutlined,
+  TableOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -21,8 +23,11 @@ import ResultTable from './ResultTable';
 import TokenInfo from './TokenInfo';
 import EnhancedMessageInfo from './EnhancedMessageInfo';
 import ConversationContextIndicator from './ConversationContextIndicator';
+import TableSchemaButton from './TableSchemaButton';
 import { escapeHtml } from '../../utils/security';
 import { extractErrorMessage, hasError } from '../../utils/errorHandler';
+import { renderTableLinks, extractTableNames } from '../../utils/tableLinksRenderer';
+import useConnectionStore from '../../store/connectionStore';
 
 dayjs.extend(relativeTime);
 
@@ -33,15 +38,22 @@ const { Text } = Typography;
  * @param {Object} props
  * @param {Object} props.message - The message object
  * @param {Function} props.onSuggestedQueryClick - Callback for suggested query clicks
+ * @param {Array<string>} props.tableNames - List of table names for link detection
  */
-const MessageBubble = ({ message, onSuggestedQueryClick }) => {
+const MessageBubble = ({ message, onSuggestedQueryClick, tableNames = [] }) => {
   const [copied, setCopied] = useState(false);
+  const { activeConnection } = useConnectionStore();
 
   const isUser = message.role === 'user';
   const isPending = message.isPending || message.status === 'pending';
   const isOptimistic = message.isOptimistic;
   const errorMessage = extractErrorMessage(message);
   const hasErrorState = hasError(message);
+
+  // Detect table names in message content
+  const detectedTables = !isUser && message.content
+    ? extractTableNames(message.content, tableNames)
+    : [];
 
   // Parse results if available
   let results = null;
@@ -168,7 +180,7 @@ const MessageBubble = ({ message, onSuggestedQueryClick }) => {
           />
         )}
 
-        {/* User/Assistant text content - escape HTML for security */}
+        {/* User/Assistant text content - with table links */}
         {message.content && (
           <div style={{ marginBottom: message.sqlQuery ? 12 : 0 }}>
             <Text style={{
@@ -176,9 +188,45 @@ const MessageBubble = ({ message, onSuggestedQueryClick }) => {
               fontSize: 14,
               color: isUser ? 'inherit' : '#262626',
             }}>
-              {/* Use escapeHtml to prevent XSS */}
-              {escapeHtml(message.content)}
+              {/* Render table links for assistant messages */}
+              {!isUser && tableNames.length > 0
+                ? renderTableLinks(message.content, tableNames)
+                : escapeHtml(message.content)
+              }
             </Text>
+          </div>
+        )}
+
+        {/* Table references indicator */}
+        {!isUser && detectedTables.length > 0 && (
+          <div style={{
+            marginTop: 8,
+            marginBottom: 8,
+            padding: '8px 12px',
+            backgroundColor: '#f0f5ff',
+            borderRadius: 4,
+            border: '1px solid #d6e4ff',
+          }}>
+            <Space size={4} wrap>
+              <TableOutlined style={{ color: '#1890ff' }} />
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                Referenced tables:
+              </Text>
+              {detectedTables.map(tableName => (
+                <Tag key={tableName} color="blue" style={{ margin: 0 }}>
+                  {tableName}
+                </Tag>
+              ))}
+            </Space>
+            <div style={{ marginTop: 8 }}>
+              {detectedTables.map(tableName => (
+                <TableSchemaButton
+                  key={`schema-${tableName}`}
+                  tableName={tableName}
+                  size="small"
+                />
+              ))}
+            </div>
           </div>
         )}
 
