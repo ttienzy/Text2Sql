@@ -24,19 +24,19 @@ export const ErrorSeverity = {
  */
 export const extractErrorMessage = (error) => {
   if (!error) return 'An unknown error occurred';
-  
+
   // Handle string errors
   if (typeof error === 'string') return error;
-  
+
   // Handle Error objects
   if (error instanceof Error) {
     return error.message || 'An error occurred';
   }
-  
+
   // Handle axios error response
   if (error.response) {
     const { data, status } = error.response;
-    
+
     // Try different error message fields (case-insensitive check)
     if (data) {
       // Check for common error message fields
@@ -45,7 +45,7 @@ export const extractErrorMessage = (error) => {
       if (data.message) return data.message;
       if (data.Message) return data.Message;
       if (data.error) return typeof data.error === 'string' ? data.error : data.error.message;
-      
+
       // Handle validation errors (often in a validation object)
       if (data.errors) {
         const errors = data.errors;
@@ -56,12 +56,12 @@ export const extractErrorMessage = (error) => {
           return Object.values(errors).flat().join(', ');
         }
       }
-      
+
       // Handle Problem Details (RFC 7807)
       if (data.title) return data.title;
       if (data.detail) return data.detail;
     }
-    
+
     // HTTP status-based messages
     switch (status) {
       case 400:
@@ -88,7 +88,7 @@ export const extractErrorMessage = (error) => {
         return `Request failed with status ${status}`;
     }
   }
-  
+
   // Handle request errors (no response)
   if (error.request) {
     if (error.code === 'ECONNABORTED') {
@@ -99,28 +99,33 @@ export const extractErrorMessage = (error) => {
     }
     return 'Unable to connect to server. Please try again.';
   }
-  
+
   // Handle custom error objects with errorMessage field
   if (error.errorMessage) return error.errorMessage;
   if (error.ErrorMessage) return error.ErrorMessage;
   if (error.message) return error.message;
   if (error.Message) return error.Message;
-  
+
   // Fallback
   return 'An unexpected error occurred';
 };
 
 /**
  * Checks if an error object has any error message
+ * NOTE: Forbidden operations (metadata.isForbidden) are NOT considered errors
  * 
  * @param {any} error - The error object to check
- * @returns {boolean} - True if error has a message
+ * @returns {boolean} - True if error has a message (excluding forbidden operations)
  */
 export const hasError = (error) => {
   if (!error) return false;
+
+  // ✅ Forbidden operations are NOT errors - they're policy rejections
+  if (error.metadata?.isForbidden) return false;
+
   if (typeof error === 'string') return error.trim().length > 0;
   if (error instanceof Error) return !!error.message;
-  
+
   return !!(error.errorMessage || error.ErrorMessage || error.message || error.Message);
 };
 
@@ -133,7 +138,7 @@ export const hasError = (error) => {
  */
 export const createError = (errorSource, fallbackMessage = 'An error occurred') => {
   const message = extractErrorMessage(errorSource) || fallbackMessage;
-  
+
   return {
     message,
     original: errorSource,
@@ -151,10 +156,10 @@ export const createError = (errorSource, fallbackMessage = 'An error occurred') 
  */
 const determineSeverity = (error) => {
   if (!error) return ErrorSeverity.ERROR;
-  
+
   // Check for explicit severity field
   if (error.severity) return error.severity;
-  
+
   // Check HTTP status for severity
   if (error.response?.status) {
     const status = error.response.status;
@@ -162,12 +167,12 @@ const determineSeverity = (error) => {
     if (status === 429) return ErrorSeverity.WARNING;
     if (status >= 400 && status < 500) return ErrorSeverity.ERROR;
   }
-  
+
   // Check for network errors
   if (error.code === 'NETWORK_ERROR' || error.message === 'Network Error') {
     return ErrorSeverity.WARNING;
   }
-  
+
   return ErrorSeverity.ERROR;
 };
 
@@ -183,7 +188,7 @@ const determineSeverity = (error) => {
 export const formatErrorForDisplay = (error, options = {}) => {
   const { showIcon = true, showRetry = true } = options;
   const message = extractErrorMessage(error);
-  
+
   let suggestion = '';
   if (showRetry) {
     const originalError = error?.response?.status;
@@ -195,7 +200,7 @@ export const formatErrorForDisplay = (error, options = {}) => {
       suggestion = 'Please check your input and try again.';
     }
   }
-  
+
   return {
     title: 'Error',
     message,

@@ -25,6 +25,7 @@ public class ColumnInfo
     public int? MaxLength { get; set; }
     public bool IsPrimaryKey { get; set; }
     public bool IsForeignKey { get; set; }
+    public string? DefaultValue { get; set; }
 }
 
 public class RelationshipInfo

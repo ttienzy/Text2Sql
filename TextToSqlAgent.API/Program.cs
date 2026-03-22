@@ -11,8 +11,10 @@ using TextToSqlAgent.API.Repositories;
 using TextToSqlAgent.API.Services;
 using TextToSqlAgent.Application.Services;
 using TextToSqlAgent.Application.Services.DbExplorer;
+using TextToSqlAgent.Application.Adapters;
 using TextToSqlAgent.Infrastructure.Agent;
 using TextToSqlAgent.Core.Interfaces;
+using TextToSqlAgent.Core.Ports;
 using TextToSqlAgent.Core.Tasks;
 using TextToSqlAgent.Infrastructure.Analysis;
 using TextToSqlAgent.Infrastructure.Caching;
@@ -28,6 +30,7 @@ using TextToSqlAgent.Infrastructure.Security;
 using TextToSqlAgent.Infrastructure.Verification;
 using TextToSqlAgent.Infrastructure.VectorDB;
 using TextToSqlAgent.Plugins;
+using TextToSqlAgent.Application.DependencyInjection;
 using DotNetEnv;
 
 // Load environment variables from .env file first
@@ -256,6 +259,18 @@ try
     // ✅ NEW: Conversation Manager - required by EnhancedAgentOrchestrator
     builder.Services.AddSingleton<CoreferenceResolver>();
     builder.Services.AddSingleton<ConversationManager>();
+
+    // ============================================
+    // 🎯 PHASE 1: INTENT-BASED MULTI-PIPELINE ARCHITECTURE
+    // ============================================
+
+    // Register dependencies for pipelines
+    builder.Services.AddScoped<ISchemaCache, SchemaCache>();
+    builder.Services.AddScoped<ISqlExecutor, SqlExecutorAdapter>();
+
+    // Register intent-based pipelines
+    builder.Services.AddIntentBasedPipelines();
+    logger.Information("✅ Intent-based pipelines registered (WRITE/DDL/FORBIDDEN)");
 
     // ============================================
     // DB EXPLORER SERVICES

@@ -75,11 +75,13 @@ public static class LoggingExtensions
             .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Information)
             .MinimumLevel.Override("System", LogEventLevel.Warning)
             .WriteTo.Console(
-                outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {SourceContext}: {Message:lj} {Properties:j}{NewLine}{Exception}")
+                // ✅ SIMPLIFIED: Remove {Properties:j} to avoid duplicate logs
+                outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}")
             .WriteTo.File(
                 path: "logs/api-dev-.log",
                 rollingInterval: RollingInterval.Day,
                 retainedFileCountLimit: 3,
+                // Keep full properties in file for debugging
                 outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {SourceContext}: {Message:lj} {Properties:j}{NewLine}{Exception}");
     }
 

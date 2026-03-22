@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using TextToSqlAgent.Core.Models;
 
 namespace TextToSqlAgent.Application.Routing;
 

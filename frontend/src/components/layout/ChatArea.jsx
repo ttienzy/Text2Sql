@@ -130,6 +130,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
         createdAt: new Date().toISOString(),
         success: data.success,
         errorMessage: data.errorMessage,
+        metadata: data.metadata || null, // ✅ Include metadata for forbidden/write/ddl
       };
 
       setMessages([...filteredMessages, userMessage, assistantMessage]);

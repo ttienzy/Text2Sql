@@ -63,6 +63,10 @@ public class ConsoleRequestProcessor
         // Step 3: Full pipeline for database queries
         _logger.LogInformation("Using agentic AI pipeline for database query");
 
-        return await _agent.ProcessQueryAsync(question, conversationId, cancellationToken);
+        return await _agent.ProcessQueryAsync(
+            question,
+            conversationId,
+            conversationHistory: null,
+            cancellationToken);
     }
 }

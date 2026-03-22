@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using TextToSqlAgent.Core.Interfaces;
+using TextToSqlAgent.Core.Models;
 
 namespace TextToSqlAgent.Application.Routing;
 
@@ -73,7 +74,7 @@ Luôn chọn mức cao hơn nếu không chắc chắn (conservative).";
                 Confidence = 0.5,
                 Reasoning = $"LLM error: {ex.Message}. Conservative fallback to Complex.",
                 UsedLLM = true,
-                Method = ClassificationMethod.LLMBased
+                Method = ClassificationMethod.LlmBased
             };
         }
     }
@@ -112,7 +113,7 @@ Luôn chọn mức cao hơn nếu không chắc chắn (conservative).";
                         Confidence = result.Confidence ?? 0.8,
                         Reasoning = result.Reasoning ?? "LLM classification",
                         UsedLLM = true,
-                        Method = ClassificationMethod.LLMBased
+                        Method = ClassificationMethod.LlmBased
                     };
                 }
             }
@@ -137,7 +138,7 @@ Luôn chọn mức cao hơn nếu không chắc chắn (conservative).";
             Confidence = 0.6,
             Reasoning = "Parse failed - using heuristic classification",
             UsedLLM = true,
-            Method = ClassificationMethod.LLMBased
+            Method = ClassificationMethod.LlmBased
         };
     }
 
