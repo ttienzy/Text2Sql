@@ -30,6 +30,7 @@ public class DDLPipeline : IDDLPipeline
     private readonly ISchemaCache _schemaCache;
     private readonly ILLMClient _llmClient;
     private readonly ISqlExecutor _sqlExecutor;
+    private readonly ISemanticTableResolver? _semanticResolver;
     private readonly ILogger<DDLPipeline> _logger;
 
     // Naming conventions
@@ -41,11 +42,13 @@ public class DDLPipeline : IDDLPipeline
         ISchemaCache schemaCache,
         ILLMClient llmClient,
         ISqlExecutor sqlExecutor,
-        ILogger<DDLPipeline> logger)
+        ILogger<DDLPipeline> logger,
+        ISemanticTableResolver? semanticResolver = null)
     {
         _schemaCache = schemaCache;
         _llmClient = llmClient;
         _sqlExecutor = sqlExecutor;
+        _semanticResolver = semanticResolver;
         _logger = logger;
     }
 
@@ -86,8 +89,8 @@ public class DDLPipeline : IDDLPipeline
                 };
             }
 
-            // D3: RAG - Find related objects
-            var relatedObjects = FindRelatedObjects(request.Question, schema, ddlType);
+            // D3: RAG - Find related objects (with semantic resolution)
+            var relatedObjects = await FindRelatedObjectsAsync(request.Question, schema, ddlType, ct);
             _logger.LogInformation("[DDLPipeline] Found {Count} related objects", relatedObjects.Count);
 
             // D4: Generate DDL script with naming conventions
@@ -284,15 +287,37 @@ Return ONLY the type, nothing else:";
     // D3: FIND RELATED OBJECTS
     // ═══════════════════════════════════════════════════════════════
 
-    private List<string> FindRelatedObjects(
+    private async Task<List<string>> FindRelatedObjectsAsync(
         string question,
         DatabaseSchema schema,
-        DDLOperationType ddlType)
+        DDLOperationType ddlType,
+        CancellationToken ct)
     {
         var relatedObjects = new List<string>();
         var lower = question.ToLowerInvariant();
 
-        // Find mentioned tables
+        // Try semantic resolution first if available
+        if (_semanticResolver != null)
+        {
+            try
+            {
+                var resolution = await _semanticResolver.ResolveAsync(question, schema, ct);
+                if (resolution.Success && resolution.Confidence >= 0.7)
+                {
+                    relatedObjects.Add($"Table: {resolution.ResolvedTableName}");
+                    _logger.LogInformation(
+                        "[DDLPipeline] Semantic resolution found table: {Table}",
+                        resolution.ResolvedTableName);
+                    return relatedObjects;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[DDLPipeline] Semantic resolution failed, using fallback");
+            }
+        }
+
+        // Fallback: Find mentioned tables by exact match
         foreach (var table in schema.Tables)
         {
             if (lower.Contains(table.TableName.ToLowerInvariant()))

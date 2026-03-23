@@ -6,6 +6,7 @@ import { GoogleLogin } from '@react-oauth/google';
 import axiosInstance from '../api/axios';
 import useAuthStore from '../store/authStore';
 import { APP_NAME } from '../constants';
+import styles from './Register.module.css';
 
 const { Title, Text } = Typography;
 
@@ -13,7 +14,7 @@ const RegisterPage = () => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const { loginWithGoogle } = useAuthStore();
-  
+
   const onFinish = async (values) => {
     setLoading(true);
     try {
@@ -30,9 +31,8 @@ const RegisterPage = () => {
   const handleGoogleSuccess = async (credentialResponse) => {
     setLoading(true);
     try {
-      // credentialResponse.credential is the JWT ID token
       await loginWithGoogle(credentialResponse.credential);
-      message.success('Google signup/login successful!');
+      message.success('Google signup successful!');
       navigate('/chat');
     } catch (error) {
       message.error(error.message || 'Google Sign-Up failed.');
@@ -40,50 +40,43 @@ const RegisterPage = () => {
       setLoading(false);
     }
   };
-  
+
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', backgroundColor: '#f0f2f5' }}>
-      {/* Left side hero */}
-      <div 
-        style={{ 
-          flex: 1, 
-          display: 'flex', 
-          flexDirection: 'column', 
-          justifyContent: 'center', 
-          padding: '40px',
-          background: 'linear-gradient(135deg, #1890ff 0%, #0050b3 100%)',
-          color: 'white'
-        }}
-      >
-        <div style={{ maxWidth: 480, margin: '0 auto' }}>
-          <Title level={1} style={{ color: 'white', marginBottom: 24 }}>Get started with {APP_NAME}</Title>
-          <Text style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '18px', display: 'block', marginBottom: 32 }}>
-            Join thousands of professionals translating natural language to precise SQL queries instantly. Sign up for free today.
+    <div className={styles.container}>
+      {/* Left side - Hero */}
+      <div className={styles.heroSection}>
+        <div className={styles.heroContent}>
+          <Title level={1} className={styles.heroTitle}>Get started with {APP_NAME}</Title>
+          <Text className={styles.heroText}>
+            Join thousands of professionals translating natural language to precise SQL queries
+            instantly. Sign up for free today.
           </Text>
         </div>
       </div>
 
-      {/* Right side form */}
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px', backgroundColor: 'white' }}>
-        <div style={{ width: '100%', maxWidth: '400px' }}>
-          <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-            <Title level={2}>Create an Account</Title>
+      {/* Right side - Form */}
+      <div className={styles.formSection}>
+        <div className={styles.formCard}>
+          <div className={styles.header}>
+            <Title level={2} className={styles.title}>Create an Account</Title>
             <Text type="secondary">Sign up today to boost your productivity.</Text>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '24px' }}>
+          <div className={styles.googleWrapper}>
             <GoogleLogin
               onSuccess={handleGoogleSuccess}
               onError={() => message.error('Google Sign-Up failed.')}
               theme="outline"
               size="large"
-              width="400"
+              width="340"
               text="signup_with"
             />
           </div>
 
-          <Divider plain><Text type="secondary">or</Text></Divider>
-          
+          <Divider plain>
+            <Text type="secondary">or</Text>
+          </Divider>
+
           <Form
             name="register"
             onFinish={onFinish}
@@ -98,22 +91,22 @@ const RegisterPage = () => {
                 { type: 'email', message: 'Please enter a valid email!' },
               ]}
             >
-              <Input 
-                prefix={<MailOutlined />} 
-                placeholder="Email address" 
+              <Input
+                prefix={<MailOutlined />}
+                placeholder="Email address"
               />
             </Form.Item>
-            
+
             <Form.Item
               name="username"
               rules={[{ required: true, message: 'Please input your username!' }]}
             >
-              <Input 
-                prefix={<UserOutlined />} 
-                placeholder="Username" 
+              <Input
+                prefix={<UserOutlined />}
+                placeholder="Username"
               />
             </Form.Item>
-            
+
             <Form.Item
               name="password"
               rules={[
@@ -122,12 +115,12 @@ const RegisterPage = () => {
               ]}
               hasFeedback
             >
-              <Input.Password 
-                prefix={<LockOutlined />} 
-                placeholder="Password" 
+              <Input.Password
+                prefix={<LockOutlined />}
+                placeholder="Password"
               />
             </Form.Item>
-            
+
             <Form.Item
               name="confirmPassword"
               dependencies={['password']}
@@ -144,19 +137,19 @@ const RegisterPage = () => {
                 }),
               ]}
             >
-              <Input.Password 
-                prefix={<LockOutlined />} 
-                placeholder="Confirm Password" 
+              <Input.Password
+                prefix={<LockOutlined />}
+                placeholder="Confirm Password"
               />
             </Form.Item>
-            
+
             <Form.Item>
               <Button type="primary" htmlType="submit" loading={loading} block size="large">
                 Create Account
               </Button>
             </Form.Item>
-            
-            <div style={{ textAlign: 'center' }}>
+
+            <div className={styles.footer}>
               <Text type="secondary">Already have an account? </Text>
               <Link to="/login">Sign in here</Link>
             </div>

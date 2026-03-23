@@ -51,10 +51,11 @@ const MessageBubble = ({ message, onSuggestedQueryClick, tableNames = [] }) => {
   const errorMessage = extractErrorMessage(message);
   const hasErrorState = hasError(message);
 
+  // Check pipeline type for conditional rendering
+  const pipeline = message.pipeline;
+  
   // Check if this is a forbidden operation response
-  const isForbidden = message.metadata?.isForbidden || false;
-  const forbiddenReason = message.metadata?.forbiddenReason;
-  const safeAlternatives = message.metadata?.safeAlternatives || [];
+  const isForbidden = pipeline === 'Forbidden';
 
   // Detect table names in message content
   const detectedTables = !isUser && message.content

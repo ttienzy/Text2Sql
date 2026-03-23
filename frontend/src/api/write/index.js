@@ -12,11 +12,11 @@ import { API_ENDPOINTS } from '../../constants/api';
  * @param {string} request.question - User's natural language question
  * @param {string} request.connectionId - Database connection ID
  * @param {string} [request.conversationId] - Optional conversation ID
- * @returns {Promise<Object>} Preview with SQL, estimated rows, warnings
+ * @returns {Promise<UnifiedPipelineResponse>} Unified response with preview
  */
 export const generateWritePreview = async (request) => {
     const response = await axios.post(API_ENDPOINTS.WRITE.PREVIEW, request);
-    return response.data;
+    return response.data; // UnifiedPipelineResponse<WritePipelineData>
 };
 
 /**
@@ -27,11 +27,11 @@ export const generateWritePreview = async (request) => {
  * @param {string} [request.conversationId] - Optional conversation ID
  * @param {boolean} request.confirmed - User confirmation (must be true)
  * @param {Object} request.preview - Preview object from generateWritePreview
- * @returns {Promise<Object>} Execution result with affected rows
+ * @returns {Promise<UnifiedPipelineResponse>} Unified response with result
  */
 export const executeWriteOperation = async (request) => {
     const response = await axios.post(API_ENDPOINTS.WRITE.EXECUTE, request);
-    return response.data;
+    return response.data; // UnifiedPipelineResponse<WritePipelineData>
 };
 
 /**
@@ -49,21 +49,29 @@ export const useWriteOperation = () => {
         setPreview(null);
 
         try {
-            const data = await generateWritePreview({
+            const response = await generateWritePreview({
                 question,
                 connectionId,
                 conversationId
             });
 
-            if (data.preview.validationError) {
-                setError(data.preview.validationError);
+            // Extract preview from UnifiedPipelineResponse
+            // Note: response.data = UnifiedPipelineResponse, Data property contains WritePipelineData
+            const previewData = response.data?.Data?.preview;
+
+            if (!previewData || response.error) {
+                const errorMsg = response.error?.message || response.message || 'Failed to generate preview';
+                setError(errorMsg);
                 return null;
             }
 
-            setPreview(data.preview);
-            return data.preview;
+            setPreview(previewData);
+            return previewData;
         } catch (err) {
-            const errorMessage = err.response?.data?.error || err.message || 'Failed to generate preview';
+            const errorMessage = err.response?.data?.error?.message
+                || err.response?.data?.message
+                || err.message
+                || 'Failed to generate preview';
             setError(errorMessage);
             return null;
         } finally {
@@ -77,7 +85,7 @@ export const useWriteOperation = () => {
         setResult(null);
 
         try {
-            const data = await executeWriteOperation({
+            const response = await executeWriteOperation({
                 question,
                 connectionId,
                 conversationId,
@@ -85,10 +93,22 @@ export const useWriteOperation = () => {
                 preview: previewData || preview
             });
 
-            setResult(data.result);
-            return data.result;
+            // Extract result from UnifiedPipelineResponse
+            const resultData = response.data?.Data?.result;
+
+            if (!resultData || response.error) {
+                const errorMsg = response.error?.message || response.message || 'Failed to execute operation';
+                setError(errorMsg);
+                return null;
+            }
+
+            setResult(resultData);
+            return resultData;
         } catch (err) {
-            const errorMessage = err.response?.data?.error || err.message || 'Failed to execute operation';
+            const errorMessage = err.response?.data?.error?.message
+                || err.response?.data?.message
+                || err.message
+                || 'Failed to execute operation';
             setError(errorMessage);
             return null;
         } finally {

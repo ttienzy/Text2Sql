@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Diagnostics;
 using System.Security.Claims;
 using TextToSqlAgent.API.Repositories;
 using TextToSqlAgent.API.Services;
+using TextToSqlAgent.Application.Services;
 using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Models;
 using TextToSqlAgent.Infrastructure.Configuration;
@@ -12,6 +14,7 @@ namespace TextToSqlAgent.API.Controllers;
 
 /// <summary>
 /// Controller for WRITE operations (INSERT/UPDATE) with mandatory confirmation
+/// Returns UnifiedPipelineResponse for consistency
 /// </summary>
 [ApiController]
 [Route("api/agent/write")]
@@ -21,26 +24,32 @@ public class WriteOperationController : ControllerBase
     private readonly IUnitOfWork _unitOfWork;
     private readonly IServiceProvider _serviceProvider;
     private readonly IConnectionEncryptionService _encryptionService;
+    private readonly PipelineResponseBuilder _responseBuilder;
     private readonly ILogger<WriteOperationController> _logger;
 
     public WriteOperationController(
         IUnitOfWork unitOfWork,
         IServiceProvider serviceProvider,
         IConnectionEncryptionService encryptionService,
+        PipelineResponseBuilder responseBuilder,
         ILogger<WriteOperationController> logger)
     {
         _unitOfWork = unitOfWork;
         _serviceProvider = serviceProvider;
         _encryptionService = encryptionService;
+        _responseBuilder = responseBuilder;
         _logger = logger;
     }
 
     /// <summary>
     /// Generate preview of write operation (Step W1-W7)
+    /// Returns UnifiedPipelineResponse
     /// </summary>
     [HttpPost("preview")]
     public async Task<IActionResult> GeneratePreview([FromBody] WriteOperationRequest request)
     {
+        var stopwatch = Stopwatch.StartNew();
+
         try
         {
             var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -78,35 +87,39 @@ public class WriteOperationController : ControllerBase
             dbConfig.ConnectionString = BuildConnectionString(connection);
 
             var writePipeline = scopedServices.GetRequiredService<IWritePipeline>();
+            var intentClassifier = scopedServices.GetService<IIntentClassifier>();
 
             // Generate preview
             var preview = await writePipeline.GeneratePreviewAsync(request);
 
-            if (!string.IsNullOrEmpty(preview.ValidationError))
+            // Create intent result for response builder
+            var intentResult = new IntentClassificationResult
             {
-                return BadRequest(new
-                {
-                    error = preview.ValidationError,
-                    preview = preview
-                });
-            }
+                Intent = preview.OperationType == WriteOperationType.Insert
+                    ? IntentCategory.Insert
+                    : IntentCategory.Update,
+                Route = PipelineRoute.Write,
+                Confidence = 1.0,
+                DetectedEntities = new List<string> { preview.TargetTable },
+                MatchedKeywords = new List<string>()
+            };
 
-            return Ok(new
-            {
-                success = true,
-                preview = preview,
-                message = "Please review and confirm this write operation"
-            });
+            // Build unified response
+            var response = _responseBuilder.BuildWritePreviewResponse(preview, intentResult, stopwatch);
+
+            return Ok(response);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[WriteOperation] Error generating preview");
-            return StatusCode(500, new { error = $"Error generating preview: {ex.Message}" });
+            var errorResponse = _responseBuilder.BuildErrorResponse(ex, PipelineType.Write);
+            return StatusCode(500, errorResponse);
         }
     }
 
     /// <summary>
     /// Execute write operation after user confirmation (Step W8-W9)
+    /// Returns UnifiedPipelineResponse
     /// </summary>
     [HttpPost("execute")]
     public async Task<IActionResult> Execute([FromBody] WriteExecutionRequest request)
@@ -160,33 +173,34 @@ public class WriteOperationController : ControllerBase
 
             var result = await writePipeline.ExecuteAsync(operationRequest, request.Preview);
 
-            if (!result.Success)
-            {
-                return BadRequest(new
-                {
-                    success = false,
-                    error = result.ErrorMessage,
-                    result = result
-                });
-            }
-
             // Save to message history
             await SaveWriteOperationToHistory(
                 request.ConversationId,
                 request.Question,
                 result);
 
-            return Ok(new
+            // Create intent result for response builder
+            var intentResult = new IntentClassificationResult
             {
-                success = true,
-                result = result,
-                message = $"Successfully {result.OperationType.ToString().ToLower()}ed {result.ActualAffectedRows} row(s)"
-            });
+                Intent = result.OperationType == WriteOperationType.Insert
+                    ? IntentCategory.Insert
+                    : IntentCategory.Update,
+                Route = PipelineRoute.Write,
+                Confidence = 1.0,
+                DetectedEntities = new List<string> { result.TargetTable },
+                MatchedKeywords = new List<string>()
+            };
+
+            // Build unified response
+            var response = _responseBuilder.BuildWriteResultResponse(result, intentResult);
+
+            return Ok(response);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[WriteOperation] Error executing write operation");
-            return StatusCode(500, new { error = $"Execution failed: {ex.Message}" });
+            var errorResponse = _responseBuilder.BuildErrorResponse(ex, PipelineType.Write);
+            return StatusCode(500, errorResponse);
         }
     }
 

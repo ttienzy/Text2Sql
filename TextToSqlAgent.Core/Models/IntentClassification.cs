@@ -161,3 +161,40 @@ internal class LlmClassificationResponse
     [JsonPropertyName("safe_alternatives")]
     public List<string> SafeAlternatives { get; set; } = new();
 }
+
+/// <summary>
+/// Extension methods for IntentClassificationResult
+/// </summary>
+public static class IntentClassificationExtensions
+{
+    /// <summary>
+    /// Convert IntentClassificationResult to IntentSummary (filtered for client)
+    /// Excludes internal reasoning and normalized query for security
+    /// </summary>
+    public static IntentSummary ToIntentSummary(this IntentClassificationResult result)
+    {
+        return new IntentSummary
+        {
+            Type = result.Intent,
+            Route = result.Route,
+            Confidence = result.Confidence,
+            DetectedEntities = result.DetectedEntities,
+            MatchedKeywords = result.MatchedKeywords
+        };
+    }
+
+    /// <summary>
+    /// Create default intent summary for cases where classification is not available
+    /// </summary>
+    public static IntentSummary CreateDefaultQueryIntent()
+    {
+        return new IntentSummary
+        {
+            Type = IntentCategory.Query,
+            Route = PipelineRoute.Query,
+            Confidence = 1.0,
+            DetectedEntities = new List<string>(),
+            MatchedKeywords = new List<string>()
+        };
+    }
+}

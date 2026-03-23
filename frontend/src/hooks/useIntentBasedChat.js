@@ -3,10 +3,19 @@ import axios from '../api/axios';
 import { useWriteOperation } from '../api/write';
 import { useDDLOperation } from '../api/ddl';
 import { API_ENDPOINTS, PIPELINE_TYPES } from '../constants/api';
+import {
+    UnifiedPipelineResponse,
+    isQueryData,
+    isWriteData,
+    isDdlData,
+    isForbiddenData,
+    isRejectionData
+} from '../types/responses';
 
 /**
  * Unified hook for intent-based chat with automatic pipeline routing
  * Handles QUERY, WRITE, DDL, and FORBIDDEN operations
+ * NOW USES: UnifiedPipelineResponse for all responses
  * 
  * @param {string} connectionId - Database connection ID
  * @param {string} conversationId - Conversation ID
@@ -20,6 +29,9 @@ export const useIntentBasedChat = (connectionId, conversationId) => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [currentPipeline, setCurrentPipeline] = useState(null);
+    
+    // ✅ NEW: Intent classification confidence
+    const [intentConfidence, setIntentConfidence] = useState(null);
 
     // Hooks for WRITE and DDL operations
     const writeOp = useWriteOperation();
@@ -47,88 +59,120 @@ export const useIntentBasedChat = (connectionId, conversationId) => {
         setForbiddenResult(null);
         setRejectionMessage(null);
         setCurrentPipeline(null);
+        setIntentConfidence(null); // ✅ Reset confidence
         writeOp.reset();
         ddlOp.reset();
 
         try {
-            // Send to main agent endpoint - backend will route based on intent
+            // Send to main agent endpoint - backend returns UnifiedPipelineResponse
             const response = await axios.post(API_ENDPOINTS.AGENT.PROCESS, {
                 question,
                 connectionId,
                 conversationId
             });
 
+            /** @type {UnifiedPipelineResponse} */
             const data = response.data;
 
-            // Check if response indicates a specific pipeline
-            const pipeline = data.pipeline || PIPELINE_TYPES.QUERY;
+            // ✅ Consistent access - no fallbacks needed
+            const { pipeline, intent } = data;
             setCurrentPipeline(pipeline);
+            
+            // ✅ NEW: Extract confidence for UI display
+            // Try multiple locations where confidence might be
+            const confidence = data.execution?.classificationConfidence 
+                || data.data?.confidence 
+                || (intent && intent.confidence)
+                || null;
+            
+            if (confidence !== null) {
+                setIntentConfidence(confidence);
+                console.debug('[IntentClassifier] Confidence:', confidence);
+            }
 
             // Route based on pipeline type
             switch (pipeline) {
-                case PIPELINE_TYPES.FORBIDDEN:
+                case 'Forbidden': {
                     // FORBIDDEN operation - show alert with safe alternatives
-                    setForbiddenResult(data.forbiddenResult || data);
+                    if (isForbiddenData(data.data)) {
+                        setForbiddenResult(data.data.result);
+                    }
                     return {
                         type: 'forbidden',
-                        data: data.forbiddenResult || data,
-                        pipeline
+                        data: data.data,
+                        pipeline,
+                        intent
                     };
+                }
 
-                case PIPELINE_TYPES.WRITE:
+                case 'Write': {
                     // WRITE operation - show preview modal for confirmation
-                    const writePreview = data.writePreview || data.preview;
-                    if (writePreview) {
-                        // Store preview in write operation hook
-                        writeOp.setPreview?.(writePreview);
+                    if (isWriteData(data.data) && data.data.preview) {
+                        writeOp.setPreview?.(data.data.preview);
                     }
                     return {
                         type: 'write',
-                        data: writePreview,
-                        pipeline
+                        data: data.data,
+                        pipeline,
+                        intent
                     };
+                }
 
-                case PIPELINE_TYPES.DDL:
+                case 'Ddl': {
                     // DDL operation - show impact analysis for confirmation
-                    const ddlPreview = data.ddlPreview || data.preview;
-                    if (ddlPreview) {
-                        // Store preview in DDL operation hook
-                        ddlOp.setPreview?.(ddlPreview);
+                    if (isDdlData(data.data) && data.data.preview) {
+                        ddlOp.setPreview?.(data.data.preview);
                     }
                     return {
                         type: 'ddl',
-                        data: ddlPreview,
-                        pipeline
+                        data: data.data,
+                        pipeline,
+                        intent
                     };
+                }
 
-                case PIPELINE_TYPES.REJECT:
+                case 'Reject': {
                     // REJECT operation - show rejection message
-                    setRejectionMessage({
-                        intent: data.intent,
-                        message: data.message,
-                        reasoning: data.reasoning,
-                        language: data.language
-                    });
+                    if (isRejectionData(data.data)) {
+                        setRejectionMessage({
+                            intent: intent.type,
+                            message: data.message,
+                            reasoning: data.data.reason,
+                            language: data.data.language
+                        });
+                    }
                     return {
                         type: 'reject',
-                        data: {
-                            intent: data.intent,
-                            message: data.message,
-                            reasoning: data.reasoning,
-                            language: data.language
-                        },
-                        pipeline
+                        data: data.data,
+                        pipeline,
+                        intent
                     };
+                }
 
-                case PIPELINE_TYPES.QUERY:
-                default:
+                case 'Query':
+                default: {
                     // Standard QUERY operation - display results
-                    setQueryResponse(data);
+                    if (isQueryData(data.data)) {
+                        setQueryResponse({
+                            success: data.success,
+                            answer: data.data.answer,
+                            sqlGenerated: data.sqlGenerated,
+                            queryResult: data.data.queryResult,
+                            queryExplanation: data.data.queryExplanation,
+                            suggestedQueries: data.data.suggestedQueries,
+                            contextEntities: data.data.contextEntities,
+                            primaryEntity: data.data.primaryEntity,
+                            pronounsResolved: data.data.pronounsResolved,
+                            execution: data.execution
+                        });
+                    }
                     return {
                         type: 'query',
-                        data,
-                        pipeline
+                        data: data.data,
+                        pipeline,
+                        intent
                     };
+                }
             }
 
         } catch (err) {
@@ -136,6 +180,25 @@ export const useIntentBasedChat = (connectionId, conversationId) => {
                 || err.response?.data?.message
                 || err.message
                 || 'Failed to send message';
+
+            // ✅ P1: Handle SCHEMA_NOT_LOADED error with actionable info
+            if (err.response?.data?.error === 'SCHEMA_NOT_LOADED') {
+                const schemaError = {
+                    type: 'SCHEMA_NOT_LOADED',
+                    message: err.response.data.message,
+                    action: err.response.data.action,
+                    connectionId: err.response.data.connectionId,
+                    suggestion: err.response.data.suggestion
+                };
+                setError(schemaError);
+                console.warn('[useIntentBasedChat] Schema not loaded:', schemaError);
+
+                return {
+                    type: 'error',
+                    error: schemaError,
+                    details: err.response?.data
+                };
+            }
 
             setError(errorMessage);
             console.error('[useIntentBasedChat] Error:', err);
@@ -169,7 +232,11 @@ export const useIntentBasedChat = (connectionId, conversationId) => {
                     success: true,
                     rowsAffected: result.actualAffectedRows
                 },
-                suggestedQueries: result.suggestions || []
+                suggestedQueries: result.suggestions || [],
+                execution: {
+                    duration: result.executionTime,
+                    processingSteps: result.processingSteps || []
+                }
             });
             setCurrentPipeline(PIPELINE_TYPES.QUERY);
         }
@@ -194,9 +261,13 @@ export const useIntentBasedChat = (connectionId, conversationId) => {
                 sqlGenerated: result.ddlExecuted,
                 queryResult: {
                     success: true,
-                    message: result.executionMessage
+                    message: 'DDL operation completed successfully'
                 },
-                schemaReloaded: result.schemaCacheReloaded
+                schemaReloaded: result.schemaCacheReloaded,
+                execution: {
+                    duration: result.executionTime,
+                    processingSteps: result.processingSteps || []
+                }
             });
             setCurrentPipeline(PIPELINE_TYPES.QUERY);
         }
@@ -226,6 +297,7 @@ export const useIntentBasedChat = (connectionId, conversationId) => {
         writePreview: writeOp.preview,
         ddlPreview: ddlOp.preview,
         currentPipeline,
+        intentConfidence, // ✅ NEW: Intent classification confidence
         loading: loading || writeOp.loading || ddlOp.loading,
         error: error || writeOp.error || ddlOp.error,
 

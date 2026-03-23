@@ -5,6 +5,8 @@ using TextToSqlAgent.API.Extensions;
 using TextToSqlAgent.API.Repositories;
 using TextToSqlAgent.API.Services;
 using TextToSqlAgent.Application.Services;
+using TextToSqlAgent.Core.Interfaces;
+using TextToSqlAgent.Core.Models;
 using TextToSqlAgent.Infrastructure.Configuration;
 using TextToSqlAgent.Infrastructure.Entities;
 using TextToSqlAgent.Infrastructure.Services;
@@ -71,6 +73,24 @@ public class ConversationAwareAgentController : BaseController
                 return NotFound(new { error = "Connection not found" });
             }
 
+            // ✅ P0: Validate schema is loaded
+            var schemaCache = _serviceProvider.GetRequiredService<ISchemaCache>();
+            var schema = await schemaCache.GetAsync(request.ConnectionId);
+
+            if (schema == null)
+            {
+                _logger.LogWarning("Schema not loaded for connection {ConnectionId}, user {UserId}", request.ConnectionId, userId);
+
+                return BadRequest(new
+                {
+                    error = "SCHEMA_NOT_LOADED",
+                    message = "Database schema not loaded. Please test connection first to load schema.",
+                    action = "TEST_CONNECTION",
+                    connectionId = request.ConnectionId,
+                    suggestion = "Click 'Test Connection' button to load database schema"
+                });
+            }
+
             // Get conversation history if conversation ID is provided
             List<Message> conversationHistory = new();
             if (!string.IsNullOrEmpty(request.ConversationId))
@@ -96,19 +116,19 @@ public class ConversationAwareAgentController : BaseController
 
             try
             {
-                // Get the working orchestrator instead of conversation-aware one
+                // Get the orchestrator with intent routing
                 var orchestrator = scopedServices.GetRequiredService<EnhancedAgentOrchestrator>();
 
-                // Process the query using existing working orchestrator with conversation history
-                var response = await orchestrator.ProcessQueryAsync(
+                // ✅ USE NEW INTENT ROUTING - Returns UnifiedPipelineResponse
+                var unifiedResponse = await orchestrator.ProcessMessageWithIntentRoutingAsync(
                     request.Question,
+                    request.ConnectionId,
                     request.ConversationId,
-                    conversationHistory,  // ✅ Pass conversation history for context awareness
+                    conversationHistory,
                     CancellationToken.None);
 
                 // Ensure conversation ID is set
                 var conversationId = request.ConversationId ?? Guid.NewGuid().ToString();
-                response.ConversationId = conversationId;
 
                 // Save user message to database
                 var userMessage = new Message
@@ -122,9 +142,41 @@ public class ConversationAwareAgentController : BaseController
 
                 await _unitOfWork.Messages.AddAsync(userMessage);
 
+                // Extract data from UnifiedPipelineResponse based on pipeline type
+                string answer = unifiedResponse.Message;
+                string? sqlGenerated = unifiedResponse.SqlGenerated;
+                string? queryExplanation = null;
+                List<string>? processingSteps = unifiedResponse.Execution?.ProcessingSteps?.ToList();
+                List<string>? suggestedQueries = null;
+                SqlExecutionResult? queryResult = null;
+                bool success = unifiedResponse.Success;
+
+                // Extract pipeline-specific data
+                if (unifiedResponse.Data is QueryPipelineData queryData)
+                {
+                    answer = queryData.Answer;
+                    queryExplanation = queryData.QueryExplanation;
+                    suggestedQueries = queryData.SuggestedQueries?.ToList();
+                    queryResult = queryData.QueryResult;
+                }
+                else if (unifiedResponse.Data is WritePipelineData writeData)
+                {
+                    if (writeData.Result != null)
+                    {
+                        answer = $"Write operation completed: {writeData.Result.ActualAffectedRows} rows affected";
+                    }
+                }
+                else if (unifiedResponse.Data is DdlPipelineData ddlData)
+                {
+                    if (ddlData.Result != null)
+                    {
+                        answer = $"DDL operation completed: {ddlData.Result.OperationType}";
+                    }
+                }
+
                 // Estimate token usage for the AI response
                 var inputTokens = EstimateTokens(request.Question + GetConversationContextTokens(conversationHistory));
-                var outputTokens = EstimateTokens(response.Answer + (response.SqlGenerated ?? "") + (response.QueryExplanation ?? ""));
+                var outputTokens = EstimateTokens(answer + (sqlGenerated ?? "") + (queryExplanation ?? ""));
                 var totalTokens = inputTokens + outputTokens;
                 var model = "gpt-4o";
 
@@ -133,22 +185,21 @@ public class ConversationAwareAgentController : BaseController
                 {
                     ConversationId = conversationId,
                     Role = "assistant",
-                    Content = response.Answer,
-                    SqlQuery = response.SqlGenerated,
-                    Results = response.QueryResult?.Rows != null ?
-                        System.Text.Json.JsonSerializer.Serialize(response.QueryResult.Rows) : null,
-                    RowCount = response.QueryResult?.RowCount,
-                    ErrorMessage = response.ErrorMessage,
-                    QueryExplanation = response.QueryExplanation,
-                    ProcessingSteps = response.ProcessingSteps?.Count > 0 ?
-                        System.Text.Json.JsonSerializer.Serialize(response.ProcessingSteps) : null,
-                    SuggestedQueries = response.SuggestedQueries?.Count > 0 ?
-                        System.Text.Json.JsonSerializer.Serialize(response.SuggestedQueries) : null,
-                    CorrectionHistory = response.CorrectionHistory?.Count > 0 ?
-                        System.Text.Json.JsonSerializer.Serialize(response.CorrectionHistory) : null,
-                    WasCorrected = response.WasCorrected,
-                    CorrectionAttempts = response.CorrectionAttempts,
-                    Success = response.Success,
+                    Content = answer,
+                    SqlQuery = sqlGenerated,
+                    Results = queryResult?.Rows != null ?
+                        System.Text.Json.JsonSerializer.Serialize(queryResult.Rows) : null,
+                    RowCount = queryResult?.RowCount,
+                    ErrorMessage = unifiedResponse.Error?.Message,
+                    QueryExplanation = queryExplanation,
+                    ProcessingSteps = processingSteps?.Count > 0 ?
+                        System.Text.Json.JsonSerializer.Serialize(processingSteps) : null,
+                    SuggestedQueries = suggestedQueries?.Count > 0 ?
+                        System.Text.Json.JsonSerializer.Serialize(suggestedQueries) : null,
+                    CorrectionHistory = null, // Not available in UnifiedPipelineResponse
+                    WasCorrected = unifiedResponse.Execution?.WasCorrected ?? false,
+                    CorrectionAttempts = unifiedResponse.Execution?.CorrectionAttempts ?? 0,
+                    Success = success,
                     // Token usage tracking
                     InputTokens = inputTokens,
                     OutputTokens = outputTokens,
@@ -173,53 +224,8 @@ public class ConversationAwareAgentController : BaseController
                     _logger.LogError(ex, "Failed to update token quota for user {UserId}", userId);
                 }
 
-                // Format enhanced response
-                var result = new ConversationAwareProcessResponse
-                {
-                    Success = response.Success,
-                    Question = request.Question,
-                    Answer = response.Answer,
-                    SqlGenerated = response.SqlGenerated,
-                    QueryResult = response.QueryResult != null ? new QueryResultDto
-                    {
-                        Success = response.QueryResult.Success,
-                        Columns = response.QueryResult.Columns,
-                        Rows = response.QueryResult.Rows,
-                        RowCount = response.QueryResult.RowCount,
-                        ExecutionTimeMs = (int)response.QueryResult.ExecutionTimeMs,
-                        RowsAffected = response.QueryResult.RowsAffected,
-                        ErrorMessage = response.QueryResult.ErrorMessage
-                    } : null,
-                    ProcessingSteps = response.ProcessingSteps,
-                    QueryExplanation = response.QueryExplanation,
-                    SuggestedQueries = response.SuggestedQueries,
-                    CorrectionHistory = response.CorrectionHistory?.Select(c => new CorrectionAttemptDto
-                    {
-                        OriginalSql = c.OriginalSql,
-                        CorrectedSql = c.CorrectedSql,
-                        Error = c.Error?.ErrorMessage,
-                        Reasoning = c.Reasoning,
-                        Success = c.Success,
-                        AttemptNumber = c.AttemptNumber,
-                        Timestamp = c.Timestamp
-                    }).ToList() ?? new List<CorrectionAttemptDto>(),
-                    WasCorrected = response.WasCorrected,
-                    CorrectionAttempts = response.CorrectionAttempts,
-                    ConversationId = conversationId,
-                    IsFollowUp = response.IsFollowUp,
-                    ErrorMessage = response.ErrorMessage,
-                    ConnectionId = request.ConnectionId,
-                    // Enhanced conversation context
-                    ConversationTurns = conversationHistory.Count / 2, // Approximate turns
-                    HasConversationContext = conversationHistory.Any(),
-                    ConversationStartedAt = conversationHistory.FirstOrDefault()?.CreatedAt,
-                    // ✅ Context awareness for pronoun resolution
-                    ContextEntities = response.ContextEntities,
-                    PrimaryEntity = response.PrimaryEntity,
-                    PronounsResolved = response.PronounsResolved
-                };
-
-                return Ok(result);
+                // Format enhanced response - Return UnifiedPipelineResponse directly
+                return Ok(unifiedResponse);
             }
             finally
             {

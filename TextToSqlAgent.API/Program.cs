@@ -253,6 +253,9 @@ try
     // ✅ NEW: Enhanced Agentic AI Orchestrator (changed to Scoped to work with Scoped services)
     builder.Services.AddScoped<EnhancedAgentOrchestrator>();
 
+    // ✅ NEW: Query Result Cache for pagination (lazy loading)
+    builder.Services.AddSingleton<IQueryResultCache, RedisQueryResultCache>();
+
     // ✅ NEW: Conversation-Aware Services (v2 API)
     builder.Services.AddScoped<ConversationAwareOrchestrator>();
 
@@ -286,8 +289,13 @@ try
     // REACT AGENT SYSTEM (Phase 7)
     // ============================================
 
-    // Production Services
-    builder.Services.AddSingleton<IDistributedCache>(sp => new SimpleMemoryCache());
+    // ✅ Production Services - Use Redis for IDistributedCache
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.Configuration = redisConnection;
+        options.InstanceName = "TextToSqlAgent:";
+    });
+
     builder.Services.AddScoped<CacheService>(); // Changed to Scoped - has state
     builder.Services.AddSingleton(new CacheOptions());
     builder.Services.AddSingleton(rateLimitOptions);
@@ -340,9 +348,20 @@ try
     builder.Services.AddControllers()
         .AddJsonOptions(options =>
         {
+            // ✅ Unified Response: camelCase naming for consistency with JavaScript
+            options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+
+            // ✅ Enum serialization as strings
             options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+
+            // ✅ Handle circular references
             options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+
+            // ✅ Ignore null values to reduce payload size
             options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+
+            // ✅ Pretty print for development (can be disabled in production)
+            options.JsonSerializerOptions.WriteIndented = builder.Environment.IsDevelopment();
         });
 
     // Database Context for Identity and API entities with secure connection string

@@ -25,3 +25,4 @@ export { default as ClarificationRequest } from './ClarificationRequest';
 
 // Intent-based chat
 export { default as IntentBasedChatInterface } from './IntentBasedChatInterface';
+export { default as IntentConfidenceIndicator, LowConfidenceWarning } from './IntentConfidenceIndicator';

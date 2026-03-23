@@ -227,10 +227,33 @@ export const useSyncSchemaMutation = (options = {}) => {
   });
 };
 
+/**
+ * useRefreshSchemaMutation - Refresh schema cache for a connection
+ * @param {Object} options - Mutation options
+ */
+export const useRefreshSchemaMutation = (options = {}) => {
+  return useMutation({
+    mutationFn: async (connectionId) => {
+      const response = await axiosInstance.post(`${API_ENDPOINTS.CONNECTIONS}/${connectionId}/refresh-schema`);
+      return response.data;
+    },
+    onError: (err) => {
+      message.error(err.response?.data?.message || 'Failed to refresh schema');
+    },
+    onSuccess: (data) => {
+      if (data.success) {
+        message.success(`Schema refreshed: ${data.tableCount} tables loaded`);
+      }
+    },
+    ...options,
+  });
+};
+
 export default {
   useCreateConnectionMutation,
   useUpdateConnectionMutation,
   useDeleteConnectionMutation,
   useTestConnectionMutation,
   useSyncSchemaMutation,
+  useRefreshSchemaMutation,
 };

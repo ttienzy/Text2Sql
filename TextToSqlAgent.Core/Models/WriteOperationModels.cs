@@ -18,6 +18,11 @@ public class WriteOperationRequest
     public string ConnectionId { get; set; } = string.Empty;
     public string? ConversationId { get; set; }
     public bool IsConfirmed { get; set; } = false;
+
+    /// <summary>
+    /// Pre-resolved entities from IntentClassifier to avoid duplicate LLM calls
+    /// </summary>
+    public List<string>? PreResolvedEntities { get; set; }
 }
 
 /// <summary>

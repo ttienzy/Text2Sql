@@ -3,6 +3,7 @@ using TextToSqlAgent.Application.Pipelines.DDL;
 using TextToSqlAgent.Application.Pipelines.Forbidden;
 using TextToSqlAgent.Application.Pipelines.Write;
 using TextToSqlAgent.Application.Routing;
+using TextToSqlAgent.Application.Services;
 using TextToSqlAgent.Core.Interfaces;
 
 namespace TextToSqlAgent.Application.DependencyInjection;
@@ -20,10 +21,16 @@ public static class IntentPipelineServiceExtensions
         // Intent Classification
         services.AddScoped<IIntentClassifier, IntentClassifier>();
 
+        // Semantic Table Resolution (NEW!)
+        services.AddScoped<ISemanticTableResolver, LlmSemanticTableResolver>();
+
         // Pipelines
         services.AddScoped<IForbiddenPipeline, ForbiddenPipeline>();
         services.AddScoped<IWritePipeline, WritePipeline>();
         services.AddScoped<IDDLPipeline, DDLPipeline>();
+
+        // Response Builder (Singleton - stateless)
+        services.AddSingleton<PipelineResponseBuilder>();
 
         return services;
     }

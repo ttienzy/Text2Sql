@@ -47,14 +47,30 @@ export const API_ENDPOINTS = {
 };
 
 /**
- * Pipeline types
+ * Pipeline types (matches backend PipelineType enum)
  */
 export const PIPELINE_TYPES = {
-    QUERY: 'QUERY',
-    WRITE: 'WRITE',
-    DDL: 'DDL',
-    FORBIDDEN: 'FORBIDDEN',
-    REJECT: 'REJECT'
+    QUERY: 'Query',
+    WRITE: 'Write',
+    DDL: 'Ddl',
+    FORBIDDEN: 'Forbidden',
+    REJECT: 'Reject'
+};
+
+/**
+ * Intent types (matches backend IntentCategory enum)
+ */
+export const INTENT_TYPES = {
+    QUERY: 'Query',
+    INSERT: 'Insert',
+    UPDATE: 'Update',
+    DDL_INDEX: 'DdlIndex',
+    DDL_PROCEDURE: 'DdlProcedure',
+    DDL_ALTER: 'DdlAlter',
+    DDL_VIEW: 'DdlView',
+    FORBIDDEN: 'Forbidden',
+    OFF_TOPIC: 'OffTopic',
+    UNKNOWN: 'Unknown'
 };
 
 /**
@@ -90,6 +106,7 @@ export const SAFE_ALTERNATIVE_TYPES = {
 export default {
     API_ENDPOINTS,
     PIPELINE_TYPES,
+    INTENT_TYPES,
     OPERATION_TYPES,
     SAFE_ALTERNATIVE_TYPES
 };

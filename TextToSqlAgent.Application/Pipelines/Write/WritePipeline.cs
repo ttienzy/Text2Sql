@@ -31,6 +31,7 @@ public class WritePipeline : IWritePipeline
     private readonly ISchemaCache _schemaCache;
     private readonly ILLMClient _llmClient;
     private readonly ISqlExecutor _sqlExecutor;
+    private readonly ISemanticTableResolver? _semanticResolver;
     private readonly ILogger<WritePipeline> _logger;
 
     // Hard rule: UPDATE without WHERE is forbidden
@@ -47,11 +48,13 @@ public class WritePipeline : IWritePipeline
         ISchemaCache schemaCache,
         ILLMClient llmClient,
         ISqlExecutor sqlExecutor,
-        ILogger<WritePipeline> logger)
+        ILogger<WritePipeline> logger,
+        ISemanticTableResolver? semanticResolver = null)
     {
         _schemaCache = schemaCache;
         _llmClient = llmClient;
         _sqlExecutor = sqlExecutor;
+        _semanticResolver = semanticResolver;
         _logger = logger;
     }
 
@@ -79,20 +82,7 @@ public class WritePipeline : IWritePipeline
                 };
             }
 
-            // W2: Identify target table
-            var targetTable = await IdentifyTargetTableAsync(request.Question, ct);
-            if (string.IsNullOrEmpty(targetTable))
-            {
-                return new WriteOperationPreview
-                {
-                    ValidationError = "Cannot identify target table. Please specify which table to modify.",
-                    RequiresConfirmation = false
-                };
-            }
-
-            _logger.LogInformation("[WritePipeline] Target table identified: {Table}", targetTable);
-
-            // W3: Load target table schema
+            // W2: Identify target table with semantic resolution (optimized)
             var schema = await _schemaCache.GetAsync(request.ConnectionId, ct);
             if (schema == null)
             {
@@ -103,7 +93,105 @@ public class WritePipeline : IWritePipeline
                 };
             }
 
-            var tableSchema = schema.Tables.FirstOrDefault(t =>
+            string targetTable;
+            TableInfo? tableSchema;
+
+            // FIX 1: Use pre-resolved entities from IntentClassifier first (avoid duplicate LLM calls)
+            if (request.PreResolvedEntities?.Any() == true)
+            {
+                _logger.LogInformation("[WritePipeline] Using pre-resolved entities from IntentClassifier: [{Entities}]",
+                    string.Join(", ", request.PreResolvedEntities));
+
+                // Try to match pre-resolved entities to actual table names
+                var matchedTable = schema.Tables.FirstOrDefault(t =>
+                    request.PreResolvedEntities.Any(e =>
+                        t.TableName.Equals(e, StringComparison.OrdinalIgnoreCase)));
+
+                if (matchedTable != null)
+                {
+                    targetTable = matchedTable.TableName;
+                    _logger.LogInformation("[WritePipeline] Direct match found: '{Entity}' → '{Table}'",
+                        request.PreResolvedEntities.First(), targetTable);
+                }
+                else
+                {
+                    // Use semantic resolver for the first entity
+                    var primaryEntity = request.PreResolvedEntities.First();
+                    var resolution = await _semanticResolver?.ResolveEntityAsync(primaryEntity, schema, ct)
+                        ?? new TableResolutionResult { Success = false, ErrorMessage = "Semantic resolver not available" };
+
+                    if (!resolution.Success || resolution.Confidence < 0.7)
+                    {
+                        if (resolution.IsAmbiguous)
+                        {
+                            var alternatives = string.Join(", ", resolution.Alternatives.Select(a => a.TableName));
+                            return new WriteOperationPreview
+                            {
+                                ValidationError = $"Ambiguous table reference for '{primaryEntity}'. Did you mean: {alternatives}?",
+                                RequiresConfirmation = false
+                            };
+                        }
+
+                        return new WriteOperationPreview
+                        {
+                            ValidationError = resolution.ErrorMessage ?? $"Cannot resolve entity '{primaryEntity}' to a table.",
+                            RequiresConfirmation = false
+                        };
+                    }
+
+                    targetTable = resolution.ResolvedTableName!;
+                    _logger.LogInformation("[WritePipeline] Semantic resolution: '{Entity}' → '{Table}' (confidence: {Confidence:P0})",
+                        primaryEntity, targetTable, resolution.Confidence);
+                }
+            }
+            // Fallback: Use semantic resolution on full question (original behavior)
+            else if (_semanticResolver != null)
+            {
+                _logger.LogInformation("[WritePipeline] No pre-resolved entities, using semantic resolution on full question");
+
+                var resolution = await _semanticResolver.ResolveAsync(request.Question, schema, ct);
+
+                if (!resolution.Success || resolution.Confidence < 0.7)
+                {
+                    if (resolution.IsAmbiguous)
+                    {
+                        var alternatives = string.Join(", ", resolution.Alternatives.Select(a => a.TableName));
+                        return new WriteOperationPreview
+                        {
+                            ValidationError = $"Ambiguous table reference. Did you mean: {alternatives}?",
+                            RequiresConfirmation = false
+                        };
+                    }
+
+                    return new WriteOperationPreview
+                    {
+                        ValidationError = resolution.ErrorMessage ?? "Cannot identify target table. Please specify which table to modify.",
+                        RequiresConfirmation = false
+                    };
+                }
+
+                targetTable = resolution.ResolvedTableName!;
+                _logger.LogInformation("[WritePipeline] Semantic resolution: '{Original}' → '{Resolved}' (confidence: {Confidence:P0})",
+                    resolution.OriginalMention, targetTable, resolution.Confidence);
+            }
+            else
+            {
+                // Last resort: Direct extraction
+                _logger.LogInformation("[WritePipeline] Using direct table extraction (no semantic resolver)");
+                targetTable = await IdentifyTargetTableAsync(request.Question, ct);
+
+                if (string.IsNullOrEmpty(targetTable))
+                {
+                    return new WriteOperationPreview
+                    {
+                        ValidationError = "Cannot identify target table. Please specify which table to modify.",
+                        RequiresConfirmation = false
+                    };
+                }
+            }
+
+            // W3: Load target table schema
+            tableSchema = schema.Tables.FirstOrDefault(t =>
                 t.TableName.Equals(targetTable, StringComparison.OrdinalIgnoreCase));
 
             if (tableSchema == null)
@@ -114,6 +202,8 @@ public class WritePipeline : IWritePipeline
                     RequiresConfirmation = false
                 };
             }
+
+            _logger.LogInformation("[WritePipeline] Target table confirmed: {Table}", targetTable);
 
             // W4: RAG - Retrieve table context (relationships, constraints)
             var tableContext = BuildTableContext(tableSchema, schema);

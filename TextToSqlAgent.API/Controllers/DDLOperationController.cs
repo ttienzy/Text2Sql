@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Diagnostics;
 using System.Security.Claims;
 using TextToSqlAgent.API.Repositories;
 using TextToSqlAgent.API.Services;
+using TextToSqlAgent.Application.Services;
 using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Models;
 using TextToSqlAgent.Infrastructure.Configuration;
@@ -12,6 +14,7 @@ namespace TextToSqlAgent.API.Controllers;
 
 /// <summary>
 /// Controller for DDL operations (CREATE INDEX, ALTER TABLE, CREATE VIEW/PROC) with impact analysis
+/// Returns UnifiedPipelineResponse for consistency
 /// </summary>
 [ApiController]
 [Route("api/agent/ddl")]
@@ -21,26 +24,32 @@ public class DDLOperationController : ControllerBase
     private readonly IUnitOfWork _unitOfWork;
     private readonly IServiceProvider _serviceProvider;
     private readonly IConnectionEncryptionService _encryptionService;
+    private readonly PipelineResponseBuilder _responseBuilder;
     private readonly ILogger<DDLOperationController> _logger;
 
     public DDLOperationController(
         IUnitOfWork unitOfWork,
         IServiceProvider serviceProvider,
         IConnectionEncryptionService encryptionService,
+        PipelineResponseBuilder responseBuilder,
         ILogger<DDLOperationController> logger)
     {
         _unitOfWork = unitOfWork;
         _serviceProvider = serviceProvider;
         _encryptionService = encryptionService;
+        _responseBuilder = responseBuilder;
         _logger = logger;
     }
 
     /// <summary>
     /// Generate preview with impact analysis (Steps D1-D6)
+    /// Returns UnifiedPipelineResponse
     /// </summary>
     [HttpPost("preview")]
     public async Task<IActionResult> GeneratePreview([FromBody] DDLOperationRequest request)
     {
+        var stopwatch = Stopwatch.StartNew();
+
         try
         {
             var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -82,31 +91,32 @@ public class DDLOperationController : ControllerBase
             // Generate preview with impact analysis
             var preview = await ddlPipeline.GeneratePreviewAsync(request);
 
-            if (!string.IsNullOrEmpty(preview.ValidationError))
+            // Create intent result for response builder
+            var intentResult = new IntentClassificationResult
             {
-                return BadRequest(new
-                {
-                    error = preview.ValidationError,
-                    preview = preview
-                });
-            }
+                Intent = MapDDLTypeToIntent(preview.OperationType),
+                Route = PipelineRoute.Ddl,
+                Confidence = 1.0,
+                DetectedEntities = new List<string> { preview.TargetObject },
+                MatchedKeywords = new List<string>()
+            };
 
-            return Ok(new
-            {
-                success = true,
-                preview = preview,
-                message = "Please review the impact analysis and confirm this DDL operation"
-            });
+            // Build unified response
+            var response = _responseBuilder.BuildDdlPreviewResponse(preview, intentResult, stopwatch);
+
+            return Ok(response);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[DDLOperation] Error generating preview");
-            return StatusCode(500, new { error = $"Error generating preview: {ex.Message}" });
+            var errorResponse = _responseBuilder.BuildErrorResponse(ex, PipelineType.Ddl);
+            return StatusCode(500, errorResponse);
         }
     }
 
     /// <summary>
     /// Execute DDL operation after user confirmation (Steps D7-D8)
+    /// Returns UnifiedPipelineResponse
     /// </summary>
     [HttpPost("execute")]
     public async Task<IActionResult> Execute([FromBody] DDLExecutionRequest request)
@@ -160,35 +170,47 @@ public class DDLOperationController : ControllerBase
 
             var result = await ddlPipeline.ExecuteAsync(operationRequest, request.Preview);
 
-            if (!result.Success)
-            {
-                return BadRequest(new
-                {
-                    success = false,
-                    error = result.ErrorMessage,
-                    result = result
-                });
-            }
-
             // Save to message history
             await SaveDDLOperationToHistory(
                 request.ConversationId,
                 request.Question,
                 result);
 
-            return Ok(new
+            // Create intent result for response builder
+            var intentResult = new IntentClassificationResult
             {
-                success = true,
-                result = result,
-                message = $"Successfully executed {result.OperationType} on {result.TargetObject}",
-                schema_reloaded = result.SchemaCacheReloaded
-            });
+                Intent = MapDDLTypeToIntent(result.OperationType),
+                Route = PipelineRoute.Ddl,
+                Confidence = 1.0,
+                DetectedEntities = new List<string> { result.TargetObject },
+                MatchedKeywords = new List<string>()
+            };
+
+            // Build unified response
+            var response = _responseBuilder.BuildDdlResultResponse(result, intentResult);
+
+            return Ok(response);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[DDLOperation] Error executing DDL operation");
-            return StatusCode(500, new { error = $"Execution failed: {ex.Message}" });
+            var errorResponse = _responseBuilder.BuildErrorResponse(ex, PipelineType.Ddl);
+            return StatusCode(500, errorResponse);
         }
+    }
+
+    private IntentCategory MapDDLTypeToIntent(DDLOperationType ddlType)
+    {
+        return ddlType switch
+        {
+            DDLOperationType.CreateIndex or DDLOperationType.DropIndex => IntentCategory.DdlIndex,
+            DDLOperationType.CreateProcedure or DDLOperationType.AlterProcedure or
+            DDLOperationType.CreateFunction or DDLOperationType.AlterFunction => IntentCategory.DdlProcedure,
+            DDLOperationType.CreateView or DDLOperationType.AlterView => IntentCategory.DdlView,
+            DDLOperationType.AlterTableAddColumn or DDLOperationType.AlterTableModifyColumn or
+            DDLOperationType.AlterTableDropColumn => IntentCategory.DdlAlter,
+            _ => IntentCategory.Unknown
+        };
     }
 
     private string BuildConnectionString(Connection connection)
