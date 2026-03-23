@@ -5,6 +5,8 @@ using TextToSqlAgent.API.Extensions;
 using TextToSqlAgent.API.Repositories;
 using TextToSqlAgent.API.Services;
 using TextToSqlAgent.Application.Services;
+using TextToSqlAgent.Core.Interfaces;
+using TextToSqlAgent.Core.Models;
 using TextToSqlAgent.Infrastructure.Configuration;
 using TextToSqlAgent.Infrastructure.Entities;
 
@@ -72,6 +74,24 @@ public class AgentController : ControllerBase
                 return NotFound(new { error = "Connection not found" });
             }
 
+            // ✅ P0: Validate schema is loaded
+            var schemaCache = _serviceProvider.GetRequiredService<ISchemaCache>();
+            var schema = await schemaCache.GetAsync(request.ConnectionId);
+
+            if (schema == null)
+            {
+                _logger.LogWarning("Schema not loaded for connection {ConnectionId}, user {UserId}", request.ConnectionId, userId);
+
+                return BadRequest(new
+                {
+                    error = "SCHEMA_NOT_LOADED",
+                    message = "Database schema not loaded. Please test connection first to load schema.",
+                    action = "TEST_CONNECTION",
+                    connectionId = request.ConnectionId,
+                    suggestion = "Click 'Test Connection' button to load database schema"
+                });
+            }
+
             // Create a scoped service provider with overridden database configuration
             using var scope = _serviceProvider.CreateScope();
             var scopedServices = scope.ServiceProvider;
@@ -89,13 +109,19 @@ public class AgentController : ControllerBase
                 // Get the enhanced agent orchestrator from scoped DI
                 var agent = scopedServices.GetRequiredService<EnhancedAgentOrchestrator>();
 
-                // Process the query using the same pipeline as Console project
-                var response = await agent.ProcessQueryAsync(request.Question, request.ConversationId);
+                // ✅ USE INTENT ROUTING - Returns UnifiedPipelineResponse
+                var unifiedResponse = await agent.ProcessMessageWithIntentRoutingAsync(
+                    request.Question,
+                    request.ConnectionId,
+                    request.ConversationId,
+                    null, // No conversation history for this endpoint
+                    CancellationToken.None);
 
                 // Save user message to database
+                var conversationId = request.ConversationId ?? Guid.NewGuid().ToString();
                 var userMessage = new TextToSqlAgent.Infrastructure.Entities.Message
                 {
-                    ConversationId = request.ConversationId ?? Guid.NewGuid().ToString(),
+                    ConversationId = conversationId,
                     Role = "user",
                     Content = request.Question,
                     Success = true,
@@ -104,34 +130,50 @@ public class AgentController : ControllerBase
 
                 await _unitOfWork.Messages.AddAsync(userMessage);
 
+                // Extract data from UnifiedPipelineResponse
+                string answer = unifiedResponse.Message;
+                string? sqlGenerated = unifiedResponse.SqlGenerated;
+                string? queryExplanation = null;
+                List<string>? processingSteps = unifiedResponse.Execution?.ProcessingSteps?.ToList();
+                List<string>? suggestedQueries = null;
+                SqlExecutionResult? queryResult = null;
+                bool success = unifiedResponse.Success;
+
+                // Extract pipeline-specific data
+                if (unifiedResponse.Data is QueryPipelineData queryData)
+                {
+                    answer = queryData.Answer;
+                    queryExplanation = queryData.QueryExplanation;
+                    suggestedQueries = queryData.SuggestedQueries?.ToList();
+                    queryResult = queryData.QueryResult;
+                }
+
                 // Estimate token usage for the AI response
-                // This is an approximation - in a real implementation, you'd get this from the LLM API
                 var inputTokens = EstimateTokens(request.Question);
-                var outputTokens = EstimateTokens(response.Answer + (response.SqlGenerated ?? "") + (response.QueryExplanation ?? ""));
+                var outputTokens = EstimateTokens(answer + (sqlGenerated ?? "") + (queryExplanation ?? ""));
                 var totalTokens = inputTokens + outputTokens;
-                var model = "gpt-4o"; // Default model - could be configurable
+                var model = "gpt-4o";
 
                 // Save assistant message to database with token usage
                 var assistantMessage = new TextToSqlAgent.Infrastructure.Entities.Message
                 {
-                    ConversationId = userMessage.ConversationId,
+                    ConversationId = conversationId,
                     Role = "assistant",
-                    Content = response.Answer,
-                    SqlQuery = response.SqlGenerated,
-                    Results = response.QueryResult?.Rows != null ?
-                        System.Text.Json.JsonSerializer.Serialize(response.QueryResult.Rows) : null,
-                    RowCount = response.QueryResult?.RowCount,
-                    ErrorMessage = response.ErrorMessage,
-                    QueryExplanation = response.QueryExplanation,
-                    ProcessingSteps = response.ProcessingSteps?.Count > 0 ?
-                        System.Text.Json.JsonSerializer.Serialize(response.ProcessingSteps) : null,
-                    SuggestedQueries = response.SuggestedQueries?.Count > 0 ?
-                        System.Text.Json.JsonSerializer.Serialize(response.SuggestedQueries) : null,
-                    CorrectionHistory = response.CorrectionHistory?.Count > 0 ?
-                        System.Text.Json.JsonSerializer.Serialize(response.CorrectionHistory) : null,
-                    WasCorrected = response.WasCorrected,
-                    CorrectionAttempts = response.CorrectionAttempts,
-                    Success = response.Success,
+                    Content = answer,
+                    SqlQuery = sqlGenerated,
+                    Results = queryResult?.Rows != null ?
+                        System.Text.Json.JsonSerializer.Serialize(queryResult.Rows) : null,
+                    RowCount = queryResult?.RowCount,
+                    ErrorMessage = unifiedResponse.Error?.Message,
+                    QueryExplanation = queryExplanation,
+                    ProcessingSteps = processingSteps?.Count > 0 ?
+                        System.Text.Json.JsonSerializer.Serialize(processingSteps) : null,
+                    SuggestedQueries = suggestedQueries?.Count > 0 ?
+                        System.Text.Json.JsonSerializer.Serialize(suggestedQueries) : null,
+                    CorrectionHistory = null,
+                    WasCorrected = unifiedResponse.Execution?.WasCorrected ?? false,
+                    CorrectionAttempts = unifiedResponse.Execution?.CorrectionAttempts ?? 0,
+                    Success = success,
                     // Token usage tracking
                     InputTokens = inputTokens,
                     OutputTokens = outputTokens,
@@ -154,51 +196,10 @@ public class AgentController : ControllerBase
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Failed to update token quota for user {UserId}", userId);
-                    // Don't fail the request if quota update fails
                 }
 
-                // Update response with conversation ID
-                response.ConversationId = userMessage.ConversationId;
-
-                // Format response for production API
-                var result = new ProcessMessageResponse
-                {
-                    Success = response.Success,
-                    Question = request.Question,
-                    Answer = response.Answer,
-                    SqlGenerated = response.SqlGenerated,
-                    QueryResult = response.QueryResult != null ? new QueryResultDto
-                    {
-                        Success = response.QueryResult.Success,
-                        Columns = response.QueryResult.Columns,
-                        Rows = response.QueryResult.Rows,
-                        RowCount = response.QueryResult.RowCount,
-                        ExecutionTimeMs = response.QueryResult.ExecutionTimeMs,
-                        RowsAffected = response.QueryResult.RowsAffected,
-                        ErrorMessage = response.QueryResult.ErrorMessage
-                    } : null,
-                    ProcessingSteps = response.ProcessingSteps,
-                    QueryExplanation = response.QueryExplanation,
-                    SuggestedQueries = response.SuggestedQueries,
-                    CorrectionHistory = response.CorrectionHistory?.Select(c => new CorrectionAttemptDto
-                    {
-                        OriginalSql = c.OriginalSql,
-                        CorrectedSql = c.CorrectedSql,
-                        Error = c.Error?.ErrorMessage,
-                        Reasoning = c.Reasoning,
-                        Success = c.Success,
-                        AttemptNumber = c.AttemptNumber,
-                        Timestamp = c.Timestamp
-                    }).ToList() ?? new List<CorrectionAttemptDto>(),
-                    WasCorrected = response.WasCorrected,
-                    CorrectionAttempts = response.CorrectionAttempts,
-                    ConversationId = response.ConversationId,
-                    IsFollowUp = response.IsFollowUp,
-                    ErrorMessage = response.ErrorMessage,
-                    ConnectionId = request.ConnectionId
-                };
-
-                return Ok(result);
+                // ✅ Return UnifiedPipelineResponse directly    
+                return Ok(unifiedResponse);
             }
             finally
             {
@@ -283,6 +284,15 @@ public class ProcessMessageResponse
     public bool IsFollowUp { get; set; }
     public string? ErrorMessage { get; set; }
     public string ConnectionId { get; set; } = string.Empty;
+
+    // ✅ NEW: Pipeline and Intent metadata for frontend
+    public string? Pipeline { get; set; }
+    public string? Intent { get; set; }
+    public bool IsWriteOperation { get; set; }
+    public bool IsDdlOperation { get; set; }
+    public bool IsForbiddenOperation { get; set; }
+    public bool RequiresConfirmation { get; set; }
+    public Dictionary<string, object>? Metadata { get; set; }
 }
 
 /// <summary>

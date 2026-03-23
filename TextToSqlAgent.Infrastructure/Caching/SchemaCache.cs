@@ -10,7 +10,7 @@ namespace TextToSqlAgent.Infrastructure.Caching;
 /// <summary>
 /// Schema cache implementation with Redis (primary) and in-memory fallback
 /// Cache key format: schema:{connectionId}
-/// TTL: 30 minutes (1800 seconds)
+/// TTL: 10 hours (36000 seconds)
 /// </summary>
 public class SchemaCache : ISchemaCache
 {
@@ -19,8 +19,8 @@ public class SchemaCache : ISchemaCache
     private readonly ILogger<SchemaCache> _logger;
     private readonly SchemaCacheOptions _options;
 
-    // Default TTL: 30 minutes
-    public static readonly TimeSpan DefaultTtl = TimeSpan.FromMinutes(30);
+    // Default TTL: 10 hours
+    public static readonly TimeSpan DefaultTtl = TimeSpan.FromHours(10);
 
     public SchemaCache(
         IDistributedCache? distributedCache,
@@ -249,9 +249,9 @@ internal class MemorySchemaCache
 public class SchemaCacheOptions
 {
     /// <summary>
-    /// Time to live for cached schemas (default: 30 minutes)
+    /// Time to live for cached schemas (default: 10 hours)
     /// </summary>
-    public TimeSpan? Ttl { get; set; } = TimeSpan.FromMinutes(30);
+    public TimeSpan? Ttl { get; set; } = TimeSpan.FromHours(10);
 
     /// <summary>
     /// Enable or disable caching

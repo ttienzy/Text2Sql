@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using TextToSqlAgent.Core.Exceptions;
+using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Models;
 using TextToSqlAgent.Core.Tasks;
 using TextToSqlAgent.Infrastructure.Configuration;
@@ -27,26 +28,62 @@ public class EnhancedAgentOrchestrator
     private readonly AgentConfig _agentConfig;
     private readonly DatabaseConfig _dbConfig;
     private readonly ILogger<EnhancedAgentOrchestrator> _logger;
+    private readonly IIntentClassifier? _intentClassifier;
+    private readonly IWritePipeline? _writePipeline;
+    private readonly IDDLPipeline? _ddlPipeline;
+    private readonly IForbiddenPipeline? _forbiddenPipeline;
+    private readonly ISchemaCache? _schemaCache;
+    private readonly IQueryResultCache? _queryResultCache;
+    private readonly PipelineResponseBuilder _responseBuilder;
 
     private DatabaseSchema? _cachedSchema;
     private bool _schemaIndexed = false;
+
+    // Pagination settings
+    private const int DefaultPageSize = 50;  // First page size
+    private const int MaxRowsBeforePagination = 100;  // Threshold for pagination
 
     public EnhancedAgentOrchestrator(
         IAgentServiceFactory serviceFactory,
         AgentConfig agentConfig,
         DatabaseConfig dbConfig,
-        ILogger<EnhancedAgentOrchestrator> logger)
+        ILogger<EnhancedAgentOrchestrator> logger,
+        PipelineResponseBuilder responseBuilder,
+        IIntentClassifier? intentClassifier = null,
+        IWritePipeline? writePipeline = null,
+        IDDLPipeline? ddlPipeline = null,
+        IForbiddenPipeline? forbiddenPipeline = null,
+        ISchemaCache? schemaCache = null,
+        IQueryResultCache? queryResultCache = null)
     {
         _serviceFactory = serviceFactory;
         _agentConfig = agentConfig;
         _dbConfig = dbConfig;
         _logger = logger;
+        _responseBuilder = responseBuilder;
+        _intentClassifier = intentClassifier;
+        _writePipeline = writePipeline;
+        _ddlPipeline = ddlPipeline;
+        _forbiddenPipeline = forbiddenPipeline;
+        _schemaCache = schemaCache;
+        _queryResultCache = queryResultCache;
 
         _logger.LogInformation("[EnhancedAgent] Initialized with lazy loading (fast startup mode)");
+
+        if (_intentClassifier != null)
+        {
+            _logger.LogInformation("[EnhancedAgent] Intent-based routing ENABLED (WRITE/DDL/FORBIDDEN pipelines available)");
+        }
+
+        if (_queryResultCache != null)
+        {
+            _logger.LogInformation("[EnhancedAgent] Query result caching ENABLED (pagination support)");
+        }
     }
 
     /// <summary>
     /// Process query with full agentic capabilities
+    /// NOW WITH INTENT-BASED ROUTING: Automatically routes to WRITE/DDL/FORBIDDEN pipelines when needed
     /// </summary>
     public async Task<AgentResponse> ProcessQueryAsync(
         string userQuestion,
@@ -65,6 +102,155 @@ public class EnhancedAgentOrchestrator
             if (conversationHistory?.Any() == true)
             {
                 _logger.LogInformation("[EnhancedAgent] 💬 Using conversation history: {Count} messages", conversationHistory.Count);
+            }
+
+            // ====================================
+            // STEP -1: INTENT CLASSIFICATION (NEW!)
+            // Route to appropriate pipeline BEFORE processing
+            // ====================================
+            if (_intentClassifier != null)
+            {
+                steps.Add("Step -1: Intent classification and routing");
+
+                try
+                {
+                    _logger.LogInformation("[EnhancedAgent] 🎯 Classifying intent for routing");
+
+                    var conversationContext = BuildConversationContext(conversationHistory);
+
+                    // WARNING FIX 3: Build database context for better entity extraction
+                    var databaseContext = _cachedSchema != null
+                        ? string.Join(", ", _cachedSchema.Tables.Take(20).Select(t => t.TableName))
+                        : "";
+
+                    if (string.IsNullOrEmpty(databaseContext))
+                    {
+                        try
+                        {
+                            // Try to load schema for context (but don't fail if it doesn't work)
+                            await EnsureSchemaLoadedAsync(steps, cancellationToken);
+                            databaseContext = _cachedSchema != null
+                                ? string.Join(", ", _cachedSchema.Tables.Take(20).Select(t => t.TableName))
+                                : "";
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "[EnhancedAgent] Could not load schema for context, proceeding without it");
+                        }
+                    }
+
+                    var intentResult = await _intentClassifier.ClassifyAsync(
+                        userQuestion,
+                        conversationContext,
+                        databaseContext,
+                        cancellationToken);
+
+                    _logger.LogInformation(
+                        "[EnhancedAgent] Intent: {Intent} → Route: {Route} (confidence: {Confidence:P0})",
+                        intentResult.Intent,
+                        intentResult.Route,
+                        intentResult.Confidence);
+
+                    // Route to specialized pipelines if needed
+                    switch (intentResult.Route)
+                    {
+                        case PipelineRoute.Write:
+                            _logger.LogInformation("[EnhancedAgent] → Detected WRITE operation: {Intent}", intentResult.Intent);
+
+                            // CRITICAL FIX 1: Return early for Write operations, don't fall through to Query pipeline
+                            response.Success = true;
+                            response.Answer = "⚠️ Đây là thao tác ghi dữ liệu (INSERT/UPDATE). Vui lòng sử dụng Write pipeline endpoint để thực hiện thao tác này.";
+                            response.ProcessingSteps = steps;
+                            response.Metadata = new Dictionary<string, object>
+                            {
+                                ["pipeline"] = "WRITE",
+                                ["intent"] = intentResult.Intent.ToString(),
+                                ["isWriteOperation"] = true,
+                                ["requiresConfirmation"] = true,
+                                ["detectedEntities"] = intentResult.DetectedEntities,
+                                ["suggestedEndpoint"] = "/api/write/preview"
+                            };
+                            return response; // ← STOP HERE, don't continue to Query pipeline
+
+                        case PipelineRoute.Ddl:
+                            _logger.LogInformation("[EnhancedAgent] → Detected DDL operation: {Intent}", intentResult.Intent);
+
+                            // CRITICAL FIX 1: Return early for DDL operations, don't fall through to Query pipeline  
+                            response.Success = true;
+                            response.Answer = "⚠️ Đây là thao tác DDL (CREATE/ALTER/DROP). Vui lòng sử dụng DDL pipeline endpoint để thực hiện thao tác này.";
+                            response.ProcessingSteps = steps;
+                            response.Metadata = new Dictionary<string, object>
+                            {
+                                ["pipeline"] = "DDL",
+                                ["intent"] = intentResult.Intent.ToString(),
+                                ["isDdlOperation"] = true,
+                                ["requiresConfirmation"] = true,
+                                ["detectedEntities"] = intentResult.DetectedEntities,
+                                ["suggestedEndpoint"] = "/api/ddl/preview"
+                            };
+                            return response; // ← STOP HERE, don't continue to Query pipeline
+
+                        case PipelineRoute.Forbidden:
+                            _logger.LogWarning("[EnhancedAgent] → FORBIDDEN operation detected: {Reason}", intentResult.ForbiddenReason);
+
+                            if (_forbiddenPipeline != null)
+                            {
+                                var forbiddenResult = await _forbiddenPipeline.RejectAsync(
+                                    userQuestion,
+                                    intentResult,
+                                    cancellationToken);
+
+                                // ✅ Return as SUCCESS (not error) with friendly message
+                                response.Success = true; // Not an error, just a policy rejection
+                                response.Answer = forbiddenResult.UserFacingMessage;
+                                response.ProcessingSteps = steps;
+
+                                // Add metadata for frontend to render special UI
+                                response.Metadata = new Dictionary<string, object>
+                                {
+                                    ["isForbidden"] = true,
+                                    ["forbiddenReason"] = forbiddenResult.RejectionReason,
+                                    ["safeAlternatives"] = forbiddenResult.SafeAlternatives,
+                                    ["detectedPatterns"] = forbiddenResult.DetectedPatterns ?? new List<string>()
+                                };
+
+                                return response;
+                            }
+                            break;
+
+                        case PipelineRoute.Reject:
+                            _logger.LogInformation("[EnhancedAgent] → Query rejected: {Reason}", intentResult.Reasoning);
+
+                            var rejectMessage = intentResult.Intent switch
+                            {
+                                IntentCategory.OffTopic => "I'm a database assistant. I can only help with database-related questions.",
+                                IntentCategory.Unknown => "I couldn't understand your request. Please be more specific about what you want to do with the database.",
+                                _ => "I cannot process this request."
+                            };
+
+                            response.Success = false;
+                            response.Answer = rejectMessage;
+                            response.ErrorMessage = rejectMessage;
+                            response.ProcessingSteps = steps;
+
+                            return response;
+
+                        case PipelineRoute.Query:
+                        default:
+                            _logger.LogInformation("[EnhancedAgent] → Routing to QUERY pipeline (SELECT)");
+                            // Continue to normal QUERY processing below
+                            break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[EnhancedAgent] Intent classification failed, falling back to QUERY pipeline");
+                    // Continue to normal QUERY processing
+                }
+            }
+            else
+            {
+                _logger.LogDebug("[EnhancedAgent] Intent classifier not available, using QUERY pipeline only");
             }
 
             // Get services on-demand (lazy loading)
@@ -1183,5 +1369,359 @@ public class EnhancedAgentOrchestrator
             TableNames = schema.Tables.Select(t => t.TableName).OrderBy(n => n).ToList()
         };
     }
-}
 
+    // ═══════════════════════════════════════════════════════════════
+    // NEW: INTENT-BASED ROUTING (PHASE 1)
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Process message with intent-based routing to appropriate pipeline
+    /// Routes to: QUERY (existing), WRITE (new), DDL (new), or FORBIDDEN (new)
+    /// </summary>
+    public async Task<UnifiedPipelineResponse> ProcessMessageWithIntentRoutingAsync(
+        string userQuestion,
+        string connectionId,
+        string? conversationId = null,
+        List<Message>? conversationHistory = null,
+        CancellationToken cancellationToken = default)
+    {
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        _logger.LogInformation("[EnhancedAgent] 🎯 Processing with intent-based routing");
+
+        // Check if intent routing is enabled
+        if (_intentClassifier == null)
+        {
+            _logger.LogWarning("[EnhancedAgent] Intent classifier not available, falling back to QUERY pipeline");
+            var queryResponse = await ProcessQueryAsync(userQuestion, conversationId, conversationHistory, cancellationToken);
+            return _responseBuilder.BuildQueryResponse(queryResponse, null, stopwatch);
+        }
+
+        try
+        {
+            // Step 1: Classify intent
+            _logger.LogInformation("[EnhancedAgent] Step 1: Classifying intent");
+
+            var conversationContext = BuildConversationContext(conversationHistory);
+            var databaseContext = await BuildDatabaseContextAsync(connectionId, cancellationToken);
+
+            var intentResult = await _intentClassifier.ClassifyAsync(
+                userQuestion,
+                conversationContext,
+                databaseContext,
+                cancellationToken);
+
+            _logger.LogInformation(
+                "[EnhancedAgent] Intent classified: {Intent} → Route: {Route} (confidence: {Confidence:P0})",
+                intentResult.Intent,
+                intentResult.Route,
+                intentResult.Confidence);
+
+            // Step 2: Route to appropriate pipeline
+            return intentResult.Route switch
+            {
+                PipelineRoute.Query => await RouteToQueryPipelineAsync(
+                    userQuestion, conversationId, conversationHistory, intentResult, stopwatch, cancellationToken),
+
+                PipelineRoute.Write => await RouteToWritePipelineAsync(
+                    userQuestion, connectionId, conversationId, intentResult, stopwatch, cancellationToken),
+
+                PipelineRoute.Ddl => await RouteToDDLPipelineAsync(
+                    userQuestion, connectionId, conversationId, intentResult, stopwatch, cancellationToken),
+
+                PipelineRoute.Forbidden => await RoutToForbiddenPipeline(
+                    userQuestion, intentResult, stopwatch, cancellationToken),
+
+                PipelineRoute.Reject => CreateRejectionResponse(intentResult, stopwatch),
+
+                _ => throw new NotSupportedException($"Unknown pipeline route: {intentResult.Route}")
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[EnhancedAgent] Error in intent-based routing");
+            return _responseBuilder.BuildErrorResponse(ex, PipelineType.Query);
+        }
+    }
+
+    private string BuildConversationContext(List<Message>? conversationHistory)
+    {
+        if (conversationHistory == null || !conversationHistory.Any())
+            return string.Empty;
+
+        var context = new System.Text.StringBuilder();
+        context.AppendLine("Recent conversation:");
+
+        foreach (var msg in conversationHistory.TakeLast(5))
+        {
+            context.AppendLine($"{msg.Role}: {msg.Content}");
+        }
+
+        return context.ToString();
+    }
+
+    /// <summary>
+    /// Ensure schema is loaded for the connection. Auto-scan if cache miss.
+    /// </summary>
+    private async Task<DatabaseSchema?> EnsureSchemaLoadedAsync(string connectionId, CancellationToken ct)
+    {
+        try
+        {
+            // Try cache first
+            var schema = await _schemaCache?.GetAsync(connectionId, ct)!;
+            if (schema != null)
+            {
+                _logger.LogDebug("[Schema] Cache hit for connection {ConnectionId}", connectionId);
+                return schema;
+            }
+
+            // Cache miss - scan now
+            _logger.LogWarning("[Schema] Cache miss for {ConnectionId}, initiating auto-scan", connectionId);
+
+            var schemaScanner = _serviceFactory.GetSchemaScanner();
+            schema = await schemaScanner.ScanAsync(ct);
+
+            if (schema == null)
+            {
+                _logger.LogError("[Schema] Failed to scan schema for {ConnectionId}", connectionId);
+                return null;
+            }
+
+            // Save to cache
+            await _schemaCache?.SetAsync(connectionId, schema, ct)!;
+            _logger.LogInformation("[Schema] Auto-scanned and cached {TableCount} tables for {ConnectionId}",
+                schema.Tables.Count, connectionId);
+
+            return schema;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Schema] Error loading schema for {ConnectionId}", connectionId);
+            return null;
+        }
+    }
+
+    private async Task<string> BuildDatabaseContextAsync(string connectionId, CancellationToken ct)
+    {
+        try
+        {
+            var schema = await EnsureSchemaLoadedAsync(connectionId, ct);
+
+            if (schema == null)
+            {
+                _logger.LogError("[Schema] Cannot build database context - schema is null for {ConnectionId}", connectionId);
+                return string.Empty;
+            }
+
+            // Build rich context with table and column info
+            var context = new System.Text.StringBuilder();
+            context.AppendLine($"Total Tables: {schema.Tables.Count}");
+            context.AppendLine();
+            context.AppendLine("Available Tables:");
+
+            foreach (var table in schema.Tables.Take(15))
+            {
+                context.AppendLine($"  • {table.TableName} ({table.Columns.Count} columns)");
+
+                // Add key columns for better intent classification
+                var keyColumns = table.Columns.Take(5).Select(c => c.ColumnName);
+                context.AppendLine($"    Columns: {string.Join(", ", keyColumns)}");
+            }
+
+            if (schema.Tables.Count > 15)
+            {
+                context.AppendLine($"  ... and {schema.Tables.Count - 15} more tables");
+            }
+
+            return context.ToString();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Schema] Error building database context");
+            return string.Empty;
+        }
+    }
+
+    private async Task<UnifiedPipelineResponse> RouteToQueryPipelineAsync(
+        string userQuestion,
+        string? conversationId,
+        List<Message>? conversationHistory,
+        IntentClassificationResult intentResult,
+        System.Diagnostics.Stopwatch stopwatch,
+        CancellationToken ct)
+    {
+        _logger.LogInformation("[EnhancedAgent] → Routing to QUERY pipeline");
+        var queryResponse = await ProcessQueryAsync(userQuestion, conversationId, conversationHistory, ct);
+
+        // ✅ Check if result needs pagination
+        var rowCount = queryResponse.QueryResult?.RowCount ?? 0;
+        string? resultId = null;
+        bool hasMore = false;
+
+        if (rowCount > MaxRowsBeforePagination && _queryResultCache != null)
+        {
+            _logger.LogInformation(
+                "[EnhancedAgent] Large result set ({RowCount} rows), enabling pagination",
+                rowCount);
+
+            // Cache full result
+            resultId = await _queryResultCache.CacheResultAsync(
+                queryResponse.QueryResult!,
+                _dbConfig.ConnectionString ?? string.Empty,
+                conversationId,
+                TimeSpan.FromMinutes(10),
+                ct);
+
+            // Return only first page
+            var firstPage = queryResponse.QueryResult!.Rows
+                .Take(DefaultPageSize)
+                .ToList();
+
+            var originalResult = queryResponse.QueryResult;
+            queryResponse.QueryResult = new SqlExecutionResult
+            {
+                Rows = firstPage,
+                Columns = originalResult.Columns,
+                Success = originalResult.Success,
+                ExecutionTimeMs = originalResult.ExecutionTimeMs,
+                RowsAffected = originalResult.RowsAffected,
+                ErrorMessage = originalResult.ErrorMessage,
+                ErrorDetails = originalResult.ErrorDetails
+            };
+
+            hasMore = rowCount > DefaultPageSize;
+
+            _logger.LogInformation(
+                "[EnhancedAgent] Returning first page ({PageSize} rows), cached as {ResultId}",
+                DefaultPageSize, resultId);
+        }
+
+        return _responseBuilder.BuildQueryResponse(
+            queryResponse,
+            intentResult,
+            stopwatch,
+            resultId,
+            hasMore);
+    }
+
+    private async Task<UnifiedPipelineResponse> RouteToWritePipelineAsync(
+        string userQuestion,
+        string connectionId,
+        string? conversationId,
+        IntentClassificationResult intentResult,
+        System.Diagnostics.Stopwatch stopwatch,
+        CancellationToken ct)
+    {
+        _logger.LogInformation("[EnhancedAgent] → Routing to WRITE pipeline");
+
+        if (_writePipeline == null)
+        {
+            _logger.LogWarning("[EnhancedAgent] WRITE pipeline not available");
+            return _responseBuilder.BuildErrorResponse(
+                new InvalidOperationException("WRITE pipeline not configured"),
+                PipelineType.Write,
+                intentResult);
+        }
+
+        var request = new WriteOperationRequest
+        {
+            Question = userQuestion,
+            ConnectionId = connectionId,
+            ConversationId = conversationId,
+            IsConfirmed = false, // Always require confirmation
+            PreResolvedEntities = intentResult.DetectedEntities // FIX 1: Pass entities from IntentClassifier
+        };
+
+        var preview = await _writePipeline.GeneratePreviewAsync(request, ct);
+        return _responseBuilder.BuildWritePreviewResponse(preview, intentResult, stopwatch);
+    }
+
+    private async Task<UnifiedPipelineResponse> RouteToDDLPipelineAsync(
+        string userQuestion,
+        string connectionId,
+        string? conversationId,
+        IntentClassificationResult intentResult,
+        System.Diagnostics.Stopwatch stopwatch,
+        CancellationToken ct)
+    {
+        _logger.LogInformation("[EnhancedAgent] → Routing to DDL pipeline");
+
+        if (_ddlPipeline == null)
+        {
+            _logger.LogWarning("[EnhancedAgent] DDL pipeline not available");
+            return _responseBuilder.BuildErrorResponse(
+                new InvalidOperationException("DDL pipeline not configured"),
+                PipelineType.Ddl,
+                intentResult);
+        }
+
+        var request = new DDLOperationRequest
+        {
+            Question = userQuestion,
+            ConnectionId = connectionId,
+            ConversationId = conversationId,
+            IsConfirmed = false // Always require confirmation
+        };
+
+        var preview = await _ddlPipeline.GeneratePreviewAsync(request, ct);
+        return _responseBuilder.BuildDdlPreviewResponse(preview, intentResult, stopwatch);
+    }
+
+    private async Task<UnifiedPipelineResponse> RoutToForbiddenPipeline(
+        string userQuestion,
+        IntentClassificationResult intentResult,
+        System.Diagnostics.Stopwatch stopwatch,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogWarning("[EnhancedAgent] → Routing to FORBIDDEN pipeline (BLOCKED)");
+
+        if (_forbiddenPipeline == null)
+        {
+            // Fallback if pipeline not configured
+            var fallbackResult = new ForbiddenOperationResult
+            {
+                IsBlocked = true,
+                OriginalQuestion = userQuestion,
+                RejectionReason = intentResult.ForbiddenReason ?? "This operation is not allowed",
+                DetectedPatterns = intentResult.MatchedKeywords,
+                SafeAlternatives = intentResult.SafeAlternatives,
+                UserFacingMessage = "This operation is not allowed",
+                IntentClassification = intentResult
+            };
+
+            return _responseBuilder.BuildForbiddenResponse(fallbackResult, intentResult, stopwatch);
+        }
+
+        var result = await _forbiddenPipeline.RejectAsync(
+            userQuestion,
+            intentResult,
+            cancellationToken);
+
+        return _responseBuilder.BuildForbiddenResponse(result, intentResult, stopwatch);
+    }
+
+    private UnifiedPipelineResponse CreateRejectionResponse(
+        IntentClassificationResult intentResult,
+        System.Diagnostics.Stopwatch stopwatch)
+    {
+        // Detect language from normalized query
+        var isVietnamese = !string.IsNullOrEmpty(intentResult.NormalizedQuery) &&
+            intentResult.NormalizedQuery.Any(c =>
+                "àáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ".Contains(c));
+
+        var message = (intentResult.Intent, isVietnamese) switch
+        {
+            (IntentCategory.OffTopic, false) =>
+                "I'm a database assistant. I can only help with database-related questions.",
+            (IntentCategory.OffTopic, true) =>
+                "Tôi là trợ lý database. Tôi chỉ có thể giúp các câu hỏi liên quan đến cơ sở dữ liệu.",
+            (IntentCategory.Unknown, false) =>
+                "I couldn't understand your request. Please be more specific about what you want to do with the database.",
+            (IntentCategory.Unknown, true) =>
+                "Tôi không hiểu yêu cầu của bạn. Vui lòng nói rõ hơn về việc bạn muốn làm với database.",
+            _ =>
+                isVietnamese ? "Tôi không thể xử lý yêu cầu này." : "I cannot process this request."
+        };
+
+        return _responseBuilder.BuildRejectionResponse(intentResult, message, stopwatch);
+    }
+}

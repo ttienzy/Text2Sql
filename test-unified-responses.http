@@ -1,0 +1,460 @@
+### ============================================================================
+### TEST UNIFIED RESPONSE FORMAT - Manual Testing Guide
+### ============================================================================
+### Mục đích: Test UnifiedPipelineResponse structure cho tất cả pipelines
+### Yêu cầu: 
+###   - API đang chạy trên localhost:5251
+###   - SQL Server test database (TextToSqlTest) đang chạy
+### ============================================================================
+
+@baseUrl = http://localhost:5251
+@token = {{login.response.body.accessToken}}
+@connectionId = {{createConnection.response.body.id}}
+
+###############################################################################
+# BƯỚC 1: SETUP - Authentication và Connection
+###############################################################################
+
+### 1.1. Register user (nếu chưa có)
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+
+{
+  "email": "test@example.com",
+  "password": "Test123!",
+  "fullName": "Test User"
+}
+
+### 1.2. Login để lấy JWT token
+# @name login
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "test@example.com",
+  "password": "Test123!"
+}
+
+### 1.3. Tạo test connection
+# @name createConnection
+POST {{baseUrl}}/api/connections
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "name": "Test SQL Server",
+  "provider": "SqlServer",
+  "host": "localhost",
+  "port": 1433,
+  "database": "TextToSqlTest",
+  "username": "sa",
+  "password": "Test@Pass123!",
+  "trustServerCertificate": true
+}
+
+### 1.4. Verify connection được tạo
+GET {{baseUrl}}/api/connections
+Authorization: Bearer {{token}}
+
+###############################################################################
+# BƯỚC 2: TEST WRITE PIPELINE (INSERT/UPDATE)
+###############################################################################
+
+### 2.1. WRITE Preview - INSERT operation
+# Expected: UnifiedPipelineResponse với pipeline="Write", requiresConfirmation=true
+POST {{baseUrl}}/api/agent/write/preview
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "Add a new customer named John Doe with email john@example.com",
+  "connectionId": "{{connectionId}}",
+  "conversationId": "test-write-001"
+}
+
+# ✅ Kiểm tra response có:
+# - success: boolean
+# - schemaVersion: "1.0"
+# - pipeline: "Write"
+# - intent.type: "Insert"
+# - data.preview.sqlStatement: "INSERT INTO..."
+# - data.preview.targetTable: "Customers"
+# - requiresConfirmation: true
+# - execution.duration: "00:00:XX"
+
+### 2.2. WRITE Preview - UPDATE operation
+POST {{baseUrl}}/api/agent/write/preview
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "Update customer email to newemail@example.com where customer id is 1",
+  "connectionId": "{{connectionId}}",
+  "conversationId": "test-write-002"
+}
+
+# ✅ Kiểm tra:
+# - intent.type: "Update"
+# - data.preview.hasWhereClause: true
+# - data.preview.estimatedAffectedRows: 1
+
+### 2.3. WRITE Execute - Confirm và execute
+POST {{baseUrl}}/api/agent/write/execute
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "Add a new customer named Jane Smith with email jane@example.com",
+  "connectionId": "{{connectionId}}",
+  "conversationId": "test-write-003",
+  "confirmed": true,
+  "preview": {
+    "sqlStatement": "INSERT INTO Customers (FullName, Email) VALUES ('Jane Smith', 'jane@example.com')",
+    "operationType": "Insert",
+    "targetTable": "Customers"
+  }
+}
+
+# ✅ Kiểm tra:
+# - success: true
+# - data.result.actualAffectedRows: 1
+# - data.result.sqlExecuted: "INSERT INTO..."
+
+###############################################################################
+# BƯỚC 3: TEST DDL PIPELINE (CREATE INDEX, ALTER TABLE)
+###############################################################################
+
+### 3.1. DDL Preview - CREATE INDEX
+POST {{baseUrl}}/api/agent/ddl/preview
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "Create an index on customers email column",
+  "connectionId": "{{connectionId}}",
+  "conversationId": "test-ddl-001"
+}
+
+# ✅ Kiểm tra:
+# - pipeline: "Ddl"
+# - intent.type: "DdlIndex"
+# - data.preview.ddlScript: "CREATE INDEX..."
+# - data.preview.impact.estimatedStorageBytes: > 0
+# - requiresConfirmation: true
+
+### 3.2. DDL Preview - ALTER TABLE
+POST {{baseUrl}}/api/agent/ddl/preview
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "Add a new column 'PhoneNumber' to Customers table",
+  "connectionId": "{{connectionId}}",
+  "conversationId": "test-ddl-002"
+}
+
+# ✅ Kiểm tra:
+# - intent.type: "DdlAlter"
+# - data.preview.operationType: "AlterTable"
+# - data.preview.impact.warnings: array
+
+### 3.3. DDL Execute
+POST {{baseUrl}}/api/agent/ddl/execute
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "Create an index on customers city column",
+  "connectionId": "{{connectionId}}",
+  "conversationId": "test-ddl-003",
+  "confirmed": true,
+  "preview": {
+    "ddlScript": "CREATE INDEX IX_Customers_City ON Customers(City)",
+    "operationType": "CreateIndex",
+    "targetObject": "Customers"
+  }
+}
+
+# ✅ Kiểm tra:
+# - success: true
+# - data.result.ddlExecuted: "CREATE INDEX..."
+# - data.result.schemaCacheReloaded: true
+
+###############################################################################
+# BƯỚC 4: TEST QUERY PIPELINE (SELECT)
+###############################################################################
+
+### 4.1. Simple Query - List all customers
+POST {{baseUrl}}/api/v2/agent/process
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "Show me all customers",
+  "connectionId": "{{connectionId}}",
+  "conversationId": "test-query-001"
+}
+
+# ✅ Kiểm tra:
+# - pipeline: "Query"
+# - intent.type: "Query"
+# - data.answer: string
+# - data.queryResult.rows: array
+# - sqlGenerated: "SELECT..."
+# - requiresConfirmation: false
+
+### 4.2. Complex Query - JOIN with aggregation
+POST {{baseUrl}}/api/v2/agent/process
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "Show total order amount for each customer",
+  "connectionId": "{{connectionId}}",
+  "conversationId": "test-query-002"
+}
+
+# ✅ Kiểm tra:
+# - data.queryResult.rowCount: > 0
+# - data.suggestedQueries: array
+# - execution.tokensUsed: > 0
+
+### 4.3. Query with WHERE clause
+POST {{baseUrl}}/api/v2/agent/process
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "Find customers in New York",
+  "connectionId": "{{connectionId}}",
+  "conversationId": "test-query-003"
+}
+
+###############################################################################
+# BƯỚC 5: TEST FORBIDDEN PIPELINE (DELETE/DROP/TRUNCATE)
+###############################################################################
+
+### 5.1. DELETE all rows - Should be FORBIDDEN
+POST {{baseUrl}}/api/v2/agent/process
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "Delete all customers from the database",
+  "connectionId": "{{connectionId}}",
+  "conversationId": "test-forbidden-001"
+}
+
+# ✅ Kiểm tra:
+# - success: false
+# - pipeline: "Forbidden"
+# - intent.type: "Forbidden"
+# - data.result.isBlocked: true
+# - data.result.rejectionReason: string
+# - data.result.safeAlternatives: array
+# - error.code: "FORBIDDEN_OPERATION"
+
+### 5.2. DROP TABLE - Should be FORBIDDEN
+POST {{baseUrl}}/api/v2/agent/process
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "Drop the customers table",
+  "connectionId": "{{connectionId}}",
+  "conversationId": "test-forbidden-002"
+}
+
+# ✅ Kiểm tra:
+# - data.result.detectedPatterns: ["DROP TABLE"]
+# - data.result.safeAlternatives[0].title: string
+# - data.result.safeAlternatives[0].exampleSql: string
+
+### 5.3. TRUNCATE - Should be FORBIDDEN
+POST {{baseUrl}}/api/v2/agent/process
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "Truncate orders table",
+  "connectionId": "{{connectionId}}",
+  "conversationId": "test-forbidden-003"
+}
+
+###############################################################################
+# BƯỚC 6: TEST REJECT PIPELINE (OFF-TOPIC)
+###############################################################################
+
+### 6.1. Weather question - OFF-TOPIC
+POST {{baseUrl}}/api/v2/agent/process
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "What's the weather today?",
+  "connectionId": "{{connectionId}}",
+  "conversationId": "test-reject-001"
+}
+
+# ✅ Kiểm tra:
+# - success: false
+# - pipeline: "Reject"
+# - intent.type: "OffTopic"
+# - data.reason: "Question is not related to database"
+# - data.language: "en"
+# - error.code: "OFF_TOPIC"
+
+### 6.2. Cooking question - OFF-TOPIC
+POST {{baseUrl}}/api/v2/agent/process
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "How do I make pizza?",
+  "connectionId": "{{connectionId}}",
+  "conversationId": "test-reject-002"
+}
+
+### 6.3. Math question - OFF-TOPIC
+POST {{baseUrl}}/api/v2/agent/process
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "What is 2 + 2?",
+  "connectionId": "{{connectionId}}",
+  "conversationId": "test-reject-003"
+}
+
+###############################################################################
+# BƯỚC 7: TEST ERROR HANDLING
+###############################################################################
+
+### 7.1. Invalid connection ID
+POST {{baseUrl}}/api/agent/write/preview
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "Add a customer",
+  "connectionId": "invalid-connection-id",
+  "conversationId": "test-error-001"
+}
+
+# ✅ Kiểm tra:
+# - success: false
+# - error.code: string
+# - error.message: string
+
+### 7.2. Missing required field
+POST {{baseUrl}}/api/agent/write/preview
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "connectionId": "{{connectionId}}"
+}
+
+# ✅ Kiểm tra:
+# - HTTP 400 Bad Request
+
+### 7.3. Invalid SQL syntax
+POST {{baseUrl}}/api/v2/agent/process
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "SELECT * FROM NonExistentTable",
+  "connectionId": "{{connectionId}}",
+  "conversationId": "test-error-003"
+}
+
+###############################################################################
+# BƯỚC 8: TEST CONVERSATION CONTEXT
+###############################################################################
+
+### 8.1. First message - establish context
+POST {{baseUrl}}/api/v2/agent/process
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "Show me customers in New York",
+  "connectionId": "{{connectionId}}",
+  "conversationId": "test-context-001"
+}
+
+### 8.2. Follow-up with pronoun - should resolve context
+POST {{baseUrl}}/api/v2/agent/process
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "How many of them have orders?",
+  "connectionId": "{{connectionId}}",
+  "conversationId": "test-context-001"
+}
+
+# ✅ Kiểm tra:
+# - data.contextEntities: array (should contain "customers")
+# - data.pronounsResolved: true
+
+### 8.3. Another follow-up
+POST {{baseUrl}}/api/v2/agent/process
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "What is their total order amount?",
+  "connectionId": "{{connectionId}}",
+  "conversationId": "test-context-001"
+}
+
+###############################################################################
+# BƯỚC 9: PERFORMANCE TESTING
+###############################################################################
+
+### 9.1. Check execution metadata
+POST {{baseUrl}}/api/v2/agent/process
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "question": "Count all products",
+  "connectionId": "{{connectionId}}",
+  "conversationId": "test-perf-001"
+}
+
+# ✅ Kiểm tra execution metadata:
+# - execution.duration: "00:00:XX"
+# - execution.tokensUsed: number
+# - execution.llmCalls: number
+# - execution.fromCache: boolean
+# - execution.processingSteps: array
+# - execution.correctionAttempts: number
+
+###############################################################################
+# BƯỚC 10: CLEANUP (Optional)
+###############################################################################
+
+### 10.1. Delete test connection
+DELETE {{baseUrl}}/api/connections/{{connectionId}}
+Authorization: Bearer {{token}}
+
+###############################################################################
+# CHECKLIST - Verify tất cả responses có:
+###############################################################################
+# ✅ success: boolean
+# ✅ schemaVersion: "1.0"
+# ✅ pipeline: "Query" | "Write" | "Ddl" | "Forbidden" | "Reject"
+# ✅ processedAt: ISO 8601 timestamp
+# ✅ intent: { type, route, confidence, detectedEntities, matchedKeywords }
+# ✅ message: string
+# ✅ data: object (pipeline-specific)
+# ✅ sqlGenerated: string (optional)
+# ✅ requiresConfirmation: boolean
+# ✅ warnings: array
+# ✅ suggestions: array
+# ✅ error: { code, message } (optional)
+# ✅ execution: { duration, tokensUsed, llmCalls, fromCache, processingSteps }
+###############################################################################

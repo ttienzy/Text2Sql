@@ -3,15 +3,17 @@ import axios from '../axios';
 
 /**
  * Process a message using the Enhanced Agent Orchestrator
+ * NOW RETURNS: UnifiedPipelineResponse
+ * 
  * @param {Object} data - Request data
  * @param {string} data.connectionId - Database connection ID
  * @param {string} data.question - User question
  * @param {string} [data.conversationId] - Optional conversation ID
- * @returns {Promise} API response
+ * @returns {Promise<UnifiedPipelineResponse>} Unified pipeline response
  */
 export const processMessage = async (data) => {
     const response = await axios.post('/api/agent/process', data);
-    return response.data;
+    return response.data; // UnifiedPipelineResponse
 };
 
 /**

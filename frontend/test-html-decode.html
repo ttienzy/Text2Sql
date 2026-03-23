@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>HTML Entity Decode Test</title>
+</head>
+
+<body>
+    <h1>HTML Entity Decode Test</h1>
+
+    <h2>Input (with HTML entities):</h2>
+    <pre id="input"></pre>
+
+    <h2>Output (decoded):</h2>
+    <pre id="output"></pre>
+
+    <script>
+        // Test data with HTML entities
+        const testMessage = `⚠️ **Thao tác này không được phép**
+
+Bạn đang cố gắng xóa dữ liệu. Đây là các phương án thay thế:
+
+&#96;&#96;&#96;sql
+UPDATE users SET is_deleted = TRUE WHERE id = 1;
+&#96;&#96;&#96;
+
+**Lưu ý**: Sử dụng soft delete thay vì xóa vĩnh viễn.`;
+
+        // Decode function (same as in ForbiddenWarning)
+        const decodeHtmlEntities = (text) => {
+            const textarea = document.createElement('textarea');
+            textarea.innerHTML = text;
+            return textarea.value;
+        };
+
+        // Display input
+        document.getElementById('input').textContent = testMessage;
+
+        // Decode and display output
+        const decoded = decodeHtmlEntities(testMessage);
+        document.getElementById('output').textContent = decoded;
+
+        console.log('Input:', testMessage);
+        console.log('Decoded:', decoded);
+        console.log('Contains backticks:', decoded.includes('`'));
+    </script>
+</body>
+
+</html>

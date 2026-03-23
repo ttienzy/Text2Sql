@@ -1,0 +1,79 @@
+### CRITICAL FIX 1: Test Write Fall-through Fix
+# Expected: Write pipeline message, NOT Query result
+POST https://localhost:7189/api/agent/process
+Content-Type: application/json
+
+{
+  "question": "Insert a new user with email test@example.com",
+  "connectionId": "1c3011ef-38a0-42a3-87f7-f05e6004c4bb"
+}
+
+### CRITICAL FIX 2: Test Entity Extraction Fix
+# Expected: DetectedEntities = ["user"], NOT []
+POST https://localhost:7189/api/agent/process
+Content-Type: application/json
+
+{
+  "question": "Thêm user mới vào hệ thống",
+  "connectionId": "1c3011ef-38a0-42a3-87f7-f05e6004c4bb"
+}
+
+### CRITICAL FIX 3: Test Pattern Conflict Fix
+# Expected: Intent = Insert, NOT DDL_ALTER
+POST https://localhost:7189/api/agent/process
+Content-Type: application/json
+
+{
+  "question": "Thêm user mới",
+  "connectionId": "1c3011ef-38a0-42a3-87f7-f05e6004c4bb"
+}
+
+### Test DDL Still Works
+# Expected: Intent = DDL_ALTER (should still work)
+POST https://localhost:7189/api/agent/process
+Content-Type: application/json
+
+{
+  "question": "Thêm cột email vào bảng Users",
+  "connectionId": "1c3011ef-38a0-42a3-87f7-f05e6004c4bb"
+}
+
+### Test Normal Query Still Works
+# Expected: Query pipeline, table results
+POST https://localhost:7189/api/agent/process
+Content-Type: application/json
+
+{
+  "question": "Liệt kê tất cả đơn hàng",
+  "connectionId": "1c3011ef-38a0-42a3-87f7-f05e6004c4bb"
+}
+
+### Test Update Operation
+# Expected: Write pipeline message
+POST https://localhost:7189/api/agent/process
+Content-Type: application/json
+
+{
+  "question": "Cập nhật email của user id 5",
+  "connectionId": "1c3011ef-38a0-42a3-87f7-f05e6004c4bb"
+}
+
+### Test Specific Save Pattern (should be UPDATE)
+# Expected: Intent = Update
+POST https://localhost:7189/api/agent/process
+Content-Type: application/json
+
+{
+  "question": "Save user data to database",
+  "connectionId": "1c3011ef-38a0-42a3-87f7-f05e6004c4bb"
+}
+
+### Test Generic Save (should be QUERY)
+# Expected: Intent = Query (not Update)
+POST https://localhost:7189/api/agent/process
+Content-Type: application/json
+
+{
+  "question": "Save the report results",
+  "connectionId": "1c3011ef-38a0-42a3-87f7-f05e6004c4bb"
+}

@@ -2,10 +2,17 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 using TextToSqlAgent.API.DTOs;
 using TextToSqlAgent.API.Services;
 using TextToSqlAgent.API.Extensions;
 using TextToSqlAgent.API.Repositories;
+using TextToSqlAgent.Core.Interfaces;
+using TextToSqlAgent.Core.Models;
+using TextToSqlAgent.Infrastructure.Configuration;
+using TextToSqlAgent.Infrastructure.Database;
+using TextToSqlAgent.Infrastructure.RAG;
 
 namespace TextToSqlAgent.API.Controllers;
 
@@ -180,6 +187,60 @@ public class ConnectionsController : BaseController
 
             var userId = GetRequiredUserId();
             var result = await _connectionService.TestConnectionAsync(id, userId);
+
+            // ✅ P0 FIX: Auto-scan and cache schema after successful connection test
+            if (result.Success)
+            {
+                try
+                {
+                    _logger.LogInformation("[TestConnection] Connection successful, scanning schema for {ConnectionId}", id);
+
+                    // Get connection to extract connection string
+                    var connection = await _unitOfWork.Connections.GetByIdAndUserIdAsync(id, userId);
+                    if (connection != null)
+                    {
+                        var connectionString = _encryptionService.DecryptPassword(connection.ConnectionString, connection.Id);
+
+                        // Set database configuration temporarily for scanning
+                        var dbConfig = HttpContext.RequestServices.GetRequiredService<TextToSqlAgent.Infrastructure.Configuration.DatabaseConfig>();
+                        var originalConnectionString = dbConfig.ConnectionString;
+
+                        try
+                        {
+                            dbConfig.ConnectionString = connectionString;
+
+                            // Scan database schema
+                            var schemaScanner = HttpContext.RequestServices.GetRequiredService<TextToSqlAgent.Infrastructure.Database.SchemaScanner>();
+                            var schema = await schemaScanner.ScanAsync();
+
+                            if (schema != null && schema.Tables.Count > 0)
+                            {
+                                // Save to cache
+                                var schemaCache = HttpContext.RequestServices.GetRequiredService<TextToSqlAgent.Core.Interfaces.ISchemaCache>();
+                                await schemaCache.SetAsync(id, schema);
+
+                                _logger.LogInformation("[TestConnection] Scanned and cached {TableCount} tables for {ConnectionId}",
+                                    schema.Tables.Count, id);
+                            }
+                            else
+                            {
+                                _logger.LogWarning("[TestConnection] Schema scan returned no tables for {ConnectionId}", id);
+                            }
+                        }
+                        finally
+                        {
+                            // Restore original connection string
+                            dbConfig.ConnectionString = originalConnectionString;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Don't fail the test if schema scan fails - just log it
+                    _logger.LogError(ex, "[TestConnection] Failed to scan schema for {ConnectionId}, but connection test succeeded", id);
+                }
+            }
+
             return Ok(result);
         }
         catch (Exception ex)
@@ -292,6 +353,15 @@ public class ConnectionsController : BaseController
                         // Scan database schema
                         var schemaScanner = HttpContext.RequestServices.GetRequiredService<TextToSqlAgent.Infrastructure.Database.SchemaScanner>();
                         var schema = await schemaScanner.ScanAsync();
+
+                        // ✅ P0 FIX: Save schema to ISchemaCache for agent processing
+                        if (schema != null && schema.Tables.Count > 0)
+                        {
+                            var schemaCache = HttpContext.RequestServices.GetRequiredService<TextToSqlAgent.Core.Interfaces.ISchemaCache>();
+                            await schemaCache.SetAsync(id, schema);
+                            _logger.LogInformation("[TestEnhanced] Saved schema to cache: {TableCount} tables for {ConnectionId}",
+                                schema.Tables.Count, id);
+                        }
 
                         // Create schema fingerprint
                         var hash = System.Security.Cryptography.SHA256.HashData(
@@ -503,6 +573,72 @@ public class ConnectionsController : BaseController
     }
 
     /// <summary>
+    /// Refresh schema cache for a connection (user-triggered)
+    /// </summary>
+    [HttpPost("{id}/refresh-schema")]
+    public async Task<ActionResult<SchemaRefreshResult>> RefreshSchema(string id)
+    {
+        try
+        {
+            var userId = GetRequiredUserId();
+
+            // Verify connection exists and belongs to user
+            var connection = await _unitOfWork.Connections.GetByIdAndUserIdAsync(id, userId);
+            if (connection == null)
+            {
+                return NotFound(new { error = "Connection not found" });
+            }
+
+            _logger.LogInformation("[RefreshSchema] Refreshing schema for connection {ConnectionId}", id);
+
+            // Get connection string
+            var connectionString = _encryptionService.DecryptPassword(connection.ConnectionString, connection.Id);
+
+            // Set the database configuration temporarily for scanning
+            var dbConfig = HttpContext.RequestServices.GetRequiredService<DatabaseConfig>();
+            var originalConnectionString = dbConfig.ConnectionString;
+
+            try
+            {
+                dbConfig.ConnectionString = connectionString;
+
+                // Scan schema
+                var schemaScanner = HttpContext.RequestServices.GetRequiredService<SchemaScanner>();
+                var schema = await schemaScanner.ScanAsync();
+
+                if (schema == null || schema.Tables.Count == 0)
+                {
+                    return BadRequest(new { error = "Failed to scan database schema" });
+                }
+
+                // Save to cache
+                var schemaCache = HttpContext.RequestServices.GetRequiredService<ISchemaCache>();
+                await schemaCache.SetAsync(id, schema);
+
+                _logger.LogInformation("[RefreshSchema] Refreshed {TableCount} tables for connection {ConnectionId}",
+                    schema.Tables.Count, id);
+
+                return Ok(new SchemaRefreshResult
+                {
+                    Success = true,
+                    TableCount = schema.Tables.Count,
+                    RefreshedAt = DateTime.UtcNow
+                });
+            }
+            finally
+            {
+                // Restore original connection string
+                dbConfig.ConnectionString = originalConnectionString;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[RefreshSchema] Failed for connection {ConnectionId}", id);
+            return HandleException(ex, "refreshing schema");
+        }
+    }
+
+    /// <summary>
     /// Test a new connection (without saving)
     /// </summary>
     [HttpPost("test")]
@@ -565,4 +701,14 @@ public class SchemaIndexingResult
     public bool AutoIndexed { get; set; }
     public string? IndexingTime { get; set; }
     public string? ErrorMessage { get; set; }
+}
+
+/// <summary>
+/// Schema refresh result (user-triggered)
+/// </summary>
+public class SchemaRefreshResult
+{
+    public bool Success { get; set; }
+    public int TableCount { get; set; }
+    public DateTime RefreshedAt { get; set; }
 }

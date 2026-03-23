@@ -52,6 +52,21 @@ public class DbExplorerController : BaseController
     }
 
     /// <summary>
+    /// Test endpoint to verify controller is registered
+    /// </summary>
+    [HttpGet("test")]
+    [AllowAnonymous]
+    public IActionResult Test()
+    {
+        return Ok(new
+        {
+            message = "DbExplorer controller is working!",
+            timestamp = DateTime.UtcNow,
+            route = "api/db-explorer/test"
+        });
+    }
+
+    /// <summary>
     /// Validate connection access and return connection
     /// </summary>
     private async Task<(Connection? connection, IActionResult? errorResult)> ValidateConnectionAccessAsync(string connectionId)
@@ -324,11 +339,18 @@ public class DbExplorerController : BaseController
         [FromQuery] string? module = null,
         [FromQuery] string? search = null)
     {
+        _logger.LogInformation("[DbExplorer] GetTables called for connectionId: {ConnectionId}, role: {Role}, module: {Module}, search: {Search}",
+            connectionId, role, module, search);
+
         try
         {
             // Validate connection access
             var (connection, errorResult) = await ValidateConnectionAccessAsync(connectionId);
-            if (errorResult != null) return errorResult;
+            if (errorResult != null)
+            {
+                _logger.LogWarning("[DbExplorer] Connection validation failed for {ConnectionId}", connectionId);
+                return errorResult;
+            }
 
             // Get cached data
             var schema = _cache.GetCachedSchema(connectionId);
@@ -336,8 +358,12 @@ public class DbExplorerController : BaseController
 
             if (schema == null)
             {
+                _logger.LogWarning("[DbExplorer] No schema data available for {ConnectionId}", connectionId);
                 return NotFound(new { error = "No schema data available" });
             }
+
+            _logger.LogInformation("[DbExplorer] Found {TableCount} tables in schema for {ConnectionId}",
+                schema.EnhancedTables.Count, connectionId);
 
             // Filter tables
             var tables = schema.EnhancedTables.AsEnumerable();

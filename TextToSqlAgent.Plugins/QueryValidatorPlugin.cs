@@ -13,75 +13,90 @@ namespace TextToSqlAgent.Plugins;
 /// </summary>
 public class QueryValidatorPlugin
 {
-    private readonly ILLMClient _llmClient;
-    private readonly ILogger<QueryValidatorPlugin> _logger;
+  private readonly ILLMClient _llmClient;
+  private readonly ILogger<QueryValidatorPlugin> _logger;
 
-    public QueryValidatorPlugin(ILLMClient llmClient, ILogger<QueryValidatorPlugin> logger)
+  public QueryValidatorPlugin(ILLMClient llmClient, ILogger<QueryValidatorPlugin> logger)
+  {
+    _llmClient = llmClient;
+    _logger = logger;
+  }
+
+  [KernelFunction, Description("Validate if query is database-related")]
+  public async Task<QueryValidationResult> ValidateQueryAsync(
+      string question,
+      List<string> availableTables,
+      CancellationToken cancellationToken = default)
+  {
+    _logger.LogDebug("[QueryValidator] Validating query relevance...");
+
+    // ✅ FIX: If no tables available (schema not loaded), skip validation
+    // Assume query is relevant and let the pipeline handle it
+    if (availableTables == null || availableTables.Count == 0)
     {
-        _llmClient = llmClient;
-        _logger = logger;
+      _logger.LogDebug("[QueryValidator] No tables available (schema not loaded), assuming query is relevant");
+      return new QueryValidationResult
+      {
+        IsRelevant = true,
+        Confidence = 0.85,
+        QueryType = QueryType.DatabaseQuery,
+        Reason = "Schema not loaded yet, assuming database query",
+        NeedsClarification = false
+      };
     }
 
-    [KernelFunction, Description("Validate if query is database-related")]
-    public async Task<QueryValidationResult> ValidateQueryAsync(
-        string question,
-        List<string> availableTables,
-        CancellationToken cancellationToken = default)
+    var systemPrompt = BuildSystemPrompt();
+    var userPrompt = BuildUserPrompt(question, availableTables);
+
+    var response = await _llmClient.CompleteWithSystemPromptAsync(
+        systemPrompt,
+        userPrompt,
+        cancellationToken);
+
+    _logger.LogDebug("[QueryValidator] LLM Response: {Response}", response);
+
+    var jsonResponse = CleanJsonResponse(response);
+
+    try
     {
-        _logger.LogDebug("[QueryValidator] Validating query relevance...");
+      var result = JsonSerializer.Deserialize<QueryValidationResult>(
+          jsonResponse,
+          new JsonSerializerOptions
+          {
+            PropertyNameCaseInsensitive = true
+          });
 
-        var systemPrompt = BuildSystemPrompt();
-        var userPrompt = BuildUserPrompt(question, availableTables);
+      if (result == null)
+      {
+        throw new InvalidOperationException("Failed to deserialize validation result");
+      }
 
-        var response = await _llmClient.CompleteWithSystemPromptAsync(
-            systemPrompt,
-            userPrompt,
-            cancellationToken);
+      _logger.LogInformation(
+          "[QueryValidator] Query Type: {Type}, Relevant: {Relevant}, Confidence: {Confidence:P0}",
+          result.QueryType,
+          result.IsRelevant,
+          result.Confidence);
 
-        _logger.LogDebug("[QueryValidator] LLM Response: {Response}", response);
-
-        var jsonResponse = CleanJsonResponse(response);
-
-        try
-        {
-            var result = JsonSerializer.Deserialize<QueryValidationResult>(
-                jsonResponse,
-                new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                });
-
-            if (result == null)
-            {
-                throw new InvalidOperationException("Failed to deserialize validation result");
-            }
-
-            _logger.LogInformation(
-                "[QueryValidator] Query Type: {Type}, Relevant: {Relevant}, Confidence: {Confidence:P0}",
-                result.QueryType,
-                result.IsRelevant,
-                result.Confidence);
-
-            return result;
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogError(ex, "[QueryValidator] Failed to parse response: {Response}", jsonResponse);
-
-            // Fallback: assume it's relevant if we can't parse
-            return new QueryValidationResult
-            {
-                IsRelevant = true,
-                Confidence = 0.5,
-                QueryType = QueryType.DatabaseQuery,
-                Reason = "Failed to validate, assuming database query"
-            };
-        }
+      return result;
     }
-
-    private static string BuildSystemPrompt()
+    catch (JsonException ex)
     {
-        return @"
+      _logger.LogError(ex, "[QueryValidator] Failed to parse response: {Response}", jsonResponse);
+
+      // Fallback: assume it's relevant if we can't parse
+      return new QueryValidationResult
+      {
+        IsRelevant = true,
+        Confidence = 0.5,
+        QueryType = QueryType.DatabaseQuery,
+        Reason = "Failed to validate, assuming database query"
+      };
+    }
+  }
+
+  private static string BuildSystemPrompt()
+  {
+    return @"
 You are a query classification expert for a Text-to-SQL system.
 
 # YOUR MISSION
@@ -323,22 +338,22 @@ Output:
 # OUTPUT
 Return ONLY the JSON object, no explanations.
 ";
-    }
+  }
 
-    private static string BuildUserPrompt(string question, List<string> availableTables)
-    {
-        return $@"Available Tables: {string.Join(", ", availableTables)}
+  private static string BuildUserPrompt(string question, List<string> availableTables)
+  {
+    return $@"Available Tables: {string.Join(", ", availableTables)}
 
 User Question: ""{question}""
 
 Classify this query and respond with JSON only:";
-    }
+  }
 
-    private static string CleanJsonResponse(string response)
-    {
-        return response
-            .Replace("```json", "")
-            .Replace("```", "")
-            .Trim();
-    }
+  private static string CleanJsonResponse(string response)
+  {
+    return response
+        .Replace("```json", "")
+        .Replace("```", "")
+        .Trim();
+  }
 }

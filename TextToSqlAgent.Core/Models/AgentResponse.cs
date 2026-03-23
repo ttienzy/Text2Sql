@@ -55,4 +55,9 @@ public class AgentResponse
     /// Whether pronouns were detected and resolved
     /// </summary>
     public bool PronounsResolved { get; set; }
+
+    /// <summary>
+    /// Additional metadata for specialized responses (Forbidden, Write, DDL)
+    /// </summary>
+    public Dictionary<string, object>? Metadata { get; set; }
 }

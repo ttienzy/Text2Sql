@@ -24,6 +24,7 @@ import TokenInfo from './TokenInfo';
 import EnhancedMessageInfo from './EnhancedMessageInfo';
 import ConversationContextIndicator from './ConversationContextIndicator';
 import TableSchemaButton from './TableSchemaButton';
+import ForbiddenWarning from './ForbiddenWarning';
 import { escapeHtml } from '../../utils/security';
 import { extractErrorMessage, hasError } from '../../utils/errorHandler';
 import { renderTableLinks, extractTableNames } from '../../utils/tableLinksRenderer';
@@ -49,6 +50,12 @@ const MessageBubble = ({ message, onSuggestedQueryClick, tableNames = [] }) => {
   const isOptimistic = message.isOptimistic;
   const errorMessage = extractErrorMessage(message);
   const hasErrorState = hasError(message);
+
+  // Check pipeline type for conditional rendering
+  const pipeline = message.pipeline;
+  
+  // Check if this is a forbidden operation response
+  const isForbidden = pipeline === 'Forbidden';
 
   // Detect table names in message content
   const detectedTables = !isUser && message.content
@@ -148,14 +155,19 @@ const MessageBubble = ({ message, onSuggestedQueryClick, tableNames = [] }) => {
           backgroundColor: isUser ? '#f0f5ff' : '#ffffff',
           padding: '12px 16px',
           borderRadius: 8,
-          border: `1px solid ${hasErrorState ? '#ffccc7' : (isUser ? '#d6e4ff' : '#e8e8e8')}`,
+          border: `1px solid ${isForbidden ? '#ff4d4f' : (hasErrorState ? '#ffccc7' : (isUser ? '#d6e4ff' : '#e8e8e8'))}`,
           boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
           maxWidth: '80%',
           minWidth: 200,
         }}
       >
-        {/* Error message display */}
-        {hasErrorState && (
+        {/* Forbidden operation warning - Use Ant Design Alert */}
+        {isForbidden && message.content && (
+          <ForbiddenWarning message={message.content} />
+        )}
+
+        {/* Error message display - only for real errors, not forbidden */}
+        {hasErrorState && !isForbidden && (
           <div
             style={{
               marginBottom: 8,
@@ -181,7 +193,8 @@ const MessageBubble = ({ message, onSuggestedQueryClick, tableNames = [] }) => {
         )}
 
         {/* User/Assistant text content - with table links */}
-        {message.content && (
+        {/* Don't show content if it's forbidden (already shown in ForbiddenWarning) */}
+        {message.content && !isForbidden && (
           <div style={{ marginBottom: message.sqlQuery ? 12 : 0 }}>
             <Text style={{
               whiteSpace: 'pre-wrap',

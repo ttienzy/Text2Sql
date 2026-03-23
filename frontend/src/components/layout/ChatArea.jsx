@@ -5,6 +5,7 @@ import {
   Button,
   Tooltip,
   message,
+  Space,
 } from 'antd';
 import {
   RobotOutlined,
@@ -22,6 +23,7 @@ import useConnectionStore from '../../store/connectionStore';
 import { useMessagesQuery } from '../../api/messages';
 import { useUpdateConversationMutation } from '../../api/conversations';
 import { useProcessMessageMutation } from '../../api/agent';
+import { useRefreshSchemaMutation } from '../../api/connections';
 import { useQueryClient } from '@tanstack/react-query';
 import { conversationKeys } from '../../api/conversations/queries';
 import { useTablesQuery } from '../../api/dbExplorer';
@@ -97,7 +99,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
 
       return { userMessage };
     },
-    onSuccess: (data, variables, context) => {
+    onSuccess: (unifiedResponse, variables) => {
       // Clear current question
       setCurrentQuestion('');
 
@@ -113,23 +115,47 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
         createdAt: new Date().toISOString(),
       };
 
+      // Extract data from UnifiedPipelineResponse
+      let answer = unifiedResponse.message;
+      let sqlQuery = unifiedResponse.sqlGenerated;
+      let results = [];
+      let rowCount = 0;
+      let processingSteps = unifiedResponse.execution?.processingSteps || [];
+      let suggestedQueries = [];
+      let queryExplanation = null;
+
+      // Extract pipeline-specific data
+      if (unifiedResponse.data) {
+        if (unifiedResponse.pipeline === 'Query' && unifiedResponse.data.answer) {
+          answer = unifiedResponse.data.answer;
+          results = unifiedResponse.data.queryResult?.rows || [];
+          rowCount = unifiedResponse.data.queryResult?.rowCount || 0;
+          suggestedQueries = unifiedResponse.data.suggestedQueries || [];
+          queryExplanation = unifiedResponse.data.queryExplanation;
+        }
+      }
+
       // Create assistant message with rich content
       const assistantMessage = {
         id: `assistant-${Date.now()}`,
         conversationId: currentConversation?.id,
         role: 'assistant',
-        content: data.answer || 'Query processed successfully',
-        sqlQuery: data.sqlGenerated,
-        results: data.queryResult?.rows || [],
-        rowCount: data.queryResult?.rowCount || 0,
-        processingSteps: data.processingSteps || [],
-        suggestedQueries: data.suggestedQueries || [],
-        correctionHistory: data.correctionHistory || [],
-        wasCorrected: data.wasCorrected || false,
-        queryExplanation: data.queryExplanation,
+        content: answer,
+        sqlQuery: sqlQuery,
+        results: results,
+        rowCount: rowCount,
+        processingSteps: processingSteps,
+        suggestedQueries: suggestedQueries,
+        correctionHistory: [],
+        wasCorrected: unifiedResponse.execution?.wasCorrected || false,
+        queryExplanation: queryExplanation,
         createdAt: new Date().toISOString(),
-        success: data.success,
-        errorMessage: data.errorMessage,
+        success: unifiedResponse.success,
+        errorMessage: unifiedResponse.error?.message,
+        // ✅ Include unified response fields
+        pipeline: unifiedResponse.pipeline,
+        intent: unifiedResponse.intent,
+        requiresConfirmation: unifiedResponse.requiresConfirmation,
       };
 
       setMessages([...filteredMessages, userMessage, assistantMessage]);
@@ -150,7 +176,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
 
       message.success('Query executed successfully');
     },
-    onError: (error, variables, context) => {
+    onError: (error) => {
       // Clear current question
       setCurrentQuestion('');
 
@@ -158,10 +184,46 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
       const filteredMessages = messages.filter(m => !m.isOptimistic && !m.isPending);
       setMessages(filteredMessages);
 
+      // ✅ P1: Handle SCHEMA_NOT_LOADED error with actionable UI
+      if (error.response?.data?.error === 'SCHEMA_NOT_LOADED') {
+        const schemaError = error.response.data;
+        message.error({
+          content: (
+            <div>
+              <div style={{ marginBottom: 8 }}>{schemaError.message}</div>
+              <div style={{ fontSize: '12px', color: '#666', marginBottom: 8 }}>{schemaError.suggestion}</div>
+              <Button
+                type="primary"
+                size="small"
+                loading={refreshSchemaMutation.isPending}
+                onClick={() => {
+                  if (activeConnection?.id) {
+                    refreshSchemaMutation.mutate(activeConnection.id, {
+                      onSuccess: () => {
+                        message.success('Schema refreshed! Try your query again.');
+                      }
+                    });
+                  } else {
+                    navigate('/connections');
+                  }
+                }}
+              >
+                {refreshSchemaMutation.isPending ? 'Refreshing...' : 'Refresh Schema'}
+              </Button>
+            </div>
+          ),
+          duration: 10,
+        });
+        return;
+      }
+
       const errorMsg = error.response?.data?.message || error.message || 'Failed to process message';
       message.error(errorMsg);
     },
   });
+
+  // Refresh schema mutation for SCHEMA_NOT_LOADED errors
+  const refreshSchemaMutation = useRefreshSchemaMutation();
 
   // Update conversation title mutation
   const updateTitleMutation = useUpdateConversationMutation({

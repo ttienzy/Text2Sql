@@ -1,3 +1,5 @@
+using TextToSqlAgent.Core.Models;
+
 namespace TextToSqlAgent.Application.Routing;
 
 /// <summary>
@@ -34,20 +36,4 @@ public class QueryClassifierResult
     /// Classification method used
     /// </summary>
     public ClassificationMethod Method { get; set; }
-}
-
-/// <summary>
-/// Method used for classification
-/// </summary>
-public enum ClassificationMethod
-{
-    /// <summary>
-    /// Rule-based keyword matching (fast, no LLM)
-    /// </summary>
-    RuleBased,
-
-    /// <summary>
-    /// LLM-based classification (slower, more accurate for ambiguous cases)
-    /// </summary>
-    LLMBased
 }
