@@ -244,7 +244,7 @@ namespace TextToSqlAgent.Infrastructure.Migrations
                     b.HasIndex("UserId")
                         .HasDatabaseName("IX_AgentJob_UserId");
 
-                    b.ToTable("AgentJobs");
+                    b.ToTable("AgentJobs", (string)null);
                 });
 
             modelBuilder.Entity("TextToSqlAgent.Infrastructure.Entities.ApplicationUser", b =>
@@ -404,7 +404,7 @@ namespace TextToSqlAgent.Infrastructure.Migrations
                     b.HasIndex("UserId", "IsDefault")
                         .HasDatabaseName("IX_Connection_UserId_IsDefault");
 
-                    b.ToTable("Connections");
+                    b.ToTable("Connections", (string)null);
                 });
 
             modelBuilder.Entity("TextToSqlAgent.Infrastructure.Entities.Conversation", b =>
@@ -454,7 +454,7 @@ namespace TextToSqlAgent.Infrastructure.Migrations
                     b.HasIndex("UserId", "IsArchived")
                         .HasDatabaseName("IX_Conversation_UserId_IsArchived");
 
-                    b.ToTable("Conversations");
+                    b.ToTable("Conversations", (string)null);
                 });
 
             modelBuilder.Entity("TextToSqlAgent.Infrastructure.Entities.DatabaseSchema", b =>
@@ -533,7 +533,7 @@ namespace TextToSqlAgent.Infrastructure.Migrations
 
                     b.HasIndex("ConnectionId", "TableName", "ColumnName");
 
-                    b.ToTable("DatabaseSchemas");
+                    b.ToTable("DatabaseSchemas", (string)null);
                 });
 
             modelBuilder.Entity("TextToSqlAgent.Infrastructure.Entities.Message", b =>
@@ -621,7 +621,7 @@ namespace TextToSqlAgent.Infrastructure.Migrations
 
                     b.HasIndex("CreatedAt");
 
-                    b.ToTable("Messages");
+                    b.ToTable("Messages", (string)null);
                 });
 
             modelBuilder.Entity("TextToSqlAgent.Infrastructure.Entities.RefreshToken", b =>
@@ -674,7 +674,7 @@ namespace TextToSqlAgent.Infrastructure.Migrations
                     b.HasIndex("UserId")
                         .HasDatabaseName("IX_RefreshToken_UserId");
 
-                    b.ToTable("RefreshTokens");
+                    b.ToTable("RefreshTokens", (string)null);
                 });
 
             modelBuilder.Entity("TextToSqlAgent.Infrastructure.Entities.TokenUsage", b =>
@@ -723,7 +723,7 @@ namespace TextToSqlAgent.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("TokenUsages");
+                    b.ToTable("TokenUsages", (string)null);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
