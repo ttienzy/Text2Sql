@@ -102,8 +102,9 @@ export const useAgentQuery = () => {
     setConnectionState(ConnectionState.CONNECTING);
 
     try {
-      // Get auth token from localStorage
-      const token = localStorage.getItem('tts_access_token');
+      // Get auth token from store (CRIT-4: memory-only, not localStorage)
+      const { default: useAuthStore } = await import('../store/authStore');
+      const token = useAuthStore.getState().accessToken;
       if (!token) {
         throw new Error('Authentication required. Please log in.');
       }
@@ -207,8 +208,9 @@ export const useAgentQuery = () => {
     setConnectionState(ConnectionState.STREAMING);
 
     try {
-      // Get auth token from localStorage
-      const token = localStorage.getItem('tts_access_token');
+      // Get auth token from store (CRIT-4: memory-only, not localStorage)
+      const { default: useAuthStore } = await import('../store/authStore');
+      const token = useAuthStore.getState().accessToken;
       if (!token) {
         throw new Error('Authentication required. Please log in.');
       }
@@ -218,7 +220,7 @@ export const useAgentQuery = () => {
 
       // Use streaming API endpoint
       const response = await fetch(
-        `${API_BASE_URL}${API_ENDPOINTS.AGENT}/stream-query`,
+        `${API_BASE_URL}/api/v2/agent/process/stream`,
         {
           method: 'POST',
           headers: {

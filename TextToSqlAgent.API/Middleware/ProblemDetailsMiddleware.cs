@@ -42,6 +42,8 @@ public class ProblemDetailsMiddleware
         context.Response.ContentType = "application/problem+json";
 
         var traceId = context.TraceIdentifier;
+        // ✅ IMP-5: Propagate correlationId into every error response
+        var correlationId = context.Items.TryGetValue("CorrelationId", out var cid) ? cid?.ToString() ?? traceId : traceId;
 
         ProblemDetails problemDetails;
 
@@ -55,7 +57,7 @@ public class ProblemDetailsMiddleware
                     Title = "Bad Request",
                     Detail = argNull.Message,
                     Status = 400,
-                    Extensions = { ["traceId"] = traceId }
+                    Extensions = { ["traceId"] = traceId, ["correlationId"] = correlationId }
                 };
                 break;
 
@@ -67,7 +69,7 @@ public class ProblemDetailsMiddleware
                     Title = "Unauthorized",
                     Detail = unauthorized.Message,
                     Status = 401,
-                    Extensions = { ["traceId"] = traceId }
+                    Extensions = { ["traceId"] = traceId, ["correlationId"] = correlationId }
                 };
                 break;
 
@@ -79,7 +81,7 @@ public class ProblemDetailsMiddleware
                     Title = "Not Found",
                     Detail = notFound.Message,
                     Status = 404,
-                    Extensions = { ["traceId"] = traceId }
+                    Extensions = { ["traceId"] = traceId, ["correlationId"] = correlationId }
                 };
                 break;
 
@@ -91,7 +93,7 @@ public class ProblemDetailsMiddleware
                     Title = "Bad Request",
                     Detail = invalidOp.Message,
                     Status = 400,
-                    Extensions = { ["traceId"] = traceId }
+                    Extensions = { ["traceId"] = traceId, ["correlationId"] = correlationId }
                 };
                 break;
 
@@ -109,7 +111,7 @@ public class ProblemDetailsMiddleware
                     Title = "Internal Server Error",
                     Detail = detail,
                     Status = 500,
-                    Extensions = { ["traceId"] = traceId }
+                    Extensions = { ["traceId"] = traceId, ["correlationId"] = correlationId }
                 };
                 break;
         }

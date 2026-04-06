@@ -53,7 +53,7 @@ public class HttpContextExtensionsTests
         // Assert
         Assert.Equal(email, result);
     }
-}
+
     [Fact]
     public void IsUserAuthenticated_AuthenticatedUser_ReturnsTrue()
     {

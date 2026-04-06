@@ -56,7 +56,7 @@ public class JwtAuthenticationMiddlewareTests
         _mockNext.Verify(n => n(context), Times.Once);
         Assert.False(context.User.Identity?.IsAuthenticated);
     }
-}
+
     [Fact]
     public async Task InvokeAsync_MalformedAuthorizationHeader_CallsNext()
     {

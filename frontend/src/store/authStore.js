@@ -1,23 +1,21 @@
 /**
  * Auth Store - Zustand
- * Manages authentication state with localStorage for persistence
+ * Manages authentication state with secure token strategy
  * 
- * Token Storage Strategy:
- * - accessToken: localStorage (for session persistence across tabs)
- * - refreshToken: localStorage (for automatic refresh)
+ * ✅ CRIT-4: Token Storage Strategy (XSS-hardened):
+ * - accessToken: MEMORY-ONLY (Zustand state) — ephemeral, cleared on page close
+ * - refreshToken: localStorage (for session persistence + silent refresh on reload)
  * 
- * Security Note:
- * - Using localStorage for accessToken is acceptable for this use case
- * - Alternative: memory-only storage requires more complex initialization
+ * On page reload: refreshToken is used to obtain a new accessToken via silent refresh.
+ * This eliminates the XSS attack surface for accessToken theft.
  */
 import { create } from 'zustand';
-import axiosInstance from '../api/axios';
+import axiosInstance, { setAuthStoreGetter } from '../api/axios';
 import { safeSetItem } from '../utils/storageUtils';
 import { TOKEN_REFRESH_BUFFER_MS, ACCESS_TOKEN_EXPIRY_MS, SILENT_REFRESH_INTERVAL_MS, API_ENDPOINTS } from '../constants';
 
 // LocalStorage keys with prefix
 const STORAGE_KEYS = {
-  ACCESS_TOKEN: 'tts_access_token',
   REFRESH_TOKEN: 'tts_refresh_token',
 };
 
@@ -26,11 +24,11 @@ const STORAGE_KEYS = {
  * Note: We use localStorage for both tokens to simplify persistence
  */
 const useAuthStore = create((set, get) => ({
-  // State
-  accessToken: localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN),
+  // State — accessToken is MEMORY-ONLY (CRIT-4)
+  accessToken: null,
   refreshToken: localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN),
   user: null,
-  isAuthenticated: !!localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN),
+  isAuthenticated: false,
   isLoading: false,
 
   // Silent refresh timer
@@ -38,10 +36,7 @@ const useAuthStore = create((set, get) => ({
 
   // Actions
   setToken: (accessToken, refreshToken) => {
-    // Store both tokens in localStorage with quota handling
-    if (accessToken) {
-      safeSetItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
-    }
+    // ✅ CRIT-4: accessToken stays in memory only — NOT in localStorage
     if (refreshToken) {
       safeSetItem(STORAGE_KEYS.REFRESH_TOKEN, refreshToken);
     }
@@ -69,8 +64,7 @@ const useAuthStore = create((set, get) => ({
       // API returns camelCase: accessToken, refreshToken
       const { accessToken, refreshToken, email: user } = data;
 
-      // Store both tokens in localStorage with quota handling
-      safeSetItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
+      // ✅ CRIT-4: Only refreshToken goes to localStorage
       if (refreshToken) {
         safeSetItem(STORAGE_KEYS.REFRESH_TOKEN, refreshToken);
       }
@@ -97,8 +91,8 @@ const useAuthStore = create((set, get) => ({
       const response = await axiosInstance.post(API_ENDPOINTS.AUTH.GOOGLE_LOGIN, { idToken });
       const data = response.data;
       const { accessToken, refreshToken, email: user } = data;
-      
-      safeSetItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
+
+      // ✅ CRIT-4: Only refreshToken goes to localStorage
       if (refreshToken) {
         safeSetItem(STORAGE_KEYS.REFRESH_TOKEN, refreshToken);
       }
@@ -166,8 +160,7 @@ const useAuthStore = create((set, get) => ({
         clearInterval(get().refreshTimer);
       }
 
-      // Clear localStorage
-      localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
+      // Clear localStorage (only refreshToken is stored there)
       localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
 
       set({
@@ -186,8 +179,7 @@ const useAuthStore = create((set, get) => ({
       clearInterval(get().refreshTimer);
     }
 
-    // Clear localStorage
-    localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
+    // Clear localStorage (only refreshToken is stored there)
     localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
 
     set({
@@ -221,8 +213,7 @@ const useAuthStore = create((set, get) => ({
         const data = response.data;
         const { accessToken, refreshToken: newRefreshToken } = data;
 
-        // Update localStorage with quota handling
-        safeSetItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
+        // ✅ CRIT-4: Only refreshToken goes to localStorage
         if (newRefreshToken) {
           safeSetItem(STORAGE_KEYS.REFRESH_TOKEN, newRefreshToken);
         }
@@ -237,21 +228,33 @@ const useAuthStore = create((set, get) => ({
     set({ refreshTimer: timer });
   },
 
-  // Initialize auth state from localStorage
-  // Note: We don't call refresh API here - just use existing tokens
-  initializeAuth: () => {
-    const accessToken = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
+  // ✅ CRIT-4: Initialize auth by doing a silent refresh (accessToken is memory-only)
+  initializeAuth: async () => {
     const refreshToken = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
 
-    if (accessToken && refreshToken) {
-      set({
-        accessToken,
-        refreshToken,
-        isAuthenticated: true,
-      });
+    if (refreshToken) {
+      try {
+        // Obtain a fresh accessToken using the stored refreshToken
+        const response = await axiosInstance.post(API_ENDPOINTS.AUTH.REFRESH, { refreshToken });
+        const { accessToken, refreshToken: newRefreshToken } = response.data;
 
-      // Start silent refresh timer
-      get().startSilentRefresh();
+        if (newRefreshToken) {
+          safeSetItem(STORAGE_KEYS.REFRESH_TOKEN, newRefreshToken);
+        }
+
+        set({
+          accessToken,
+          refreshToken: newRefreshToken || refreshToken,
+          isAuthenticated: true,
+        });
+
+        // Start silent refresh timer
+        get().startSilentRefresh();
+      } catch (error) {
+        console.warn('Silent refresh on init failed, clearing session:', error);
+        localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
+        set({ accessToken: null, refreshToken: null, isAuthenticated: false });
+      }
     }
   },
 }));
@@ -262,5 +265,8 @@ if (typeof window !== 'undefined') {
     useAuthStore.getState().forceLogout();
   });
 }
+
+// Export store getter for axios integration (avoid circular dependency)
+export const getAuthStoreState = () => useAuthStore.getState();
 
 export default useAuthStore;

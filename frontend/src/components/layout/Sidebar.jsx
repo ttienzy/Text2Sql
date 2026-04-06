@@ -24,6 +24,8 @@ import {
   HolderOutlined,
 } from '@ant-design/icons';
 import { ResponsiveConversationListSkeleton } from '../common';
+import NotificationBell from '../common/NotificationBell';
+import QueryHistory from '../query/QueryHistory';
 import { useConversationsQuery } from '../../api/conversations';
 import useConnectionStore from '../../store/connectionStore';
 import useConversationStore from '../../store/conversationStore';
@@ -271,15 +273,38 @@ const Sidebar = ({ onConversationSelect, onNewConversation }) => {
         </div>
       ),
     },
+    {
+      key: 'history',
+      label: (
+        <span>
+          📋 History
+        </span>
+      ),
+      children: (
+        <div style={{ padding: '8px 0', height: '100%', overflow: 'hidden' }}>
+          <QueryHistory
+            connectionId={activeConnection?.id}
+            onReuse={(question) => {
+              // Re-use a past query by triggering the chat input
+              if (onConversationSelect) {
+                // The parent component can handle this
+                console.log('[QueryHistory] Re-use query:', question);
+              }
+            }}
+          />
+        </div>
+      ),
+    },
   ];
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
-      <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>
+      {/* Header with NotificationBell */}
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <Title level={5} style={{ margin: 0 }}>
           {activeConnection?.name || 'Select a Connection'}
         </Title>
+        <NotificationBell />
       </div>
 
       {/* Tabs */}

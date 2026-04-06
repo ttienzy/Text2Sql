@@ -24,7 +24,7 @@ public class SchemaSyncBackgroundService : BackgroundService
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
-        _checkInterval = TimeSpan.FromMinutes(5); // Check every 5 minutes
+        _checkInterval = TimeSpan.FromMinutes(30); // ✅ SMALL-6: Sync every 30 minutes
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -33,27 +33,47 @@ public class SchemaSyncBackgroundService : BackgroundService
             "[SchemaSync] Background service started (check interval: {Minutes} minutes)",
             _checkInterval.TotalMinutes);
 
-        // Initial delay to let application start up
-        await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
-
-        while (!stoppingToken.IsCancellationRequested)
+        try
         {
-            try
+            // Initial delay to let application start up
+            await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+
+            while (!stoppingToken.IsCancellationRequested)
             {
-                await CheckAndSyncSchemaAsync(stoppingToken);
-                await Task.Delay(_checkInterval, stoppingToken);
+                try
+                {
+                    await CheckAndSyncSchemaAsync(stoppingToken);
+                    await Task.Delay(_checkInterval, stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    // Expected during shutdown - not an error
+                    _logger.LogInformation("[SchemaSync] Background service stopping gracefully");
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[SchemaSync] Error in sync loop, will retry in 1 minute");
+                    // Continue running despite errors
+                    try
+                    {
+                        await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+                    }
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                    {
+                        break;
+                    }
+                }
             }
-            catch (OperationCanceledException)
-            {
-                _logger.LogInformation("[SchemaSync] Background service stopping");
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[SchemaSync] Error in sync loop");
-                // Continue running despite errors
-                await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
-            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // Expected during shutdown
+            _logger.LogInformation("[SchemaSync] Background service cancelled during startup");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[SchemaSync] Unexpected error in background service");
         }
 
         _logger.LogInformation("[SchemaSync] Background service stopped");
@@ -62,11 +82,30 @@ public class SchemaSyncBackgroundService : BackgroundService
     private async Task CheckAndSyncSchemaAsync(CancellationToken cancellationToken)
     {
         using var scope = _serviceProvider.CreateScope();
-        var scanner = scope.ServiceProvider.GetRequiredService<SchemaScanner>();
-        var indexer = scope.ServiceProvider.GetRequiredService<SchemaIndexer>();
 
         try
         {
+            // ⚠️ IMPORTANT: SchemaScanner requires a specific connection
+            // Background service cannot scan without knowing which connection to use
+            // This is a design limitation - schema sync should be per-connection, not global
+
+            _logger.LogWarning(
+                "[SchemaSync] ⚠️  Schema auto-sync is disabled due to design limitation. " +
+                "SchemaScanner requires a specific connection ID, but background service doesn't know which connection to scan. " +
+                "Schema sync should be triggered per-connection when users interact with the system.");
+
+            // TODO: Refactor to support per-connection schema sync
+            // Options:
+            // 1. Scan all active connections from database
+            // 2. Use webhook-based schema change detection
+            // 3. Trigger sync on first query per connection
+
+            return;
+
+            /* COMMENTED OUT - Original implementation has design flaw
+            var scanner = scope.ServiceProvider.GetRequiredService<SchemaScanner>();
+            var indexer = scope.ServiceProvider.GetRequiredService<SchemaIndexer>();
+
             _logger.LogDebug("[SchemaSync] Checking for schema changes...");
 
             // Scan current schema
@@ -101,6 +140,7 @@ public class SchemaSyncBackgroundService : BackgroundService
             {
                 _logger.LogDebug("[SchemaSync] No schema changes detected");
             }
+            */
         }
         catch (Exception ex)
         {

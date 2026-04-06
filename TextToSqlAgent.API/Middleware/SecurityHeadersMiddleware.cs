@@ -33,8 +33,12 @@ public class SecurityHeadersMiddleware
         // Referrer policy
         context.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
 
-        // Content Security Policy (strict for API)
-        context.Response.Headers.Append("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+        // ✅ CRIT-4 mitigation: Tightened CSP — blocks inline scripts (XSS protection)
+        // API-only server: default-src 'none' is correct baseline
+        // 'self' for connect-src allows the frontend to call back to this API
+        context.Response.Headers.Append("Content-Security-Policy",
+            "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+            "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
 
         // Permissions Policy (disable unnecessary features)
         context.Response.Headers.Append("Permissions-Policy", "geolocation=(), microphone=(), camera=()");

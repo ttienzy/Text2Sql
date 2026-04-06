@@ -228,7 +228,7 @@ public class SqlGeneratorPluginTests
         result.SuggestedQueries.Should().NotBeNull();
         result.SuggestedQueries.Should().BeEmpty();
     }
-}
+
     [Fact]
     public async Task Should_Handle_Alternative_Suggestion_Keys()
     {
@@ -269,3 +269,4 @@ public class SqlGeneratorPluginTests
         result.SuggestedQueries[1].Should().Be("List recent orders");
         result.SuggestedQueries[2].Should().Be("Count orders by customer");
     }
+}

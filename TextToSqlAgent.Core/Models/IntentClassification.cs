@@ -88,6 +88,9 @@ public class IntentClassificationResult
     /// <summary>Confidence score (0.0 - 1.0)</summary>
     public double Confidence { get; set; }
 
+    /// <summary>Complexity score of the query (0.0 - 1.0) to determine routing to AgentLoop</summary>
+    public double ComplexityScore { get; set; } = 0.0;
+
     /// <summary>Reasoning for classification decision</summary>
     public string Reasoning { get; set; } = string.Empty;
 
@@ -142,6 +145,9 @@ internal class LlmClassificationResponse
 
     [JsonPropertyName("confidence")]
     public double Confidence { get; set; }
+
+    [JsonPropertyName("complexityScore")]
+    public double ComplexityScore { get; set; } = 0.0;
 
     [JsonPropertyName("reason")]
     public string Reason { get; set; } = string.Empty;

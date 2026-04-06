@@ -9,26 +9,23 @@ namespace TextToSqlAgent.API.Middleware;
 public class RateLimitMiddleware
 {
     private readonly RequestDelegate _next;
-    private readonly RateLimiter _rateLimiter;
     private readonly ILogger<RateLimitMiddleware> _logger;
 
     public RateLimitMiddleware(
         RequestDelegate next,
-        RateLimiter rateLimiter,
         ILogger<RateLimitMiddleware> logger)
     {
         _next = next;
-        _rateLimiter = rateLimiter;
         _logger = logger;
     }
 
-    public async Task InvokeAsync(HttpContext context)
+    public async Task InvokeAsync(HttpContext context, RateLimiter rateLimiter)
     {
         // Get identifier (user ID, IP address, or API key)
         var identifier = GetIdentifier(context);
 
         // Check rate limit
-        var result = _rateLimiter.CheckLimit(identifier);
+        var result = rateLimiter.CheckLimit(identifier);
 
         // Add rate limit headers
         context.Response.Headers["X-RateLimit-Limit"] = result.Limit.ToString();

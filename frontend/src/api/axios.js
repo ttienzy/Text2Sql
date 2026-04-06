@@ -1,11 +1,9 @@
 import axios from 'axios';
 import { API_BASE_URL, HTTP_STATUS } from '../constants';
 import { extractErrorMessage, createError } from '../utils/errorHandler';
-import { safeSetItem } from '../utils/storageUtils';
 
 // LocalStorage keys (must match authStore.js)
 const STORAGE_KEYS = {
-  ACCESS_TOKEN: 'tts_access_token',
   REFRESH_TOKEN: 'tts_refresh_token',
 };
 
@@ -46,11 +44,17 @@ const axiosInstance = axios.create({
 // Store for managing token refresh
 let refreshTokenPromise = null;
 
-// Request interceptor - attach Bearer token from localStorage
+// Function to get auth store dynamically (avoid circular dependency)
+let getAuthStore = null;
+export const setAuthStoreGetter = (getter) => {
+  getAuthStore = getter;
+};
+
+// Request interceptor - attach Bearer token from authStore (memory-only)
 axiosInstance.interceptors.request.use(
   (config) => {
-    // Get token from localStorage
-    const token = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
+    // Get token from authStore (memory-only, secure against XSS)
+    const token = getAuthStore?.()?.accessToken;
 
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -85,8 +89,8 @@ axiosInstance.interceptors.response.use(
           console.log('🔄 Waiting for existing refresh token promise...');
           await refreshTokenPromise;
 
-          // Get the new token and retry
-          const newToken = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
+          // Get the new token from authStore (memory-only)
+          const newToken = getAuthStore?.()?.accessToken;
           if (newToken) {
             originalRequest.headers.Authorization = `Bearer ${newToken}`;
             return axiosInstance(originalRequest);
@@ -115,10 +119,10 @@ axiosInstance.interceptors.response.use(
 
             const { accessToken, refreshToken: newRefreshToken } = response.data;
 
-            // Update localStorage with quota handling
-            safeSetItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
-            if (newRefreshToken) {
-              safeSetItem(STORAGE_KEYS.REFRESH_TOKEN, newRefreshToken);
+            // Update authStore (memory-only for accessToken, localStorage for refreshToken)
+            const authStore = getAuthStore?.();
+            if (authStore) {
+              authStore.setToken(accessToken, newRefreshToken);
             }
 
             console.log('✅ Token refresh successful');
@@ -127,7 +131,6 @@ axiosInstance.interceptors.response.use(
             console.error('❌ Token refresh failed:', refreshError);
 
             // Clear tokens and force logout
-            localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
             localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
 
             window.dispatchEvent(new CustomEvent('auth:logout', {
@@ -141,7 +144,13 @@ axiosInstance.interceptors.response.use(
         })();
 
         // Wait for refresh and retry original request
-        const newAccessToken = await refreshTokenPromise;
+        await refreshTokenPromise;
+
+        // Get the new token from authStore (memory-only)
+        const newAccessToken = getAuthStore?.()?.accessToken;
+        if (!newAccessToken) {
+          throw new Error('No access token after refresh');
+        }
 
         // Update the original request with new token
         originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;

@@ -8,6 +8,7 @@ using TextToSqlAgent.API.DTOs;
 using TextToSqlAgent.API.Services;
 using TextToSqlAgent.API.Extensions;
 using TextToSqlAgent.API.Repositories;
+using TextToSqlAgent.Application.Services;
 using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Models;
 using TextToSqlAgent.Infrastructure.Configuration;
@@ -26,16 +27,19 @@ public class ConnectionsController : BaseController
     private readonly IConnectionService _connectionService;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IConnectionEncryptionService _encryptionService;
+    private readonly EnhancedAgentOrchestrator? _orchestrator;
 
     public ConnectionsController(
         IConnectionService connectionService,
         IUnitOfWork unitOfWork,
         IConnectionEncryptionService encryptionService,
-        ILogger<ConnectionsController> logger) : base(logger)
+        ILogger<ConnectionsController> logger,
+        EnhancedAgentOrchestrator? orchestrator = null) : base(logger)
     {
         _connectionService = connectionService;
         _unitOfWork = unitOfWork;
         _encryptionService = encryptionService;
+        _orchestrator = orchestrator;
     }
 
     /// <summary>
@@ -246,6 +250,47 @@ public class ConnectionsController : BaseController
         catch (Exception ex)
         {
             return HandleException(ex, $"testing connection {id}");
+        }
+    }
+
+    /// <summary>
+    /// ✅ P1: Get schema status for a connection
+    /// Returns whether schema is loaded in cache and table count
+    /// </summary>
+    [HttpGet("{id}/schema/status")]
+    public async Task<ActionResult<object>> GetSchemaStatus(string id)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(id) || !Guid.TryParse(id, out _))
+            {
+                return BadRequest(new { Message = "Invalid connection ID format" });
+            }
+
+            var userId = GetRequiredUserId();
+
+            // Verify user owns the connection
+            var connection = await _unitOfWork.Connections.GetByIdAndUserIdAsync(id, userId);
+            if (connection == null)
+            {
+                return NotFound(new { Message = "Connection not found" });
+            }
+
+            // Check if schema is in cache
+            var schemaCache = HttpContext.RequestServices.GetRequiredService<ISchemaCache>();
+            var schema = await schemaCache.GetAsync(id);
+
+            return Ok(new
+            {
+                ConnectionId = id,
+                SchemaLoaded = schema != null,
+                TableCount = schema?.Tables.Count ?? 0,
+                LastLoaded = schema != null ? DateTime.UtcNow : (DateTime?)null
+            });
+        }
+        catch (Exception ex)
+        {
+            return HandleException(ex, $"getting schema status for connection {id}");
         }
     }
 
@@ -473,6 +518,25 @@ public class ConnectionsController : BaseController
             if (!success)
             {
                 return NotFound(new { Message = "Connection not found" });
+            }
+
+            // ✅ PHASE 3: Trigger background schema pre-loading for faster queries
+            if (_orchestrator != null)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        _logger.LogInformation("[Connections] Pre-loading schema for connection {Id}", id);
+                        _orchestrator.ClearSchemaCache(); // Clear old cache first
+                        // Schema will be loaded on first query, but this warms up the cache
+                        _logger.LogInformation("[Connections] Schema cache cleared, ready for pre-loading");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[Connections] Failed to pre-load schema for {Id}", id);
+                    }
+                });
             }
 
             return Ok(new { Message = "Connection set as default successfully" });

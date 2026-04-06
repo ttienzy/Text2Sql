@@ -82,13 +82,46 @@ public class EnhancedAgentOrchestrator
     }
 
     /// <summary>
-    /// Process query with full agentic capabilities
-    /// NOW WITH INTENT-BASED ROUTING: Automatically routes to WRITE/DDL/FORBIDDEN pipelines when needed
+    /// Process query using the new modular pipeline architecture.
+    /// Routes through IPipelineStage stages in sequence.
+    /// Falls back to legacy ProcessQueryAsync if pipeline is not available.
+    /// </summary>
+    public async Task<AgentResponse> ProcessQueryWithPipelineAsync(
+        Pipeline.PipelineOrchestrator pipelineOrchestrator,
+        string userQuestion,
+        string? conversationId = null,
+        List<TextToSqlAgent.Infrastructure.Entities.Message>? conversationHistory = null,
+        IProgress<AgentStageEvent>? progress = null,
+        Action<string>? sqlTokenCallback = null,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("[EnhancedAgent] 🚀 Using modular pipeline (Phase 1 refactor)");
+
+        var context = new Pipeline.PipelineContext
+        {
+            UserQuestion = userQuestion,
+            EnrichedQuestion = userQuestion, // Will be overwritten by ValidationStage
+            ConversationId = conversationId,
+            ConversationHistory = conversationHistory,
+            Progress = progress,
+            SqlTokenCallback = sqlTokenCallback,
+            Schema = _cachedSchema // Share cached schema if available
+        };
+
+        return await pipelineOrchestrator.ExecuteAsync(context, cancellationToken);
+    }
+
+    /// <summary>
+    /// Process query with full agentic capabilities (LEGACY — kept for backward compatibility).
+    /// NOW WITH INTENT-BASED ROUTING: Automatically routes to WRITE/DDL/FORBIDDEN pipelines when needed.
+    /// REAL PROGRESS REPORTING: Emits IProgress&lt;AgentStageEvent&gt; at each actual processing step.
     /// </summary>
     public async Task<AgentResponse> ProcessQueryAsync(
         string userQuestion,
         string? conversationId = null,
         List<TextToSqlAgent.Infrastructure.Entities.Message>? conversationHistory = null,
+        IProgress<AgentStageEvent>? progress = null,
+        Action<string>? sqlTokenCallback = null,
         CancellationToken cancellationToken = default)
     {
         var response = new AgentResponse();
@@ -111,6 +144,14 @@ public class EnhancedAgentOrchestrator
             if (_intentClassifier != null)
             {
                 steps.Add("Step -1: Intent classification and routing");
+
+                // ✅ PROGRESS: Emit classification stage
+                progress?.Report(new AgentStageEvent
+                {
+                    Stage = AgentStage.CLASSIFYING,
+                    Message = "Analyzing your question intent...",
+                    Progress = 0.10
+                });
 
                 try
                 {
@@ -393,6 +434,14 @@ public class EnhancedAgentOrchestrator
             // ====================================
             steps.Add("Step 0: Validate query relevance");
 
+            // ✅ PROGRESS: Emit validation stage
+            progress?.Report(new AgentStageEvent
+            {
+                Stage = AgentStage.VALIDATING,
+                Message = "Validating and normalizing your question...",
+                Progress = 0.05
+            });
+
             // PHASE 3 OPTIMIZATION: Validate WITHOUT schema first (fast path)
             // Only load schema if validation passes
             QueryValidationResult validation;
@@ -458,6 +507,14 @@ public class EnhancedAgentOrchestrator
             // ====================================
             steps.Add("Step 1: Load database schema");
 
+            // ✅ PROGRESS: Emit schema retrieval stage
+            progress?.Report(new AgentStageEvent
+            {
+                Stage = AgentStage.SCHEMA_RETRIEVAL,
+                Message = "Loading database schema...",
+                Progress = 0.20
+            });
+
             try
             {
                 await EnsureSchemaLoadedAsync(steps, cancellationToken);
@@ -493,6 +550,15 @@ public class EnhancedAgentOrchestrator
             // STEP 4: RAG - Retrieve Relevant Schema
             // ====================================
             steps.Add("Step 4: RAG - Retrieve relevant schema");
+
+            // ✅ PROGRESS: Emit RAG retrieval stage
+            progress?.Report(new AgentStageEvent
+            {
+                Stage = AgentStage.SCHEMA_RETRIEVAL,
+                Message = "Finding relevant tables and relationships...",
+                Progress = 0.35,
+                Detail = "Using vector search to identify relevant schema"
+            });
 
             var schemaRetriever = _serviceFactory.GetSchemaRetriever();
             var relevantSchema = await schemaRetriever.RetrieveAsync(
@@ -559,15 +625,38 @@ public class EnhancedAgentOrchestrator
             // ====================================
             steps.Add("Step 6: Generate SQL with RAG context");
 
+            // ✅ PROGRESS: Emit SQL generation stage (LLM call - longest step)
+            progress?.Report(new AgentStageEvent
+            {
+                Stage = AgentStage.SQL_GENERATION,
+                Message = "Generating SQL query with AI...",
+                Progress = 0.50,
+                Detail = $"Target: {intent.Target}"
+            });
+
             var sqlGenerator = _serviceFactory.GetSqlGenerator();
 
-            // ✅ Get SQL + suggestions in one API call with conversation history
-            var sqlResult = await sqlGenerator.GenerateSqlWithContextAsync(
-                intent,
-                relevantSchema,
-                normalized.NormalizedText,  // Pass original question to LLM
-                conversationHistory,  // ✅ Pass conversation history for context
-                cancellationToken);
+            // ✅ Use streaming API if callback provided, otherwise use regular API
+            SqlGenerationResult sqlResult;
+            if (sqlTokenCallback != null)
+            {
+                sqlResult = await sqlGenerator.GenerateSqlWithContextStreamAsync(
+                    intent,
+                    relevantSchema,
+                    normalized.NormalizedText,
+                    conversationHistory,
+                    sqlTokenCallback,  // ← Stream tokens to callback
+                    cancellationToken);
+            }
+            else
+            {
+                sqlResult = await sqlGenerator.GenerateSqlWithContextAsync(
+                    intent,
+                    relevantSchema,
+                    normalized.NormalizedText,
+                    conversationHistory,
+                    cancellationToken);
+            }
 
             var sql = sqlResult.Sql;
 
@@ -575,6 +664,15 @@ public class EnhancedAgentOrchestrator
             // STEP 7: Validate SQL Safety
             // ====================================
             steps.Add("Step 7: Validate SQL safety");
+
+            // ✅ PROGRESS: Emit SQL validation stage
+            progress?.Report(new AgentStageEvent
+            {
+                Stage = AgentStage.SQL_VALIDATION,
+                Message = "Validating SQL safety...",
+                Progress = 0.65
+            });
+
             if (!sqlGenerator.ValidateSql(sql))
             {
                 response.Success = false;
@@ -615,10 +713,20 @@ public class EnhancedAgentOrchestrator
             // STEP 9: Execute with Self-Correction
             // ====================================
             steps.Add("Step 9: Execute SQL with self-correction");
+
+            // ✅ PROGRESS: Emit execution stage
+            progress?.Report(new AgentStageEvent
+            {
+                Stage = AgentStage.EXECUTING,
+                Message = "Executing SQL query...",
+                Progress = 0.75
+            });
+
             var (executionResult, corrections) = await ExecuteWithSelfCorrectionAsync(
                 sql,
                 relevantSchema,
                 intent,
+                progress,  // ← Pass progress reporter
                 cancellationToken);
 
             response.CorrectionHistory = corrections;
@@ -649,6 +757,14 @@ public class EnhancedAgentOrchestrator
             // STEP 10: Format Answer
             // ====================================
             steps.Add("Step 10: Format intelligent answer");
+
+            // ✅ PROGRESS: Emit building response stage
+            progress?.Report(new AgentStageEvent
+            {
+                Stage = AgentStage.BUILDING_RESPONSE,
+                Message = "Building final response...",
+                Progress = 0.90
+            });
 
             // Apply EnsureLimit on the final executed SQL (after correction)
             var finalSql = corrections.Any() ? corrections.Last().CorrectedSql : sql;
@@ -730,6 +846,14 @@ public class EnhancedAgentOrchestrator
                 targetTable: intent.Target,
                 success: true);
 
+            // ✅ PROGRESS: Emit completed stage
+            progress?.Report(new AgentStageEvent
+            {
+                Stage = AgentStage.COMPLETED,
+                Message = "Processing complete!",
+                Progress = 1.0
+            });
+
             _logger.LogInformation("[EnhancedAgent] ✅ Processing complete");
 
             return response;
@@ -743,6 +867,15 @@ public class EnhancedAgentOrchestrator
             var errorMessage = FormatDetailedError(ex);
             _logger.LogInformation("[EnhancedAgent] Formatted error message: {ErrorMessage}", errorMessage);
 
+            // ✅ PROGRESS: Emit error stage
+            progress?.Report(new AgentStageEvent
+            {
+                Stage = AgentStage.ERROR,
+                Message = "An error occurred during processing",
+                Progress = 0.0,
+                Detail = errorMessage
+            });
+
             response.Success = false;
             response.ErrorMessage = errorMessage;
             response.ProcessingSteps = steps;
@@ -750,6 +883,7 @@ public class EnhancedAgentOrchestrator
             return response;
         }
     }
+
 
     private string FormatDetailedError(Exception ex)
     {
@@ -919,6 +1053,7 @@ public class EnhancedAgentOrchestrator
         string initialSql,
         RetrievedSchemaContext schemaContext,
         IntentAnalysis intent,
+        IProgress<AgentStageEvent>? progress,
         CancellationToken cancellationToken)
     {
         var corrections = new List<CorrectionAttempt>();
@@ -958,6 +1093,15 @@ public class EnhancedAgentOrchestrator
             }
 
             _logger.LogDebug("[EnhancedAgent] Attempting auto-correction...");
+
+            // ✅ PROGRESS: Emit correcting stage
+            progress?.Report(new AgentStageEvent
+            {
+                Stage = AgentStage.CORRECTING,
+                Message = $"Auto-correcting SQL (attempt {attemptNumber})...",
+                Progress = 0.75 + (attemptNumber * 0.03), // Increment slightly per attempt
+                Detail = result.ErrorMessage
+            });
 
             var correction = await sqlCorrector.CorrectSqlAsync(
                 currentSql,
@@ -1392,7 +1536,7 @@ public class EnhancedAgentOrchestrator
         if (_intentClassifier == null)
         {
             _logger.LogWarning("[EnhancedAgent] Intent classifier not available, falling back to QUERY pipeline");
-            var queryResponse = await ProcessQueryAsync(userQuestion, conversationId, conversationHistory, cancellationToken);
+            var queryResponse = await ProcessQueryAsync(userQuestion, conversationId, conversationHistory, progress: null, sqlTokenCallback: null, cancellationToken);
             return _responseBuilder.BuildQueryResponse(queryResponse, null, stopwatch);
         }
 
@@ -1550,7 +1694,7 @@ public class EnhancedAgentOrchestrator
         CancellationToken ct)
     {
         _logger.LogInformation("[EnhancedAgent] → Routing to QUERY pipeline");
-        var queryResponse = await ProcessQueryAsync(userQuestion, conversationId, conversationHistory, ct);
+        var queryResponse = await ProcessQueryAsync(userQuestion, conversationId, conversationHistory, progress: null, sqlTokenCallback: null, ct);
 
         // ✅ Check if result needs pagination
         var rowCount = queryResponse.QueryResult?.RowCount ?? 0;

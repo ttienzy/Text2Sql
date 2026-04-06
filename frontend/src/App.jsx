@@ -1,13 +1,15 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ConfigProvider } from 'antd';
+import { ConfigProvider, App as AntApp } from 'antd';
 import { GoogleOAuthProvider } from '@react-oauth/google'; // Added for Google Login
 import { PrivateRoute, ConnectionGuard, ErrorBoundary } from './components';
 import { MainLayout, AuthLayout } from './layouts';
 import { LoginPage, RegisterPage, ForgotPasswordPage, ChatPage, ConnectionsPage, SettingsPage, DbExplorerPage } from './pages';
 import { LayoutProvider } from './contexts/LayoutContext';
-import useAuthStore from './store/authStore';
+import useAuthStore, { getAuthStoreState } from './store/authStore';
+import { setAuthStoreGetter } from './api/axios';
+import { migrateStorage } from './utils/migrateStorage';
 
 // Create React Query client
 const queryClient = new QueryClient({
@@ -24,6 +26,12 @@ function App() {
 
   // Initialize auth on app load
   useEffect(() => {
+    // Clean up deprecated localStorage keys (one-time migration)
+    migrateStorage();
+
+    // Wire up authStore getter to axios (for memory-only token access)
+    setAuthStoreGetter(getAuthStoreState);
+
     initializeAuth();
   }, [initializeAuth]);
 
@@ -37,38 +45,40 @@ function App() {
           },
         }}
       >
-        <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID || ""}>
-          <QueryClientProvider client={queryClient}>
-            <LayoutProvider>
-              <BrowserRouter>
-                <Routes>
-                  {/* Auth Routes */}
-                  <Route element={<AuthLayout />}>
-                    <Route path="/login" element={<LoginPage />} />
-                    <Route path="/register" element={<RegisterPage />} />
-                    <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-                  </Route>
+        <AntApp>
+          <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID || ""}>
+            <QueryClientProvider client={queryClient}>
+              <LayoutProvider>
+                <BrowserRouter>
+                  <Routes>
+                    {/* Auth Routes */}
+                    <Route element={<AuthLayout />}>
+                      <Route path="/login" element={<LoginPage />} />
+                      <Route path="/register" element={<RegisterPage />} />
+                      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                    </Route>
 
-                  {/* Protected Routes */}
-                  <Route element={<PrivateRoute><MainLayout /></PrivateRoute>}>
-                    <Route path="/chat" element={<ConnectionGuard><ChatPage /></ConnectionGuard>} />
-                    <Route path="/explorer" element={<ConnectionGuard><DbExplorerPage /></ConnectionGuard>} />
-                    <Route path="/connections" element={<ConnectionsPage />} />
-                    <Route path="/connections/new" element={<ConnectionsPage />} />
-                    <Route path="/settings" element={<SettingsPage />} />
+                    {/* Protected Routes */}
+                    <Route element={<PrivateRoute><MainLayout /></PrivateRoute>}>
+                      <Route path="/chat" element={<ConnectionGuard><ChatPage /></ConnectionGuard>} />
+                      <Route path="/explorer" element={<ConnectionGuard><DbExplorerPage /></ConnectionGuard>} />
+                      <Route path="/connections" element={<ConnectionsPage />} />
+                      <Route path="/connections/new" element={<ConnectionsPage />} />
+                      <Route path="/settings" element={<SettingsPage />} />
 
-                    {/* Default redirect */}
-                    <Route path="/" element={<Navigate to="/chat" replace />} />
-                    <Route path="*" element={<Navigate to="/chat" replace />} />
-                  </Route>
+                      {/* Default redirect */}
+                      <Route path="/" element={<Navigate to="/chat" replace />} />
+                      <Route path="*" element={<Navigate to="/chat" replace />} />
+                    </Route>
 
-                  {/* Public fallback */}
-                  <Route path="*" element={<Navigate to="/login" replace />} />
-                </Routes>
-              </BrowserRouter>
-            </LayoutProvider>
-          </QueryClientProvider>
-        </GoogleOAuthProvider>
+                    {/* Public fallback */}
+                    <Route path="*" element={<Navigate to="/login" replace />} />
+                  </Routes>
+                </BrowserRouter>
+              </LayoutProvider>
+            </QueryClientProvider>
+          </GoogleOAuthProvider>
+        </AntApp>
       </ConfigProvider>
     </ErrorBoundary>
   );

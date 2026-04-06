@@ -236,11 +236,12 @@ public class TestController : ControllerBase
 
             try
             {
-                // Get the enhanced agent orchestrator from scoped DI
+                // Get the enhanced agent orchestrator and pipeline orchestrator from scoped DI
                 var agent = scopedServices.GetRequiredService<EnhancedAgentOrchestrator>();
+                var pipelineOrchestrator = scopedServices.GetRequiredService<TextToSqlAgent.Application.Pipeline.PipelineOrchestrator>();
 
-                // Process the query using the same pipeline as Console project
-                var response = await agent.ProcessQueryAsync(request.Question);
+                // Process the query using the new modular pipeline
+                var response = await agent.ProcessQueryWithPipelineAsync(pipelineOrchestrator, request.Question);
 
                 // Format response to match Console project output
                 var result = new

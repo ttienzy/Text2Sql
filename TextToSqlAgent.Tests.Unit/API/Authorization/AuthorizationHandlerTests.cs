@@ -49,7 +49,7 @@ public class ValidUserAuthorizationHandlerTests
         // Assert
         Assert.True(context.HasFailed);
     }
-}
+
     [Fact]
     public async Task HandleRequirementAsync_MissingEmail_Fails()
     {

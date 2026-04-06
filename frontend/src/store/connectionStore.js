@@ -30,6 +30,15 @@ const useConnectionStore = create(
         // Store active connection ID in sessionStorage (not localStorage)
         if (connection?.id) {
           sessionStorage.setItem(SESSION_ACTIVE_CONNECTION_KEY, connection.id);
+
+          // ✅ P1: Auto-load schema when selecting connection
+          const state = get();
+          if (connection && !connection.schemaLoaded) {
+            // Trigger schema load in background (non-blocking)
+            state.checkSchemaStatus(connection.id).catch(err => {
+              console.warn('[ConnectionStore] Failed to check schema status:', err);
+            });
+          }
         } else {
           sessionStorage.removeItem(SESSION_ACTIVE_CONNECTION_KEY);
         }
@@ -42,7 +51,7 @@ const useConnectionStore = create(
         if (state.isInitialized && state.connections.length > 0) {
           return state.connections;
         }
-        
+
         set({ isLoading: true, error: null });
         try {
           const response = await axiosInstance.get('/api/connections');
@@ -212,6 +221,38 @@ const useConnectionStore = create(
       clearTestResult: () => set({ testResult: null }),
 
       clearSyncResult: () => set({ syncResult: null }),
+
+      // ✅ P1: Check schema status for a connection
+      checkSchemaStatus: async (connectionId) => {
+        try {
+          const response = await axiosInstance.get(`/api/connections/${connectionId}/schema/status`);
+          const { schemaLoaded, tableCount } = response.data;
+
+          // Update connection with schema status
+          set((state) => ({
+            connections: state.connections.map((c) =>
+              c.id === connectionId
+                ? { ...c, schemaLoaded, tableCount }
+                : c
+            ),
+            activeConnection:
+              state.activeConnection?.id === connectionId
+                ? { ...state.activeConnection, schemaLoaded, tableCount }
+                : state.activeConnection,
+          }));
+
+          // If schema not loaded, auto-test connection to load it
+          if (!schemaLoaded) {
+            console.log('[ConnectionStore] Schema not loaded, auto-testing connection...');
+            await get().testConnection({ id: connectionId });
+          }
+
+          return { schemaLoaded, tableCount };
+        } catch (error) {
+          console.warn('[ConnectionStore] Failed to check schema status:', error);
+          throw error;
+        }
+      },
 
       // Initialize active connection from sessionStorage on load
       initializeFromSession: () => {

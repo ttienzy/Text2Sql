@@ -13,11 +13,14 @@ using TextToSqlAgent.Infrastructure.Entities;
 namespace TextToSqlAgent.API.Controllers;
 
 /// <summary>
-/// Controller for AI Agent processing - handles message processing with EnhancedAgentOrchestrator
+/// [DEPRECATED] Legacy controller for AI Agent processing.
+/// Use StreamingAgentController (/api/v2/agent/process/stream) instead.
+/// This controller will be removed in a future release.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
+[Obsolete("Use StreamingAgentController instead. This controller will be removed in a future release.")]
 public class AgentController : ControllerBase
 {
     private readonly IUnitOfWork _unitOfWork;

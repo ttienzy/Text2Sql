@@ -14,12 +14,14 @@ using TextToSqlAgent.Infrastructure.Services;
 namespace TextToSqlAgent.API.Controllers;
 
 /// <summary>
-/// Enhanced Agent Controller with conversation awareness
-/// Maintains context across multiple turns in a conversation
+/// [DEPRECATED] Enhanced Agent Controller with conversation awareness.
+/// Use StreamingAgentController (/api/v2/agent/process/stream) instead.
+/// This controller will be removed in a future release.
 /// </summary>
 [ApiController]
 [Route("api/v2/agent")]
 [Authorize]
+[Obsolete("Use StreamingAgentController instead. This controller will be removed in a future release.")]
 public class ConversationAwareAgentController : BaseController
 {
     private readonly IUnitOfWork _unitOfWork;

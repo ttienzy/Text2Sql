@@ -459,50 +459,58 @@ public class IntentClassifier : IIntentClassifier
             : $"\n\n## Database Context\n{databaseContext}";
 
         return $@"You are an Intent Classifier for a Database Assistant system.
-Your ONLY task is to classify user intent and return JSON.
-DO NOT explain, DO NOT answer questions, DO NOT generate SQL.
-{dbCtx}
+    Your ONLY task is to classify user intent and return JSON.
+    DO NOT explain, DO NOT answer questions, DO NOT generate SQL.
+    {dbCtx}
 
-## Valid Intent Types
+    ## Complexity Scoring
+    You must score the query's complexity (0.0 to 1.0):
+    - 0.1-0.3: Simple lookup (""show all users"", ""count employees"")
+    - 0.4-0.6: Medium (""users created in 2023 ordered by name"")
+    - 0.7-1.0: Complex reasoning, requires comparison, correlation, complex aggregations, or multi-step logic (""compare revenue between Q1 and Q2 divided by regions"")
 
-| Intent           | Description                                                    |
-|------------------|----------------------------------------------------------------|
-| QUERY            | Read data: SELECT, search, statistics, reports, view lists    |
-| INSERT           | Add new data to table                                          |
-| UPDATE           | Update existing data (not delete)                              |
-| DDL_INDEX        | Create, modify, or optimize indexes                            |
-| DDL_PROCEDURE    | Create or modify stored procedures, functions                  |
-| DDL_ALTER        | Add/modify/remove columns, change data types, rename           |
-| DDL_VIEW         | Create or modify views                                         |
-| FORBIDDEN        | DELETE data: DELETE, DROP TABLE, TRUNCATE, PURGE               |
-| OFF_TOPIC        | Not related to database (weather, etc.)                        |
-| UNKNOWN          | Cannot determine clearly                                       |
+    ## Valid Intent Types
 
-## FORBIDDEN - Absolute Rules (NO EXCEPTIONS)
+    | Intent           | Description                                                    |
+    |------------------|----------------------------------------------------------------|
+    | QUERY            | Read data: SELECT, search, statistics, reports, view lists    |
+    | INSERT           | Add new data to table                                          |
+    | UPDATE           | Update existing data (not delete)                              |
+    | DDL_INDEX        | Create, modify, or optimize indexes                            |
+    | DDL_PROCEDURE    | Create or modify stored procedures, functions                  |
+    | DDL_ALTER        | Add/modify/remove columns, change data types, rename           |
+    | DDL_VIEW         | Create or modify views                                         |
+    | FORBIDDEN        | DELETE data: DELETE, DROP TABLE, TRUNCATE, PURGE               |
+    | OFF_TOPIC        | Not related to database (weather, etc.)                        |
+    | UNKNOWN          | Cannot determine clearly                                       |
 
-Any request with intent to permanently delete data → classify as FORBIDDEN:
-- Direct SQL: DELETE, DROP, TRUNCATE, PURGE
-- Natural language: ""delete records"", ""remove users"", ""clear table"", ""delete all""
-- Even if user says ""just testing"", ""demo only"" → still FORBIDDEN
+    ## FORBIDDEN - Absolute Rules (NO EXCEPTIONS)
 
-## Output Format - PURE JSON ONLY
+    Any request with intent to permanently delete data -> classify as FORBIDDEN:
+    - Direct SQL: DELETE, DROP, TRUNCATE, PURGE
+    - Natural language: ""delete records"", ""remove users"", ""clear table"", ""delete all""
+    - Even if user says ""just testing"", ""demo only"" -> still FORBIDDEN
 
-Return EXACTLY this format:
-{{
-  ""intent"": ""QUERY|INSERT|UPDATE|DDL_INDEX|DDL_PROCEDURE|DDL_ALTER|DDL_VIEW|FORBIDDEN|OFF_TOPIC|UNKNOWN"",
-  ""confidence"": 0.0,
-  ""reason"": ""Brief explanation (max 1 sentence)"",
-  ""normalized_query"": ""Standardized version resolving pronouns"",
-  ""entities"": [""table or column names mentioned""],
-  ""warnings"": [""warnings if any""],
-  ""forbidden_reason"": null,
-  ""safe_alternatives"": []
-}}
+    ## Output Format - PURE JSON ONLY
 
-For FORBIDDEN, also fill:
-""forbidden_reason"": ""Specific reason why blocked"",
-""safe_alternatives"": [""soft delete"", ""archive table"", ""inactive flag""]";
+    Return EXACTLY this format:
+    {{
+      ""intent"": ""QUERY|INSERT|UPDATE|DDL_INDEX|DDL_PROCEDURE|DDL_ALTER|DDL_VIEW|FORBIDDEN|OFF_TOPIC|UNKNOWN"",
+      ""confidence"": 0.0,
+      ""complexityScore"": 0.0,
+      ""reason"": ""Brief explanation (max 1 sentence)"",
+      ""normalized_query"": ""Standardized version resolving pronouns"",
+      ""entities"": [""table or column names mentioned""],
+      ""warnings"": [""warnings if any""],
+      ""forbidden_reason"": null,
+      ""safe_alternatives"": []
+    }}
+
+    For FORBIDDEN, also fill:
+    ""forbidden_reason"": ""Specific reason why blocked"",
+    ""safe_alternatives"": [""soft delete"", ""archive table"", ""inactive flag""]}}";
     }
+
 
     private string BuildUserContent(string question, string? conversationHistory)
     {
@@ -570,6 +578,7 @@ For FORBIDDEN, also fill:
             Intent = intent,
             Route = route,
             Confidence = confidence,
+            ComplexityScore = llmResponse.ComplexityScore,
             Reasoning = llmResponse.Reason,
             NormalizedQuery = string.IsNullOrWhiteSpace(llmResponse.NormalizedQuery)
                 ? originalQuestion
@@ -733,6 +742,7 @@ internal class LlmClassificationResponse
 {
     public string Intent { get; set; } = string.Empty;
     public double Confidence { get; set; }
+    public double ComplexityScore { get; set; } = 0.0;
     public string Reasoning { get; set; } = string.Empty;
     public string Reason { get; set; } = string.Empty; // Alias for Reasoning
     public string NormalizedQuery { get; set; } = string.Empty;

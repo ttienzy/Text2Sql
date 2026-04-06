@@ -25,6 +25,7 @@ import EnhancedMessageInfo from './EnhancedMessageInfo';
 import ConversationContextIndicator from './ConversationContextIndicator';
 import TableSchemaButton from './TableSchemaButton';
 import ForbiddenWarning from './ForbiddenWarning';
+import ErrorRecovery from './ErrorRecovery';
 import { escapeHtml } from '../../utils/security';
 import { extractErrorMessage, hasError } from '../../utils/errorHandler';
 import { renderTableLinks, extractTableNames } from '../../utils/tableLinksRenderer';
@@ -53,7 +54,7 @@ const MessageBubble = ({ message, onSuggestedQueryClick, tableNames = [] }) => {
 
   // Check pipeline type for conditional rendering
   const pipeline = message.pipeline;
-  
+
   // Check if this is a forbidden operation response
   const isForbidden = pipeline === 'Forbidden';
 
@@ -168,19 +169,32 @@ const MessageBubble = ({ message, onSuggestedQueryClick, tableNames = [] }) => {
 
         {/* Error message display - only for real errors, not forbidden */}
         {hasErrorState && !isForbidden && (
-          <div
-            style={{
-              marginBottom: 8,
-              padding: '8px 12px',
-              backgroundColor: '#fff2f0',
-              borderRadius: 4,
-              border: '1px solid #ffccc7',
-            }}
-          >
-            <Text type="danger" style={{ fontSize: 13 }}>
-              Error: {errorMessage}
-            </Text>
-          </div>
+          <>
+            <div
+              style={{
+                marginBottom: 8,
+                padding: '8px 12px',
+                backgroundColor: '#fff2f0',
+                borderRadius: 4,
+                border: '1px solid #ffccc7',
+              }}
+            >
+              <Text type="danger" style={{ fontSize: 13 }}>
+                Error: {errorMessage}
+              </Text>
+            </div>
+            {/* MED-5: Error Recovery UI — show alternatives, retry, report */}
+            <ErrorRecovery
+              error={errorMessage}
+              originalQuestion={message.originalQuestion}
+              suggestedQueries={message.suggestedQueries}
+              actionButton={message.actionButton}
+              onRetry={(newQuestion) => onSuggestedQueryClick?.(newQuestion)}
+              onReport={(reportData) => {
+                console.log('[ErrorRecovery] Error reported:', reportData);
+              }}
+            />
+          </>
         )}
 
         {/* Context Indicator - Show when AI used context to understand pronouns */}

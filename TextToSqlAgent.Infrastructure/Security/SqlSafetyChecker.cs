@@ -106,18 +106,26 @@ public class SqlSafetyChecker : ISqlSafetyChecker
             };
         }
 
-        // Check for UNION-based injection (could be used to extract data from other tables)
+        // Check for UNION-based injection
         if (UnionInjectionPattern.IsMatch(trimmedSql))
         {
-            // Allow UNION SELECT but log it for monitoring
-            // In a production system, you might want to be more strict here
+            return new SqlSafetyResult
+            {
+                IsSafe = false,
+                ErrorMessage = "UNION-based queries are not allowed for security reasons. Please rephrase your question.",
+                BlockedCommand = "UNION SELECT"
+            };
         }
 
-        // Check for OR-based injection patterns
+        // Check for OR-based tautology injection patterns (e.g., OR 1=1, OR 'a'='a')
         if (OrInjectionPattern.IsMatch(trimmedSql))
         {
-            // This could be a legitimate query, but we'll allow it with a warning
-            // In production, you might want to flag this for review
+            return new SqlSafetyResult
+            {
+                IsSafe = false,
+                ErrorMessage = "Suspicious OR pattern detected (possible SQL injection). Query blocked for safety.",
+                BlockedCommand = "OR tautology"
+            };
         }
 
         // Additional check: Make sure the query starts with SELECT (after trimming)
@@ -135,6 +143,69 @@ public class SqlSafetyChecker : ISqlSafetyChecker
         {
             IsSafe = true
         };
+    }
+
+    // ============================================================
+    // CRIT-2b: Schema whitelist validation
+    // Validates that table/column names in generated SQL actually
+    // exist in the loaded database schema.
+    // ============================================================
+
+    // Regex to extract table names from FROM and JOIN clauses
+    private static readonly Regex TableNamePattern = new(
+        @"(?:FROM|JOIN)\s+(?:\[?(\w+)\]?\.)?(?:\[?(\w+)\]?)(?:\s+(?:AS\s+)?(\w+))?",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>
+    /// CRIT-2b: Validates that all table names referenced in the SQL exist in the schema.
+    /// Should be called after LLM generates SQL to prevent referencing non-existent tables.
+    /// </summary>
+    /// <param name="sql">The generated SQL query.</param>
+    /// <param name="knownTables">Set of valid table names from the loaded schema (case-insensitive).</param>
+    /// <param name="knownColumns">Optional set of valid column names (format: "TableName.ColumnName").</param>
+    /// <returns>Validation result.</returns>
+    public SqlSafetyResult ValidateAgainstSchema(
+        string sql,
+        IReadOnlySet<string> knownTables,
+        IReadOnlySet<string>? knownColumns = null)
+    {
+        if (string.IsNullOrWhiteSpace(sql))
+            return new SqlSafetyResult { IsSafe = false, ErrorMessage = "SQL query cannot be empty" };
+
+        // Extract table names from SQL
+        var matches = TableNamePattern.Matches(sql);
+        var unknownTables = new List<string>();
+
+        foreach (Match match in matches)
+        {
+            // Group 2 is the table name (Group 1 is optional schema prefix)
+            var tableName = match.Groups[2].Value;
+            if (string.IsNullOrEmpty(tableName)) continue;
+
+            // Skip INFORMATION_SCHEMA and sys tables (they are valid SQL Server system tables)
+            if (tableName.Equals("INFORMATION_SCHEMA", StringComparison.OrdinalIgnoreCase) ||
+                tableName.Equals("sys", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            // Check against known tables (case-insensitive)
+            if (!knownTables.Contains(tableName))
+            {
+                unknownTables.Add(tableName);
+            }
+        }
+
+        if (unknownTables.Count > 0)
+        {
+            return new SqlSafetyResult
+            {
+                IsSafe = false,
+                ErrorMessage = $"SQL references unknown table(s): {string.Join(", ", unknownTables)}. " +
+                               "These tables do not exist in the database schema.",
+                BlockedCommand = "Unknown table reference"
+            };
+        }
+
+        return new SqlSafetyResult { IsSafe = true };
     }
 }
 
@@ -155,3 +226,4 @@ public static class SqlSafetyExtensions
         }
     }
 }
+
