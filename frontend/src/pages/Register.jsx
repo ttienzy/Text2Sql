@@ -85,6 +85,16 @@ const RegisterPage = () => {
             layout="vertical"
           >
             <Form.Item
+              name="fullName"
+              rules={[{ required: true, message: 'Please input your full name!' }]}
+            >
+              <Input
+                prefix={<UserOutlined />}
+                placeholder="Full Name"
+              />
+            </Form.Item>
+
+            <Form.Item
               name="email"
               rules={[
                 { required: true, message: 'Please input your email!' },
@@ -94,16 +104,6 @@ const RegisterPage = () => {
               <Input
                 prefix={<MailOutlined />}
                 placeholder="Email address"
-              />
-            </Form.Item>
-
-            <Form.Item
-              name="username"
-              rules={[{ required: true, message: 'Please input your username!' }]}
-            >
-              <Input
-                prefix={<UserOutlined />}
-                placeholder="Username"
               />
             </Form.Item>
 
