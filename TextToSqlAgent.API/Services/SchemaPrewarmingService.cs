@@ -94,10 +94,20 @@ public class SchemaPrewarmingService : BackgroundService
                     "[SchemaPrewarming] Pre-warming schema for connection {ConnectionId} ({ConnectionName})",
                     connection.Id, connection.Name);
 
-                // Decrypt connection string
-                var connectionString = encryptionService.DecryptPassword(
-                    connection.ConnectionString,
-                    connection.Id);
+                // Get connection string with backward compatibility
+                string connectionString;
+                try
+                {
+                    connectionString = encryptionService.GetConnectionString(connection);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    _logger.LogWarning(
+                        "[SchemaPrewarming] Skipping connection {ConnectionId} ({ConnectionName}): {Error}",
+                        connection.Id, connection.Name, ex.Message);
+                    skipCount++;
+                    continue;
+                }
 
                 // Parse provider string to enum (default to SqlServer if invalid)
                 if (!Enum.TryParse<DatabaseProvider>(connection.Provider, ignoreCase: true, out var provider))

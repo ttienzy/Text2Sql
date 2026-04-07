@@ -27,17 +27,20 @@ public class ConversationAwareAgentController : BaseController
     private readonly IUnitOfWork _unitOfWork;
     private readonly IServiceProvider _serviceProvider;
     private readonly ITokenQuotaService _tokenQuotaService;
+    private readonly IConnectionEncryptionService _encryptionService;
     private readonly new ILogger<ConversationAwareAgentController> _logger;
 
     public ConversationAwareAgentController(
         IUnitOfWork unitOfWork,
         IServiceProvider serviceProvider,
         ITokenQuotaService tokenQuotaService,
+        IConnectionEncryptionService encryptionService,
         ILogger<ConversationAwareAgentController> logger) : base(logger)
     {
         _unitOfWork = unitOfWork;
         _serviceProvider = serviceProvider;
         _tokenQuotaService = tokenQuotaService;
+        _encryptionService = encryptionService;
         _logger = logger;
     }
 
@@ -288,15 +291,8 @@ public class ConversationAwareAgentController : BaseController
 
     private string BuildConnectionString(Connection connection)
     {
-        // Implementation same as original AgentController
-        return $"Server={connection.Host};Database={connection.Database};User Id={connection.Username};Password={DecryptPassword(connection.EncryptedPassword)};TrustServerCertificate=True;";
-    }
-
-    private string DecryptPassword(string encryptedPassword)
-    {
-        // For now, return as-is. In production, implement proper decryption
-        // This should use the same encryption service used when storing the password
-        return encryptedPassword;
+        // Get connection string with backward compatibility
+        return _encryptionService.GetConnectionString(connection);
     }
 
     private static int EstimateTokens(string text)

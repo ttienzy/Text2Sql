@@ -17,7 +17,6 @@ namespace TextToSqlAgent.API.Controllers;
 [Authorize]
 public class StreamingAgentController : ControllerBase
 {
-    private readonly TextToSqlAgent.Application.Pipeline.PipelineOrchestrator _pipelineOrchestrator;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<StreamingAgentController> _logger;
     private readonly IServiceProvider _serviceProvider;
@@ -25,14 +24,12 @@ public class StreamingAgentController : ControllerBase
     private readonly TextToSqlAgent.API.Services.IConnectionEncryptionService _encryptionService;
 
     public StreamingAgentController(
-        TextToSqlAgent.Application.Pipeline.PipelineOrchestrator pipelineOrchestrator,
         IUnitOfWork unitOfWork,
         ILogger<StreamingAgentController> logger,
         IServiceProvider serviceProvider,
         TextToSqlAgent.Infrastructure.Services.ITokenQuotaService tokenQuotaService,
         TextToSqlAgent.API.Services.IConnectionEncryptionService encryptionService)
     {
-        _pipelineOrchestrator = pipelineOrchestrator;
         _unitOfWork = unitOfWork;
         _logger = logger;
         _serviceProvider = serviceProvider;
@@ -133,7 +130,7 @@ public class StreamingAgentController : ControllerBase
             var originalConnectionString = dbConfig.ConnectionString;
 
             // Build connection string from connection entity (decrypt it)
-            var connectionString = _encryptionService.DecryptPassword(connection.ConnectionString, connection.Id);
+            var connectionString = _encryptionService.GetConnectionString(connection);
             dbConfig.ConnectionString = connectionString;
 
             try
@@ -152,18 +149,23 @@ public class StreamingAgentController : ControllerBase
                     }
                 });
 
-                // ✅ Create SQL token callback for streaming SQL generation
+                // ✅ PHASE-1 TASK 1.2: Create SQL token callback with fire-and-forget pattern (no deadlock)
                 Action<string> sqlTokenCallback = (token) =>
                 {
                     if (ct.IsCancellationRequested) return;
-                    try
+
+                    // Fire-and-forget pattern to avoid blocking the LLM streaming thread
+                    _ = Task.Run(async () =>
                     {
-                        WriteSseEventAsync("sql_token", new { token }, ct).GetAwaiter().GetResult();
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex, "[StreamingAgent] Failed to write SQL token (client may have disconnected)");
-                    }
+                        try
+                        {
+                            await WriteSseEventAsync("sql_token", new { token }, ct);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogDebug(ex, "[StreamingAgent] Failed to write SQL token (client may have disconnected)");
+                        }
+                    }, ct);
                 };
 
                 // Load conversation history if provided
@@ -204,20 +206,18 @@ public class StreamingAgentController : ControllerBase
                     }
                 }
 
-                // ✅ Phase 5A: Call PipelineOrchestrator directly (no more EnhancedAgentOrchestrator wrapper)
-                var pipelineContext = new TextToSqlAgent.Application.Pipeline.PipelineContext
-                {
-                    UserQuestion = request.Question,
-                    EnrichedQuestion = request.Question, // Will be overwritten by ValidationStage
-                    ConversationId = request.ConversationId,
-                    ConversationHistory = conversationHistory,
-                    Progress = progress,
-                    SqlTokenCallback = sqlTokenCallback
-                };
+                // ✅ PHASE-1 TASK 1.1: Use EnhancedAgentOrchestrator with Intent Routing (not PipelineOrchestrator)
+                var agent = scopedServices.GetRequiredService<TextToSqlAgent.Application.Services.EnhancedAgentOrchestrator>();
 
-                var response = await _pipelineOrchestrator.ExecuteAsync(pipelineContext, ct);
+                // Call ProcessMessageWithIntentRoutingAsync for unified pipeline routing
+                var unifiedResponse = await agent.ProcessMessageWithIntentRoutingAsync(
+                    request.Question,
+                    request.ConnectionId,
+                    request.ConversationId,
+                    conversationHistory,
+                    ct);
 
-                // Save user message to database
+                // ✅ PHASE-1 TASK 1.1: Save messages with UnifiedPipelineResponse data
                 var conversationId = request.ConversationId ?? Guid.NewGuid().ToString();
 
                 if (!string.IsNullOrEmpty(userId))
@@ -232,14 +232,31 @@ public class StreamingAgentController : ControllerBase
                     };
                     await _unitOfWork.Messages.AddAsync(userMessage);
 
+                    // Extract data from UnifiedPipelineResponse
+                    string answer = unifiedResponse.Message;
+                    string? sqlGenerated = unifiedResponse.SqlGenerated;
+                    string? queryExplanation = null;
+                    List<string>? processingSteps = unifiedResponse.Execution?.ProcessingSteps?.ToList();
+                    List<string>? suggestedQueries = null;
+                    TextToSqlAgent.Core.Models.SqlExecutionResult? queryResult = null;
+                    bool success = unifiedResponse.Success;
+
+                    // Extract pipeline-specific data
+                    if (unifiedResponse.Data is TextToSqlAgent.Core.Models.QueryPipelineData queryData)
+                    {
+                        answer = queryData.Answer;
+                        queryExplanation = queryData.QueryExplanation;
+                        suggestedQueries = queryData.SuggestedQueries?.ToList();
+                        queryResult = queryData.QueryResult;
+                    }
+
                     // Estimate token usage
                     var inputTokens = Math.Max(1, request.Question.Length / 4);
-                    var answerLength = (response.Answer?.Length ?? 0) + (response.SqlGenerated?.Length ?? 0);
-                    var outputTokens = Math.Max(1, answerLength / 4);
+                    var outputTokens = Math.Max(1, (answer?.Length ?? 0) / 4 + (sqlGenerated?.Length ?? 0) / 4);
                     var totalTokens = inputTokens + outputTokens;
                     var model = "gpt-4o";
 
-                    // Approximate pricing per 1K tokens
+                    // Calculate cost
                     var costPer1KTokens = 0.03m;
                     var cost = (totalTokens / 1000m) * costPer1KTokens;
 
@@ -248,22 +265,21 @@ public class StreamingAgentController : ControllerBase
                     {
                         ConversationId = conversationId,
                         Role = "assistant",
-                        Content = response.Answer ?? "",
-                        SqlQuery = response.SqlGenerated,
-                        Results = response.QueryResult?.Rows != null ?
-                            JsonSerializer.Serialize(response.QueryResult.Rows) : null,
-                        RowCount = response.QueryResult?.RowCount,
-                        ErrorMessage = response.ErrorMessage,
-                        QueryExplanation = response.QueryExplanation,
-                        ProcessingSteps = response.ProcessingSteps?.Count > 0 ?
-                            JsonSerializer.Serialize(response.ProcessingSteps) : null,
-                        SuggestedQueries = response.SuggestedQueries?.Count > 0 ?
-                            JsonSerializer.Serialize(response.SuggestedQueries) : null,
-                        CorrectionHistory = response.CorrectionHistory?.Count > 0 ?
-                            JsonSerializer.Serialize(response.CorrectionHistory) : null,
-                        WasCorrected = response.WasCorrected,
-                        CorrectionAttempts = response.CorrectionAttempts,
-                        Success = response.Success,
+                        Content = answer ?? "",
+                        SqlQuery = sqlGenerated,
+                        Results = queryResult?.Rows != null ?
+                            JsonSerializer.Serialize(queryResult.Rows) : null,
+                        RowCount = queryResult?.RowCount,
+                        ErrorMessage = unifiedResponse.Error?.Message,
+                        QueryExplanation = queryExplanation,
+                        ProcessingSteps = processingSteps?.Count > 0 ?
+                            JsonSerializer.Serialize(processingSteps) : null,
+                        SuggestedQueries = suggestedQueries?.Count > 0 ?
+                            JsonSerializer.Serialize(suggestedQueries) : null,
+                        CorrectionHistory = null, // Not available in UnifiedPipelineResponse
+                        WasCorrected = unifiedResponse.Execution?.WasCorrected ?? false,
+                        CorrectionAttempts = unifiedResponse.Execution?.CorrectionAttempts ?? 0,
+                        Success = success,
                         InputTokens = inputTokens,
                         OutputTokens = outputTokens,
                         TotalTokens = totalTokens,
@@ -297,16 +313,16 @@ public class StreamingAgentController : ControllerBase
                             }
 
                             // Enrich context with this turn's data
-                            if (!string.IsNullOrEmpty(response.SqlGenerated))
+                            if (!string.IsNullOrEmpty(unifiedResponse.SqlGenerated))
                             {
-                                existingContext.UpdateLastSql(response.SqlGenerated,
-                                    response.Answer?.Length > 200 ? response.Answer[..200] : response.Answer);
+                                existingContext.UpdateLastSql(unifiedResponse.SqlGenerated,
+                                    unifiedResponse.Message?.Length > 200 ? unifiedResponse.Message[..200] : unifiedResponse.Message);
                             }
 
                             // Extract tables from SQL and add to mentioned tables
-                            if (!string.IsNullOrEmpty(response.SqlGenerated))
+                            if (!string.IsNullOrEmpty(unifiedResponse.SqlGenerated))
                             {
-                                var (tables, _, _, _) = TextToSqlAgent.Core.Helpers.SqlContextExtractor.ExtractFullContext(response.SqlGenerated);
+                                var (tables, _, _, _) = TextToSqlAgent.Core.Helpers.SqlContextExtractor.ExtractFullContext(unifiedResponse.SqlGenerated);
                                 foreach (var table in tables)
                                 {
                                     existingContext.AddMentionedTable(table);
@@ -341,20 +357,8 @@ public class StreamingAgentController : ControllerBase
                     }
                 }
 
-                // Emit the final result
-                await WriteSseEventAsync("result", new
-                {
-                    success = response.Success,
-                    answer = response.Answer,
-                    sql = response.SqlGenerated,
-                    data = response.QueryResult?.Rows,
-                    suggestedQueries = response.SuggestedQueries,
-                    processingSteps = response.ProcessingSteps,
-                    metadata = response.Metadata,
-                    errorMessage = response.ErrorMessage,
-                    conversationId, // Important to pass back newly generated ID
-                    correlationId
-                }, ct);
+                // ✅ PHASE-1 TASK 1.3: Emit UnifiedPipelineResponse directly (correct format for frontend)
+                await WriteSseEventAsync("result", unifiedResponse, ct);
             }
             finally
             {

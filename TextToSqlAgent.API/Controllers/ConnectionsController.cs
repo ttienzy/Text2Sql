@@ -203,7 +203,7 @@ public class ConnectionsController : BaseController
                     var connection = await _unitOfWork.Connections.GetByIdAndUserIdAsync(id, userId);
                     if (connection != null)
                     {
-                        var connectionString = _encryptionService.DecryptPassword(connection.ConnectionString, connection.Id);
+                        var connectionString = _encryptionService.GetConnectionString(connection);
 
                         // Set database configuration temporarily for scanning
                         var dbConfig = HttpContext.RequestServices.GetRequiredService<TextToSqlAgent.Infrastructure.Configuration.DatabaseConfig>();
@@ -343,7 +343,7 @@ public class ConnectionsController : BaseController
                 var vectorSearchService = HttpContext.RequestServices.GetRequiredService<IVectorSearchService>();
 
                 // Extract database name from connection string
-                var connectionString = _encryptionService.DecryptPassword(connection.ConnectionString, connection.Id);
+                var connectionString = _encryptionService.GetConnectionString(connection);
                 var databaseName = ExtractDatabaseNameFromConnectionString(connectionString);
 
                 if (string.IsNullOrEmpty(databaseName))
@@ -656,7 +656,7 @@ public class ConnectionsController : BaseController
             _logger.LogInformation("[RefreshSchema] Refreshing schema for connection {ConnectionId}", id);
 
             // Get connection string
-            var connectionString = _encryptionService.DecryptPassword(connection.ConnectionString, connection.Id);
+            var connectionString = _encryptionService.GetConnectionString(connection);
 
             // Set the database configuration temporarily for scanning
             var dbConfig = HttpContext.RequestServices.GetRequiredService<DatabaseConfig>();

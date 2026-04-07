@@ -153,8 +153,20 @@ public class SchemaRetrievalStage : IPipelineStage
         {
             var schemaIndexer = _serviceFactory.GetSchemaIndexer();
             var fingerprint = CreateSimpleFingerprint(schema);
+
+            // ✅ PHASE-2 TASK 2.1: Check if schema is already indexed before re-indexing
+            var isIndexed = await schemaIndexer.IsSchemaIndexedAsync(fingerprint, ct);
+            if (isIndexed)
+            {
+                _logger.LogInformation(
+                    "[SchemaRetrieval] ✓ Schema already indexed (fingerprint match: {Hash}), skipping re-index",
+                    fingerprint.Hash.Substring(0, 8));
+                return;
+            }
+
+            _logger.LogInformation("[SchemaRetrieval] Schema not indexed or fingerprint mismatch, indexing now...");
             await schemaIndexer.IndexSchemaAsync(schema, fingerprint, ct);
-            _logger.LogInformation("[SchemaRetrieval] Schema indexed successfully");
+            _logger.LogInformation("[SchemaRetrieval] ✓ Schema indexed successfully");
         }
         catch (Exception ex)
         {

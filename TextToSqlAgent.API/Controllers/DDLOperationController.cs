@@ -215,8 +215,8 @@ public class DDLOperationController : ControllerBase
 
     private string BuildConnectionString(Connection connection)
     {
-        // Decrypt the connection string (it's stored encrypted)
-        return _encryptionService.DecryptPassword(connection.ConnectionString, connection.Id);
+        // Get connection string with backward compatibility
+        return _encryptionService.GetConnectionString(connection);
     }
 
     private async Task SaveDDLOperationToHistory(

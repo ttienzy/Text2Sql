@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.ResponseCompression;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
@@ -193,7 +194,24 @@ try
     builder.Services.AddSingleton<LLMClientFactory>();
     builder.Services.AddSingleton<EmbeddingClientFactory>();
 
-    builder.Services.AddSingleton<ILLMClient>(sp => sp.GetRequiredService<LLMClientFactory>().CreateClient());
+    // ✅ PHASE-2 TASK 2.2: Register caches BEFORE using them
+    builder.Services.AddSingleton<TextToSqlAgent.Infrastructure.Caching.IntentCache>();
+    builder.Services.AddSingleton<TextToSqlAgent.Infrastructure.Caching.QueryResultCache>();
+    builder.Services.AddSingleton<TextToSqlAgent.Infrastructure.Caching.LLMResponseCache>();
+    logger.Information("✅ Intent, Query result, and LLM response caching registered");
+
+    builder.Services.AddSingleton<ILLMClient>(sp =>
+    {
+        // Create base LLM client
+        var baseClient = sp.GetRequiredService<LLMClientFactory>().CreateClient();
+
+        // ✅ PHASE-2 TASK 2.2e: Wrap with caching decorator
+        var cache = sp.GetRequiredService<TextToSqlAgent.Infrastructure.Caching.LLMResponseCache>();
+        var logger = sp.GetRequiredService<ILogger<TextToSqlAgent.Infrastructure.LLM.CachedLLMClient>>();
+
+        return new TextToSqlAgent.Infrastructure.LLM.CachedLLMClient(
+            baseClient, cache, logger, "default");
+    });
     builder.Services.AddSingleton<IEmbeddingClient>(sp => sp.GetRequiredService<EmbeddingClientFactory>().CreateClient());
 
     // Infrastructure - Database (SQL Server only)
@@ -218,7 +236,9 @@ try
     });
 
     // ✅ Redis for DB Explorer caching
-    var redisConnection = configuration["Redis:Connection"] ?? "127.0.0.1:6379";
+    var redisConnection = Environment.GetEnvironmentVariable("REDIS_CONNECTION") ??
+                         configuration["Redis:Connection"] ??
+                         "127.0.0.1:6379";
     builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
     {
         var config = ConfigurationOptions.Parse(redisConnection);
@@ -260,15 +280,24 @@ try
     // TODO: Refactor to support per-connection schema sync or use webhook-based detection
     // builder.Services.AddHostedService<TextToSqlAgent.API.Services.SchemaSyncBackgroundService>();
 
-    // ✅ P2: Schema Pre-warming Background Service
-    // Automatically loads schemas for all connections into cache every 5 minutes
-    builder.Services.AddHostedService<TextToSqlAgent.API.Services.SchemaPrewarmingService>();
+    // ⚠️ TEMP DISABLED: Schema Pre-warming Background Service
+    // Temporarily disabled to avoid errors with invalid/old connections in database
+    // TODO: Re-enable after cleaning up invalid connections or improving error handling
+    // builder.Services.AddHostedService<TextToSqlAgent.API.Services.SchemaPrewarmingService>();
 
     // Infrastructure - Analysis (for legacy orchestrator)
     builder.Services.AddSingleton<SqlErrorAnalyzer>();
 
     // ✅ IMP-4: Custom OpenTelemetry metrics (counters, histograms, gauges)
     builder.Services.AddSingleton<TextToSqlAgent.Infrastructure.Telemetry.AppMetrics>();
+
+    // ✅ PHASE-2: Connection Encryption Service (Data Protection API)
+    builder.Services.AddDataProtection()
+        .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(Directory.GetCurrentDirectory(), "keys")));
+    builder.Services.AddSingleton<TextToSqlAgent.API.Services.IConnectionEncryptionService, TextToSqlAgent.API.Services.ConnectionEncryptionService>();
+    logger.Information("✅ Connection encryption service registered with Data Protection API");
+
+    // ✅ PHASE-2 TASK 2.2: Caching services already registered above (line 196-199)
 
     // Error Handlers
     TextToSqlAgent.Infrastructure.ErrorHandling.ErrorHandlerServiceExtensions.AddErrorHandlers(builder.Services);
@@ -404,7 +433,7 @@ try
     builder.Services.AddScoped<DatabaseSeeder>();
 
     // Connection Management Services
-    builder.Services.AddScoped<IConnectionEncryptionService, ConnectionEncryptionService>();
+    // Note: IConnectionEncryptionService already registered as Singleton above (line 294)
     builder.Services.AddScoped<IConnectionService, ConnectionService>();
 
     // Conversation Management Services
@@ -438,8 +467,13 @@ try
     // Database Context for Identity and API entities with secure connection string
     // For API, prioritize SQL Server connection string for production
     var connectionString = configService.GetSecureValue("ConnectionStrings:DefaultConnection") ??
-                          configService.GetSecureValue("IDENTITY_CONNECTION_STRING") ??
-                          "Server=.;Database=TextToSqlAgentDB;User Id=sa;Password=123;TrustServerCertificate=True;";
+                          configService.GetSecureValue("IDENTITY_CONNECTION_STRING");
+
+    if (string.IsNullOrEmpty(connectionString))
+    {
+        logger.Fatal("❌ Database connection string is not configured. Set IDENTITY_CONNECTION_STRING or ConnectionStrings:DefaultConnection");
+        throw new InvalidOperationException("Database connection string is required. Please configure IDENTITY_CONNECTION_STRING environment variable or ConnectionStrings:DefaultConnection in appsettings.json");
+    }
 
     logger.Information("Using database connection: {DatabaseType}",
         connectionString.Contains("Data Source=") ? "SQLite" : "SQL Server");
@@ -491,13 +525,6 @@ try
     })
         .AddEntityFrameworkStores<TextToSqlAgent.Infrastructure.Data.AppDbContext>()
         .AddDefaultTokenProviders();
-
-    // JWT Authentication with secure key management
-    var jwtKey = configService.GetSecureValue("Jwt:Key");
-    if (string.IsNullOrEmpty(jwtKey))
-    {
-        throw new InvalidOperationException("JWT Key is not configured. Please set JWT_SECRET environment variable or Jwt:Key in configuration.");
-    }
 
     // ✅ SECURITY: Configure JWT Authentication and Authorization
     builder.Services.AddJwtAuthentication(configuration);

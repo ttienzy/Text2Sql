@@ -231,8 +231,15 @@ public class AuthenticationService : IAuthenticationService
         try
         {
             var clientId = Environment.GetEnvironmentVariable("GOOGLE_CLIENT_ID")
-                           ?? _configuration["Google:ClientId"]
-                           ?? throw new InvalidOperationException("Google ClientId not configured");
+                           ?? _configuration["Google:ClientId"];
+
+            if (string.IsNullOrEmpty(clientId))
+            {
+                _logger.LogError("Google ClientId not configured. Check GOOGLE_CLIENT_ID environment variable or Google:ClientId in appsettings.json");
+                return AuthResult.CreateFailure("Google authentication is not configured");
+            }
+
+            _logger.LogDebug("Google login attempt with ClientId: {ClientId}", clientId.Substring(0, Math.Min(20, clientId.Length)) + "...");
 
             // Verify the Google ID token
             var payload = await GoogleJsonWebSignature.ValidateAsync(idToken, new GoogleJsonWebSignature.ValidationSettings
@@ -240,9 +247,9 @@ public class AuthenticationService : IAuthenticationService
                 Audience = [clientId]
             });
 
-            var email   = payload.Email;
+            var email = payload.Email;
             var googleId = payload.Subject;   // 'sub' claim — stored in AspNetUserLogins.ProviderKey
-            var name    = payload.Name;
+            var name = payload.Name;
             var picture = payload.Picture;
 
             // Try to find existing login record first (AspNetUserLogins)
@@ -393,13 +400,13 @@ public class AuthenticationService : IAuthenticationService
 
             return new UserProfileResponse
             {
-                Id         = user.Id,
-                Email      = user.Email ?? "",
-                FullName   = user.FullName,
-                AvatarUrl  = user.AvatarUrl,
+                Id = user.Id,
+                Email = user.Email ?? "",
+                FullName = user.FullName,
+                AvatarUrl = user.AvatarUrl,
                 HasPassword = hasPassword,
                 LinkedProviders = logins.Select(l => l.LoginProvider).ToList(),
-                GoogleLinked   = logins.Any(l => l.LoginProvider == "Google"),
+                GoogleLinked = logins.Any(l => l.LoginProvider == "Google"),
                 FacebookLinked = logins.Any(l => l.LoginProvider == "Facebook"),
             };
         }
@@ -464,4 +471,4 @@ public class AuthenticationService : IAuthenticationService
         rng.GetBytes(randomBytes);
         return Convert.ToBase64String(randomBytes);
     }
-}
+}

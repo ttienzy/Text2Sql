@@ -27,7 +27,7 @@ public class ResponseFormattingStage : IPipelineStage
 
     public async Task<StageResult> ExecuteAsync(PipelineContext context, CancellationToken ct)
     {
-        context.Steps.Add("Format intelligent answer");
+        context.Steps.Add("Format intelligent answer and generate suggestions");
 
         var sqlGenerator = _serviceFactory.GetSqlGenerator();
 
@@ -37,37 +37,60 @@ public class ResponseFormattingStage : IPipelineStage
             : context.GeneratedSql!;
         finalSql = sqlGenerator.EnsureLimit(finalSql);
 
-        // ── Format answer ──
-        var answer = await FormatIntelligentAnswerAsync(
-            context.UserQuestion,
-            finalSql,
-            context.Intent!,
-            context.ExecutionResult!,
-            context.Corrections,
-            context.ConversationCtx,
-            ct);
-
-        context.Response.Success = true;
-        context.Response.Answer = answer;
-        context.Response.SqlGenerated = finalSql;
-        context.Response.QueryResult = context.ExecutionResult;
-
-        // ── Generate contextual suggestions ──
-        context.Steps.Add("Generate contextual suggestions");
-
+        // ✅ PHASE-2 TASK 2.2c: Use combined plugin to generate response + suggestions in ONE LLM call
+        string answer;
         List<string> suggestions;
+
         try
         {
-            suggestions = await sqlGenerator.GenerateContextualSuggestionsAsync(
-                context.UserQuestion, finalSql, context.ExecutionResult!, context.Intent!, ct);
+            var combinedPlugin = _serviceFactory.GetOrCreate<TextToSqlAgent.Plugins.CombinedResponsePlugin>();
+            var combined = await combinedPlugin.GenerateCombinedResponseAsync(
+                context.UserQuestion,
+                finalSql,
+                context.ExecutionResult!,
+                context.Intent!,
+                ct);
 
-            _logger.LogInformation("[ResponseFormatting] Generated {Count} contextual suggestions",
+            // Add correction info if applicable
+            answer = context.Corrections.Any()
+                ? $"ℹ️  SQL was auto-corrected {context.Corrections.Count} time(s).\n{combined.IntelligentAnswer}"
+                : combined.IntelligentAnswer;
+
+            // Add conversation context indicator
+            if (context.ConversationCtx != null && context.ConversationCtx.TurnCount > 1)
+            {
+                answer = "📊 " + answer;
+            }
+
+            suggestions = combined.Suggestions;
+
+            _logger.LogInformation(
+                "[ResponseFormatting] ⚡ Generated response + {Count} suggestions in single LLM call (TASK 2.2c)",
                 suggestions.Count);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "[ResponseFormatting] Contextual suggestions failed, using fallback");
-            suggestions = new List<string>();
+            _logger.LogWarning(ex, "[ResponseFormatting] Combined plugin failed, falling back to separate calls");
+
+            // Fallback to old approach (2 separate LLM calls)
+            answer = await FormatIntelligentAnswerAsync(
+                context.UserQuestion,
+                finalSql,
+                context.Intent!,
+                context.ExecutionResult!,
+                context.Corrections,
+                context.ConversationCtx,
+                ct);
+
+            try
+            {
+                suggestions = await sqlGenerator.GenerateContextualSuggestionsAsync(
+                    context.UserQuestion, finalSql, context.ExecutionResult!, context.Intent!, ct);
+            }
+            catch
+            {
+                suggestions = new List<string>();
+            }
         }
 
         // Fallback to rule-based if not enough suggestions
@@ -80,6 +103,10 @@ public class ResponseFormattingStage : IPipelineStage
             suggestions = suggestions.Concat(ruleBased).Distinct().Take(3).ToList();
         }
 
+        context.Response.Success = true;
+        context.Response.Answer = answer;
+        context.Response.SqlGenerated = finalSql;
+        context.Response.QueryResult = context.ExecutionResult;
         context.Response.SuggestedQueries = suggestions;
 
         // ── Update conversation history ──
