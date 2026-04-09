@@ -39,6 +39,21 @@ public class DatabaseAnalysis
     /// Confidence score (0-1)
     /// </summary>
     public double Confidence { get; set; }
+
+    /// <summary>
+    /// Key tables (most connected/important)
+    /// </summary>
+    public List<string> KeyTables { get; set; } = new();
+
+    /// <summary>
+    /// Data flow pattern description
+    /// </summary>
+    public string? DataFlowPattern { get; set; }
+
+    /// <summary>
+    /// Technical debt warnings
+    /// </summary>
+    public List<string> TechnicalDebt { get; set; } = new();
 }
 
 /// <summary>

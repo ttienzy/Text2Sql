@@ -18,13 +18,19 @@ public static class AuthenticationExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        var jwtKey = configuration["Jwt:Key"];
-        var jwtIssuer = configuration["Jwt:Issuer"] ?? "TextToSqlAgentAPI";
-        var jwtAudience = configuration["Jwt:Audience"] ?? "TextToSqlAgentClient";
+        // Try environment variable first, then configuration
+        var jwtKey = Environment.GetEnvironmentVariable("JWT_SECRET") ??
+                     configuration["Jwt:Key"];
+        var jwtIssuer = Environment.GetEnvironmentVariable("JWT_ISSUER") ??
+                        configuration["Jwt:Issuer"] ??
+                        "TextToSqlAgentAPI";
+        var jwtAudience = Environment.GetEnvironmentVariable("JWT_AUDIENCE") ??
+                          configuration["Jwt:Audience"] ??
+                          "TextToSqlAgentClient";
 
         if (string.IsNullOrEmpty(jwtKey))
         {
-            throw new InvalidOperationException("JWT Key is not configured. Please set Jwt:Key in configuration.");
+            throw new InvalidOperationException("JWT Key is not configured. Please set JWT_SECRET environment variable or Jwt:Key in configuration.");
         }
 
         services.AddAuthentication(options =>

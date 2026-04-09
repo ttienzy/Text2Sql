@@ -27,4 +27,18 @@ public interface ILLMClient
         string systemPrompt,
         string userPrompt,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Generate completion with streaming support (token-by-token)
+    /// </summary>
+    /// <param name="systemPrompt">System instructions/context</param>
+    /// <param name="userPrompt">User's actual prompt</param>
+    /// <param name="tokenCallback">Callback invoked for each token received</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Complete generated text</returns>
+    Task<string> CompleteWithSystemPromptStreamAsync(
+        string systemPrompt,
+        string userPrompt,
+        Action<string>? tokenCallback = null,
+        CancellationToken cancellationToken = default);
 }

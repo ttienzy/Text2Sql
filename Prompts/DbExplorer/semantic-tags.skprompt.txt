@@ -1,0 +1,31 @@
+{{$systemContext}}
+
+Bạn là chuyên gia database {{$domain}}.
+
+Tạo semantic tags (từ đồng nghĩa và liên quan) cho bảng sau để cải thiện khả năng tìm kiếm:
+
+Bảng: {{$tableName}}
+Mô tả: {{$description}}
+Role: {{$role}}
+Module: {{$module}}
+
+Yêu cầu:
+1. Tạo danh sách các từ đồng nghĩa (synonyms) bằng tiếng Việt và tiếng Anh
+2. Tạo các khái niệm liên quan (related concepts)
+3. Tạo các từ khóa tìm kiếm phổ biến (common search terms)
+4. Xử lý viết tắt tiếng Việt (Ma = Mã, Ten = Tên, KH = Khách Hàng, etc.)
+
+Trả về JSON với format:
+{
+  "vietnamese": ["từ tiếng Việt 1", "từ tiếng Việt 2", ...],
+  "english": ["English term 1", "English term 2", ...],
+  "abbreviations": ["viết tắt 1", "viết tắt 2", ...],
+  "relatedConcepts": ["khái niệm liên quan 1", "khái niệm liên quan 2", ...],
+  "searchTerms": ["từ khóa tìm kiếm 1", "từ khóa tìm kiếm 2", ...]
+}
+
+Ví dụ:
+- Bảng "KhachHang" → vietnamese: ["khách hàng", "người mua", "người dùng"], english: ["customer", "client", "buyer", "user"], abbreviations: ["KH"], relatedConcepts: ["CRM", "bán hàng", "marketing"], searchTerms: ["tìm khách", "danh sách khách", "quản lý khách"]
+- Bảng "Orders" → vietnamese: ["đơn hàng", "đơn đặt hàng", "giao dịch"], english: ["order", "purchase", "transaction", "sale"], abbreviations: ["DH"], relatedConcepts: ["e-commerce", "thanh toán", "giao hàng"], searchTerms: ["tìm đơn", "danh sách đơn", "đơn hàng mới"]
+
+Chỉ trả về JSON, không có markdown hay giải thích thêm.

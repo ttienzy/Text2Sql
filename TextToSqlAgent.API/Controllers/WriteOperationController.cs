@@ -83,31 +83,33 @@ public class WriteOperationController : ControllerBase
             using var scope = _serviceProvider.CreateScope();
             var scopedServices = scope.ServiceProvider;
 
-            var dbConfig = scopedServices.GetRequiredService<DatabaseConfig>();
-            dbConfig.ConnectionString = BuildConnectionString(connection);
-
-            var writePipeline = scopedServices.GetRequiredService<IWritePipeline>();
-            var intentClassifier = scopedServices.GetService<IIntentClassifier>();
-
-            // Generate preview
-            var preview = await writePipeline.GeneratePreviewAsync(request);
-
-            // Create intent result for response builder
-            var intentResult = new IntentClassificationResult
+            // ✅ CRIT-2 FIX: Use DatabaseConfigContext.SetConnectionString() instead of mutating Singleton
+            var connectionString = BuildConnectionString(connection);
+            using (DatabaseConfigContext.SetConnectionString(connectionString))
             {
-                Intent = preview.OperationType == WriteOperationType.Insert
-                    ? IntentCategory.Insert
-                    : IntentCategory.Update,
-                Route = PipelineRoute.Write,
-                Confidence = 1.0,
-                DetectedEntities = new List<string> { preview.TargetTable },
-                MatchedKeywords = new List<string>()
-            };
+                var writePipeline = scopedServices.GetRequiredService<IWritePipeline>();
+                var intentClassifier = scopedServices.GetService<IIntentClassifier>();
 
-            // Build unified response
-            var response = _responseBuilder.BuildWritePreviewResponse(preview, intentResult, stopwatch);
+                // Generate preview
+                var preview = await writePipeline.GeneratePreviewAsync(request);
 
-            return Ok(response);
+                // Create intent result for response builder
+                var intentResult = new IntentClassificationResult
+                {
+                    Intent = preview.OperationType == WriteOperationType.Insert
+                        ? IntentCategory.Insert
+                        : IntentCategory.Update,
+                    Route = PipelineRoute.Write,
+                    Confidence = 1.0,
+                    DetectedEntities = new List<string> { preview.TargetTable },
+                    MatchedKeywords = new List<string>()
+                };
+
+                // Build unified response
+                var response = _responseBuilder.BuildWritePreviewResponse(preview, intentResult, stopwatch);
+
+                return Ok(response);
+            } // ← DatabaseConfigContext auto-restores here via IDisposable
         }
         catch (Exception ex)
         {
@@ -157,44 +159,46 @@ public class WriteOperationController : ControllerBase
             using var scope = _serviceProvider.CreateScope();
             var scopedServices = scope.ServiceProvider;
 
-            var dbConfig = scopedServices.GetRequiredService<DatabaseConfig>();
-            dbConfig.ConnectionString = BuildConnectionString(connection);
-
-            var writePipeline = scopedServices.GetRequiredService<IWritePipeline>();
-
-            // Execute with confirmation
-            var operationRequest = new WriteOperationRequest
+            // ✅ CRIT-2 FIX: Use DatabaseConfigContext.SetConnectionString() instead of mutating Singleton
+            var connectionString = BuildConnectionString(connection);
+            using (DatabaseConfigContext.SetConnectionString(connectionString))
             {
-                Question = request.Question,
-                ConnectionId = request.ConnectionId,
-                ConversationId = request.ConversationId,
-                IsConfirmed = true
-            };
+                var writePipeline = scopedServices.GetRequiredService<IWritePipeline>();
 
-            var result = await writePipeline.ExecuteAsync(operationRequest, request.Preview);
+                // Execute with confirmation
+                var operationRequest = new WriteOperationRequest
+                {
+                    Question = request.Question,
+                    ConnectionId = request.ConnectionId,
+                    ConversationId = request.ConversationId,
+                    IsConfirmed = true
+                };
 
-            // Save to message history
-            await SaveWriteOperationToHistory(
-                request.ConversationId,
-                request.Question,
-                result);
+                var result = await writePipeline.ExecuteAsync(operationRequest, request.Preview);
 
-            // Create intent result for response builder
-            var intentResult = new IntentClassificationResult
-            {
-                Intent = result.OperationType == WriteOperationType.Insert
-                    ? IntentCategory.Insert
-                    : IntentCategory.Update,
-                Route = PipelineRoute.Write,
-                Confidence = 1.0,
-                DetectedEntities = new List<string> { result.TargetTable },
-                MatchedKeywords = new List<string>()
-            };
+                // Save to message history
+                await SaveWriteOperationToHistory(
+                    request.ConversationId,
+                    request.Question,
+                    result);
 
-            // Build unified response
-            var response = _responseBuilder.BuildWriteResultResponse(result, intentResult);
+                // Create intent result for response builder
+                var intentResult = new IntentClassificationResult
+                {
+                    Intent = result.OperationType == WriteOperationType.Insert
+                        ? IntentCategory.Insert
+                        : IntentCategory.Update,
+                    Route = PipelineRoute.Write,
+                    Confidence = 1.0,
+                    DetectedEntities = new List<string> { result.TargetTable },
+                    MatchedKeywords = new List<string>()
+                };
 
-            return Ok(response);
+                // Build unified response
+                var response = _responseBuilder.BuildWriteResultResponse(result, intentResult);
+
+                return Ok(response);
+            } // ← DatabaseConfigContext auto-restores here via IDisposable
         }
         catch (Exception ex)
         {
@@ -206,8 +210,8 @@ public class WriteOperationController : ControllerBase
 
     private string BuildConnectionString(Connection connection)
     {
-        // Decrypt the connection string (it's stored encrypted)
-        return _encryptionService.DecryptPassword(connection.ConnectionString, connection.Id);
+        // Get connection string with backward compatibility
+        return _encryptionService.GetConnectionString(connection);
     }
 
     private async Task SaveWriteOperationToHistory(

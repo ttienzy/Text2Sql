@@ -1,4 +1,6 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
+using Polly;
+using Polly.Retry;
 using Qdrant.Client.Grpc;
 using System.Net.Http.Json;
 using System.Text;
@@ -19,28 +21,81 @@ public class QdrantService
     private readonly string _baseUrl;
     private string _currentCollectionName;
 
-    public QdrantService(QdrantConfig config, ILogger<QdrantService> logger)
+    // ✅ INFRA-6: Polly resilience pipeline — retry + circuit breaker for transient HTTP failures
+    private readonly ResiliencePipeline<HttpResponseMessage> _retryPipeline;
+
+    // ✅ TD-10: Accept IHttpClientFactory to prevent socket exhaustion
+    public QdrantService(QdrantConfig config, ILogger<QdrantService> logger, IHttpClientFactory? httpClientFactory = null)
     {
         _config = config;
         _logger = logger;
         _currentCollectionName = config.CollectionName;
 
-        // âœ… FIX: Always use REST API port 6333 (not gRPC 6334)
+        // TD-10: Use factory-created client when available, fall back to raw client
+        _httpClient = httpClientFactory?.CreateClient("Qdrant") ?? new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+
+        // ✅ FIX: Always use REST API port 6333 (not gRPC 6334)
         _baseUrl = $"http://{config.Host}:6333";
-        _httpClient = new HttpClient
-        {
-            Timeout = TimeSpan.FromSeconds(30)
-        };
+
+        // Build Polly resilience pipeline: Retry (3x exponential) + Circuit Breaker (5 failures → open 30s)
+        var shouldHandle = new PredicateBuilder<HttpResponseMessage>()
+            .Handle<HttpRequestException>()
+            .Handle<TaskCanceledException>()
+            .HandleResult(r => (int)r.StatusCode >= 500);
+
+        _retryPipeline = new ResiliencePipelineBuilder<HttpResponseMessage>()
+            .AddRetry(new RetryStrategyOptions<HttpResponseMessage>
+            {
+                MaxRetryAttempts = 3,
+                Delay = TimeSpan.FromSeconds(1),
+                BackoffType = DelayBackoffType.Exponential,
+                ShouldHandle = shouldHandle,
+                OnRetry = args =>
+                {
+                    _logger.LogWarning("[Qdrant] Retrying request (attempt {AttemptNumber}) after {Delay} due to {Outcome}",
+                        args.AttemptNumber + 1, args.RetryDelay,
+                        args.Outcome.Exception?.Message ?? args.Outcome.Result?.StatusCode.ToString());
+                    return default;
+                }
+            })
+            .AddCircuitBreaker(new Polly.CircuitBreaker.CircuitBreakerStrategyOptions<HttpResponseMessage>
+            {
+                FailureRatio = 0.8,
+                SamplingDuration = TimeSpan.FromSeconds(30),
+                MinimumThroughput = 5,
+                BreakDuration = TimeSpan.FromSeconds(30),
+                ShouldHandle = shouldHandle,
+                OnOpened = args =>
+                {
+                    _logger.LogError("[Qdrant] ⚡ Circuit breaker OPENED — Qdrant unreachable, failing fast for {Duration}s",
+                        args.BreakDuration.TotalSeconds);
+                    return default;
+                },
+                OnClosed = _ =>
+                {
+                    _logger.LogInformation("[Qdrant] ✅ Circuit breaker CLOSED — Qdrant recovered");
+                    return default;
+                },
+                OnHalfOpened = _ =>
+                {
+                    _logger.LogInformation("[Qdrant] 🔄 Circuit breaker HALF-OPEN — Testing Qdrant connectivity");
+                    return default;
+                }
+            })
+            .Build();
 
         _logger.LogInformation(
-            "[Qdrant] Initialized - URL: {BaseUrl}, VectorSize: {VectorSize}",
+            "[Qdrant] Initialized - URL: {BaseUrl}, VectorSize: {VectorSize}, CircuitBreaker: enabled",
             _baseUrl, config.VectorSize);
     }
+
 
     public virtual void SetCollectionName(string databaseName)
     {
         _currentCollectionName = CollectionNameHelper.NormalizeCollectionName(databaseName);
-        _logger.LogInformation("[Qdrant] Collection name: {CollectionName}", _currentCollectionName);
+        _logger.LogInformation(
+            "[Qdrant] 🔍 DEBUG - SetCollectionName called with: '{DatabaseName}' → Normalized to: '{CollectionName}'",
+            databaseName, _currentCollectionName);
     }
 
     public virtual void SetUserCollectionName(string userId)
@@ -313,12 +368,7 @@ public class QdrantService
 
         try
         {
-            // âœ… Check before upsert
-            var countBefore = await GetPointCountAsync(cancellationToken);
-
-            _logger.LogInformation(
-                "[Qdrant] Upserting {Count} points (current: {Current})",
-                points.Count, countBefore);
+            _logger.LogInformation("[Qdrant] Upserting {Count} points", points.Count);
 
             var pointsList = points.Select(p => new
             {
@@ -331,26 +381,15 @@ public class QdrantService
                     kvp => (object)kvp.Value.StringValue)
             }).ToList();
 
-            // âœ… Validate first point
+            // Validate first point dimension
             var first = pointsList.FirstOrDefault();
             if (first != null)
             {
                 var vectorDim = first.vector?.Count ?? 0;
-
-                _logger.LogDebug(
-                    "[Qdrant] Sample point - ID: {Id}, VectorDim: {VectorDim}, Payload: {Payload}",
-                    first.id, vectorDim,
-                    string.Join(", ", first.payload?.Keys ?? Enumerable.Empty<string>()));
-
-
-                // âœ… CRITICAL: Dimension check
                 if (vectorDim != _config.VectorSize)
                 {
                     throw new VectorDBException(
-                        $"âŒ Vector dimension mismatch!\n" +
-                        $"Point vector: {vectorDim} dims\n" +
-                        $"Collection expects: {_config.VectorSize} dims\n" +
-                        $"Check your embedding model configuration!");
+                        $"Vector dimension mismatch! Point: {vectorDim}, Collection expects: {_config.VectorSize}");
                 }
             }
 
@@ -375,25 +414,7 @@ public class QdrantService
                     $"Upsert failed. Status: {response.StatusCode}, Error: {responseBody}");
             }
 
-            // âœ… Wait for indexing + verify
-            await Task.Delay(200, cancellationToken);
-            var countAfter = await GetPointCountAsync(cancellationToken);
-
-            _logger.LogInformation(
-                "[Qdrant] âœ“ Upsert complete - Before: {Before}, After: {After}, Delta: {Delta}",
-                countBefore, countAfter, countAfter - countBefore);
-
-            if (countAfter == 0)
-            {
-                _logger.LogError(
-                    "[Qdrant] âŒ CRITICAL: Point count is 0 after upsert! " +
-                    "Data may not be persisted. Check Qdrant logs.");
-            }
-            else if (countAfter == countBefore)
-            {
-                _logger.LogWarning(
-                    "[Qdrant] âš ï¸ Point count unchanged. Points may have been replaced, not added.");
-            }
+            _logger.LogInformation("[Qdrant] ✅ Upsert complete ({Count} points)", points.Count);
         }
         catch (VectorDBException)
         {
@@ -406,118 +427,16 @@ public class QdrantService
         }
     }
 
-    public async Task<List<ScoredPoint>> SearchAsync(
+    /// <summary>
+    /// Search without filter — delegates to the main overload.
+    /// </summary>
+    public Task<List<ScoredPoint>> SearchAsync(
         float[] queryVector,
         ulong limit = 5,
         double scoreThreshold = 0.7,
         CancellationToken cancellationToken = default)
     {
-        if (queryVector == null || queryVector.Length == 0)
-        {
-            throw new ArgumentException("Query vector cannot be null or empty");
-        }
-
-        // âœ… Validate vector dimension
-        if (queryVector.Length != _config.VectorSize)
-        {
-            throw new ArgumentException(
-                $"Query vector dimension ({queryVector.Length}) " +
-                $"doesn't match collection ({_config.VectorSize})");
-        }
-
-        try
-        {
-            _logger.LogDebug(
-                "[Qdrant] Search - Limit: {Limit}, Threshold: {Threshold}, VectorDim: {VectorDim}",
-                limit, scoreThreshold, queryVector.Length);
-
-            var request = new
-            {
-                vector = queryVector,
-                limit = (int)limit,
-                score_threshold = scoreThreshold,
-                with_payload = true
-            };
-
-            var json = JsonSerializer.Serialize(request);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            var response = await _httpClient.PostAsync(
-                $"{_baseUrl}/collections/{_currentCollectionName}/points/search",
-                content,
-                cancellationToken);
-
-            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogError(
-                    "[Qdrant] Search failed - Status: {Status}, Response: {Response}",
-                    response.StatusCode, responseBody);
-
-                throw new VectorDBException(
-                    $"Search failed. Status: {response.StatusCode}, Error: {responseBody}");
-            }
-
-            var result = JsonSerializer.Deserialize<SearchResponse>(
-                responseBody,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-
-            var scoredPoints = new List<ScoredPoint>();
-
-            if (result?.Result != null)
-            {
-                foreach (var r in result.Result)
-                {
-                    var sp = new ScoredPoint { Score = (float)r.Score };
-
-                    var idStr = r.Id.ToString();
-                    if (ulong.TryParse(idStr, out var numId))
-                    {
-                        sp.Id = new PointId { Num = numId };
-                    }
-                    else
-                    {
-                        sp.Id = new PointId { Uuid = idStr };
-                    }
-
-                    if (r.Payload != null)
-                    {
-                        foreach (var kvp in r.Payload)
-                        {
-                            sp.Payload[kvp.Key] = new Value
-                            {
-                                StringValue = kvp.Value?.ToString() ?? ""
-                            };
-                        }
-                    }
-
-                    scoredPoints.Add(sp);
-                }
-            }
-
-            _logger.LogInformation("[Qdrant] Found {Count} results", scoredPoints.Count);
-
-            if (scoredPoints.Count == 0)
-            {
-                var pointCount = await GetPointCountAsync(cancellationToken);
-                _logger.LogWarning(
-                    "[Qdrant] âš ï¸ No results found. Collection has {Count} points. " +
-                    "Try lowering score_threshold or check vector quality.",
-                    pointCount);
-            }
-
-            return scoredPoints;
-        }
-        catch (VectorDBException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "[Qdrant] Search error");
-            throw new VectorDBException($"Search failed: {ex.Message}", ex);
-        }
+        return SearchAsync(queryVector, limit, scoreThreshold, filter: null, cancellationToken);
     }
 
     public async Task<List<ScoredPoint>> SearchAsync(
@@ -542,9 +461,9 @@ public class QdrantService
 
         try
         {
-            _logger.LogDebug(
-                "[Qdrant] Search - Limit: {Limit}, Threshold: {Threshold}, VectorDim: {VectorDim}, Filter: {HasFilter}",
-                limit, scoreThreshold, queryVector.Length, filter != null);
+            _logger.LogInformation(
+                "[Qdrant] 🔍 SEARCH DEBUG - Collection: '{Collection}', Limit: {Limit}, Threshold: {Threshold}, VectorDim: {VectorDim}",
+                _currentCollectionName, limit, scoreThreshold, queryVector.Length);
 
             var request = new
             {
@@ -558,12 +477,21 @@ public class QdrantService
             var json = JsonSerializer.Serialize(request, new JsonSerializerOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull });
             var content = new StringContent(json, Encoding.UTF8, "application/json");
 
+            var searchUrl = $"{_baseUrl}/collections/{_currentCollectionName}/points/search";
+            _logger.LogInformation(
+                "[Qdrant] 🔍 SEARCH DEBUG - Calling URL: {Url}",
+                searchUrl);
+
             var response = await _httpClient.PostAsync(
-                $"{_baseUrl}/collections/{_currentCollectionName}/points/search",
+                searchUrl,
                 content,
                 cancellationToken);
 
             var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            _logger.LogInformation(
+                "[Qdrant] 🔍 SEARCH DEBUG - Response Status: {Status}, Body length: {Length}",
+                response.StatusCode, responseBody.Length);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -612,15 +540,17 @@ public class QdrantService
                 }
             }
 
-            _logger.LogInformation("[Qdrant] Found {Count} results (filtered: {HasFilter})", scoredPoints.Count, filter != null);
+            _logger.LogInformation(
+                "[Qdrant] 🔍 SEARCH DEBUG - Found {Count} results (filtered: {HasFilter})",
+                scoredPoints.Count, filter != null);
 
             if (scoredPoints.Count == 0)
             {
                 var pointCount = await GetPointCountAsync(cancellationToken);
                 _logger.LogWarning(
-                    "[Qdrant] ⚠️ No results found. Collection has {Count} points. " +
-                    "Try lowering score_threshold or check vector quality.",
-                    pointCount);
+                    "[Qdrant] ⚠️ SEARCH DEBUG - No results found! Collection: '{Collection}' has {Count} points. " +
+                    "Try lowering score_threshold or check if collection name is correct.",
+                    _currentCollectionName, pointCount);
             }
 
             return scoredPoints;
@@ -925,75 +855,4 @@ public class QdrantService
         }
     }
 
-
-    // ✅ FIXED DTOs with correct JSON property names
-    public class SearchResponse
-    {
-        [JsonPropertyName("result")]
-        public List<SearchResult>? Result { get; set; }
-    }
-
-    public class SearchResult
-    {
-        [JsonPropertyName("id")]
-        public JsonElement Id { get; set; }
-
-        [JsonPropertyName("score")]
-        public double Score { get; set; }
-
-        [JsonPropertyName("payload")]
-        public Dictionary<string, object>? Payload { get; set; }
-    }
-
-    public class PointResponse
-    {
-        [JsonPropertyName("result")]
-        public PointResult? Result { get; set; }
-    }
-
-    public class PointResult
-    {
-        [JsonPropertyName("id")]
-        public JsonElement Id { get; set; }
-
-        [JsonPropertyName("payload")]
-        public Dictionary<string, object>? Payload { get; set; }
-    }
-
-    public class CollectionInfoResponse
-    {
-        [JsonPropertyName("result")]
-        public CollectionInfo? Result { get; set; }
-    }
-
-    public class CollectionInfo
-    {
-        [JsonPropertyName("points_count")]
-        public long PointsCount { get; set; }
-
-        [JsonPropertyName("config")]
-        public CollectionConfig? Config { get; set; }
-    }
-
-    public class CollectionConfig
-    {
-        [JsonPropertyName("params")]
-        public CollectionParams? Params { get; set; }
-    }
-
-    public class CollectionParams
-    {
-        [JsonPropertyName("vectors")]
-        public VectorConfig? Vectors { get; set; }
-    }
-
-    public class VectorConfig
-    {
-        [JsonPropertyName("size")]
-        public int Size { get; set; }
-
-        [JsonPropertyName("distance")]
-        public string? Distance { get; set; }
-    }
 }
-

@@ -1,6 +1,9 @@
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.ResponseCompression;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Caching.Memory;
 using Serilog;
 using StackExchange.Redis;
 using System.Text.Json.Serialization;
@@ -74,22 +77,39 @@ try
         new Microsoft.Extensions.Logging.Abstractions.NullLogger<ConfigurationService>(),
         builder.Environment);
 
-    // TODO: Re-enable validation when API keys are configured
-    /*
+    // ✅ CRIT-1: Configuration validation re-enabled (soft-fail in dev, hard-fail in prod)
     var validationResult = configService.ValidateConfiguration();
     if (!validationResult.IsValid)
     {
-        logger.Fatal("Configuration validation failed. Cannot start application.");
-        foreach (var error in validationResult.Errors)
+        if (builder.Environment.IsDevelopment())
         {
-            logger.Fatal("Configuration error: {Error}", error);
+            logger.Warning("⚠️  Configuration validation failed in Development mode:");
+            foreach (var error in validationResult.Errors)
+            {
+                logger.Warning("  ❌ {Error}", error);
+            }
+            logger.Warning("⚠️  Application will start but may crash at runtime. Fix configuration before production.");
         }
-        throw new InvalidOperationException("Configuration validation failed. Check logs for details.");
+        else
+        {
+            logger.Fatal("Configuration validation failed. Cannot start in Production.");
+            foreach (var error in validationResult.Errors)
+            {
+                logger.Fatal("  ❌ {Error}", error);
+            }
+            throw new InvalidOperationException("Configuration validation failed. Check logs for details.");
+        }
     }
-    */
+    else
+    {
+        logger.Information("✅ Configuration validation passed");
+    }
 
-    logger.Warning("⚠️  Configuration validation is DISABLED for local development");
-    logger.Warning("⚠️  Please configure API keys before production deployment");
+    // Log warnings regardless of environment
+    foreach (var warning in validationResult.Warnings)
+    {
+        logger.Warning("  ⚠️  {Warning}", warning);
+    }
 
     // Load Config Objects with environment variable support
     var geminiConfig = new GeminiConfig();
@@ -131,9 +151,10 @@ try
     var conversationConfig = new ConversationConfig();
     configuration.GetSection("Conversation").Bind(conversationConfig);
 
+    // ✅ CRIT-3: Rate limiting driven by config (no longer hardcoded to false)
     var rateLimitOptions = new RateLimitOptions
     {
-        EnableRateLimiting = false, // Disabled temporarily
+        EnableRateLimiting = configuration.GetValue<bool>("Production:EnableRateLimiting"),
         MaxRequests = configuration.GetValue<int?>("Production:RateLimitMaxRequests") ?? 100,
         Window = TimeSpan.FromMinutes(configuration.GetValue<int?>("Production:RateLimitWindowMinutes") ?? 1)
     };
@@ -173,7 +194,24 @@ try
     builder.Services.AddSingleton<LLMClientFactory>();
     builder.Services.AddSingleton<EmbeddingClientFactory>();
 
-    builder.Services.AddSingleton<ILLMClient>(sp => sp.GetRequiredService<LLMClientFactory>().CreateClient());
+    // ✅ PHASE-2 TASK 2.2: Register caches BEFORE using them
+    builder.Services.AddSingleton<TextToSqlAgent.Infrastructure.Caching.IntentCache>();
+    builder.Services.AddSingleton<TextToSqlAgent.Infrastructure.Caching.QueryResultCache>();
+    builder.Services.AddSingleton<TextToSqlAgent.Infrastructure.Caching.LLMResponseCache>();
+    logger.Information("✅ Intent, Query result, and LLM response caching registered");
+
+    builder.Services.AddSingleton<ILLMClient>(sp =>
+    {
+        // Create base LLM client
+        var baseClient = sp.GetRequiredService<LLMClientFactory>().CreateClient();
+
+        // ✅ PHASE-2 TASK 2.2e: Wrap with caching decorator
+        var cache = sp.GetRequiredService<TextToSqlAgent.Infrastructure.Caching.LLMResponseCache>();
+        var logger = sp.GetRequiredService<ILogger<TextToSqlAgent.Infrastructure.LLM.CachedLLMClient>>();
+
+        return new TextToSqlAgent.Infrastructure.LLM.CachedLLMClient(
+            baseClient, cache, logger, "default");
+    });
     builder.Services.AddSingleton<IEmbeddingClient>(sp => sp.GetRequiredService<EmbeddingClientFactory>().CreateClient());
 
     // Infrastructure - Database (SQL Server only)
@@ -184,6 +222,11 @@ try
     builder.Services.AddScoped<SqlExecutor>(); // Changed to Scoped - has state
 
     // Infrastructure - RAG
+    // ✅ TD-10: Register named Qdrant HttpClient to prevent socket exhaustion
+    builder.Services.AddHttpClient("Qdrant", client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(30);
+    });
     builder.Services.AddSingleton<QdrantService>();
 
     // ✅ Memory Cache for query embedding caching
@@ -193,7 +236,9 @@ try
     });
 
     // ✅ Redis for DB Explorer caching
-    var redisConnection = configuration["Redis:Connection"] ?? "127.0.0.1:6379";
+    var redisConnection = Environment.GetEnvironmentVariable("REDIS_CONNECTION") ??
+                         configuration["Redis:Connection"] ??
+                         "127.0.0.1:6379";
     builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
     {
         var config = ConfigurationOptions.Parse(redisConnection);
@@ -207,7 +252,7 @@ try
     builder.Services.AddSingleton<InMemoryVectorStore>();
     builder.Services.AddSingleton<KeywordSchemaRetriever>();
 
-    // ✅ NEW: Fallback Vector Store (Qdrant → In-Memory)
+    // ✅ NEW: Fallback Vector Store (Qdrant → In-Memory) wrapped with LRU Cache
     builder.Services.AddSingleton<IVectorStore>(sp =>
     {
         var qdrantService = sp.GetRequiredService<QdrantService>();
@@ -218,17 +263,41 @@ try
         var inMemoryStore = new InMemoryVectorStore(inMemoryLogger);
 
         var fallbackLogger = sp.GetRequiredService<ILogger<FallbackVectorStore>>();
-        return new FallbackVectorStore(qdrantStore, inMemoryStore, fallbackLogger);
+        var fallbackStore = new FallbackVectorStore(qdrantStore, inMemoryStore, fallbackLogger);
+
+        var cache = sp.GetRequiredService<IMemoryCache>();
+        var cacheLogger = sp.GetRequiredService<ILogger<CachedVectorStoreDecorator>>();
+
+        return new CachedVectorStoreDecorator(fallbackStore, cache, cacheLogger);
     });
 
     builder.Services.AddScoped<SchemaIndexer>(); // Changed to Scoped - has state
     builder.Services.AddScoped<SchemaRetriever>(); // Changed to Scoped - has state
 
-    // ✅ NEW: Schema Auto-Sync Background Service (disabled temporarily due to connection issues)
+    // ⚠️ SMALL-6: Schema Auto-Sync Background Service (DISABLED due to design limitation)
+    // Issue: SchemaScanner requires a specific connection ID, but background service doesn't know which connection to scan
+    // Solution: Schema sync is triggered per-connection when users interact with the system
+    // TODO: Refactor to support per-connection schema sync or use webhook-based detection
     // builder.Services.AddHostedService<TextToSqlAgent.API.Services.SchemaSyncBackgroundService>();
+
+    // ⚠️ TEMP DISABLED: Schema Pre-warming Background Service
+    // Temporarily disabled to avoid errors with invalid/old connections in database
+    // TODO: Re-enable after cleaning up invalid connections or improving error handling
+    // builder.Services.AddHostedService<TextToSqlAgent.API.Services.SchemaPrewarmingService>();
 
     // Infrastructure - Analysis (for legacy orchestrator)
     builder.Services.AddSingleton<SqlErrorAnalyzer>();
+
+    // ✅ IMP-4: Custom OpenTelemetry metrics (counters, histograms, gauges)
+    builder.Services.AddSingleton<TextToSqlAgent.Infrastructure.Telemetry.AppMetrics>();
+
+    // ✅ PHASE-2: Connection Encryption Service (Data Protection API)
+    builder.Services.AddDataProtection()
+        .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(Directory.GetCurrentDirectory(), "keys")));
+    builder.Services.AddSingleton<TextToSqlAgent.API.Services.IConnectionEncryptionService, TextToSqlAgent.API.Services.ConnectionEncryptionService>();
+    logger.Information("✅ Connection encryption service registered with Data Protection API");
+
+    // ✅ PHASE-2 TASK 2.2: Caching services already registered above (line 196-199)
 
     // Error Handlers
     TextToSqlAgent.Infrastructure.ErrorHandling.ErrorHandlerServiceExtensions.AddErrorHandlers(builder.Services);
@@ -253,6 +322,25 @@ try
     // ✅ NEW: Enhanced Agentic AI Orchestrator (changed to Scoped to work with Scoped services)
     builder.Services.AddScoped<EnhancedAgentOrchestrator>();
 
+    // ✅ NEW: Modular Pipeline Architecture (Phase 1 Refactor)
+    builder.Services.AddScoped<TextToSqlAgent.Application.Pipeline.PipelineOrchestrator>();
+    builder.Services.AddScoped<TextToSqlAgent.Application.Pipeline.IPipelineStage, TextToSqlAgent.Application.Pipeline.Stages.IntentClassificationStage>();
+    builder.Services.AddScoped<TextToSqlAgent.Application.Pipeline.IPipelineStage, TextToSqlAgent.Application.Pipeline.Stages.ValidationStage>();
+    builder.Services.AddScoped<TextToSqlAgent.Application.Pipeline.IPipelineStage, TextToSqlAgent.Application.Pipeline.Stages.AgentReasoningStage>(); // Phase 4 Injection
+    builder.Services.AddScoped<TextToSqlAgent.Application.Pipeline.IPipelineStage, TextToSqlAgent.Application.Pipeline.Stages.SchemaRetrievalStage>();
+    builder.Services.AddScoped<TextToSqlAgent.Application.Pipeline.IPipelineStage, TextToSqlAgent.Application.Pipeline.Stages.SqlGenerationStage>();
+    builder.Services.AddScoped<TextToSqlAgent.Application.Pipeline.IPipelineStage, TextToSqlAgent.Application.Pipeline.Stages.SqlExecutionStage>();
+    builder.Services.AddScoped<TextToSqlAgent.Application.Pipeline.IPipelineStage, TextToSqlAgent.Application.Pipeline.Stages.ResponseFormattingStage>();
+    logger.Information("✅ Modular pipeline registered (6 stages)");
+
+    // ✅ NEW: Agentic Architecture (Phase 4 — ReAct Loop)
+    builder.Services.AddScoped<TextToSqlAgent.Application.Agent.IAgentTool, TextToSqlAgent.Application.Agent.Tools.SchemaLookupTool>();
+    builder.Services.AddScoped<TextToSqlAgent.Application.Agent.IAgentTool, TextToSqlAgent.Application.Agent.Tools.SqlGenerationTool>();
+    builder.Services.AddScoped<TextToSqlAgent.Application.Agent.IAgentTool, TextToSqlAgent.Application.Agent.Tools.SqlExecutionTool>();
+    builder.Services.AddScoped<TextToSqlAgent.Application.Agent.IAgentTool, TextToSqlAgent.Application.Agent.Tools.QueryDecompositionTool>();
+    builder.Services.AddScoped<TextToSqlAgent.Application.Agent.AgentLoop>();
+    logger.Information("✅ Agentic architecture registered (4 tools + AgentLoop)");
+
     // ✅ NEW: Query Result Cache for pagination (lazy loading)
     builder.Services.AddSingleton<IQueryResultCache, RedisQueryResultCache>();
 
@@ -275,11 +363,26 @@ try
     builder.Services.AddIntentBasedPipelines();
     logger.Information("✅ Intent-based pipelines registered (WRITE/DDL/FORBIDDEN)");
 
+    // ✅ SERIOUS-8 FIX: Override PipelineResponseBuilder registration with isDevelopment flag
+    builder.Services.AddSingleton<PipelineResponseBuilder>(sp =>
+    {
+        var logger = sp.GetRequiredService<ILogger<PipelineResponseBuilder>>();
+        return new PipelineResponseBuilder(logger, builder.Environment.IsDevelopment());
+    });
+
     // ============================================
     // DB EXPLORER SERVICES
     // ============================================
+    // Core infrastructure services
+    builder.Services.AddSingleton<PromptTemplateService>();
+    builder.Services.AddSingleton<RuleEngine>();
+
+    // Analysis and scanning services
     builder.Services.AddScoped<EnhancedSchemaScanner>();
     builder.Services.AddScoped<DatabaseAnalyzer>();
+    builder.Services.AddScoped<ImplicitRelationshipDetector>();
+    builder.Services.AddScoped<SemanticTagGenerator>();
+    builder.Services.AddScoped<DbExplorerQdrantIndexer>();
     builder.Services.AddScoped<GraphDataBuilder>();
     builder.Services.AddScoped<QuerySuggestionService>();
     builder.Services.AddScoped<SchemaChangeDetector>();
@@ -297,7 +400,19 @@ try
     });
 
     builder.Services.AddScoped<CacheService>(); // Changed to Scoped - has state
-    builder.Services.AddSingleton(new CacheOptions());
+    builder.Services.AddScoped<QueryPlanCache>(); // ✅ SMALL-1: Query plan cache (1hr TTL, SHA256 key)
+
+    // ✅ INFRA-1: Bind CacheOptions from appsettings.json instead of hardcoded defaults
+    // ✅ INFRA-3: CacheService now gets IConnectionMultiplexer for RemoveByPatternAsync
+    // Note: IConnectionMultiplexer registered above is injected automatically as optional param
+    var cacheOptions = new CacheOptions();
+    configuration.GetSection("Cache").Bind(cacheOptions);
+    cacheOptions.DefaultExpiration = TimeSpan.FromMinutes(configuration.GetValue<int?>("Cache:DefaultTTLMinutes") ?? 120);
+    cacheOptions.SchemaExpiration = TimeSpan.FromMinutes(configuration.GetValue<int?>("Cache:SchemaCacheTTLMinutes") ?? 2880);
+    cacheOptions.EmbeddingExpiration = TimeSpan.FromMinutes(configuration.GetValue<int?>("Cache:EmbeddingCacheTTLMinutes") ?? 1440);
+    cacheOptions.SqlResultExpiration = TimeSpan.FromMinutes(configuration.GetValue<int?>("Cache:QueryResultCacheTTLMinutes") ?? 60);
+    cacheOptions.EnableCaching = configuration.GetValue<bool?>("Cache:EnableIntelligentCaching") ?? true;
+    builder.Services.AddSingleton(cacheOptions);
     builder.Services.AddSingleton(rateLimitOptions);
     builder.Services.AddSingleton<SqlInjectionPrevention>();
     builder.Services.AddSingleton<QueryCostEstimator>();
@@ -333,7 +448,7 @@ try
     builder.Services.AddScoped<DatabaseSeeder>();
 
     // Connection Management Services
-    builder.Services.AddScoped<IConnectionEncryptionService, ConnectionEncryptionService>();
+    // Note: IConnectionEncryptionService already registered as Singleton above (line 294)
     builder.Services.AddScoped<IConnectionService, ConnectionService>();
 
     // Conversation Management Services
@@ -367,8 +482,13 @@ try
     // Database Context for Identity and API entities with secure connection string
     // For API, prioritize SQL Server connection string for production
     var connectionString = configService.GetSecureValue("ConnectionStrings:DefaultConnection") ??
-                          configService.GetSecureValue("IDENTITY_CONNECTION_STRING") ??
-                          "Server=.;Database=TextToSqlAgentDB;User Id=sa;Password=123;TrustServerCertificate=True;";
+                          configService.GetSecureValue("IDENTITY_CONNECTION_STRING");
+
+    if (string.IsNullOrEmpty(connectionString))
+    {
+        logger.Fatal("❌ Database connection string is not configured. Set IDENTITY_CONNECTION_STRING or ConnectionStrings:DefaultConnection");
+        throw new InvalidOperationException("Database connection string is required. Please configure IDENTITY_CONNECTION_STRING environment variable or ConnectionStrings:DefaultConnection in appsettings.json");
+    }
 
     logger.Information("Using database connection: {DatabaseType}",
         connectionString.Contains("Data Source=") ? "SQLite" : "SQL Server");
@@ -382,9 +502,27 @@ try
     // 4. HEALTH CHECKS
     // ============================================
 
+    // ✅ INFRA-4: Added Redis + Qdrant health checks
     builder.Services.AddHealthChecks()
         .AddDbContextCheck<TextToSqlAgent.Infrastructure.Data.AppDbContext>("database")
-        .AddCheck("api", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("API is running"));
+        .AddCheck("api", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("API is running"))
+        .AddRedis(redisConnection, name: "redis", timeout: TimeSpan.FromSeconds(3))
+        .AddCheck("qdrant", () =>
+        {
+            try
+            {
+                using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+                var qdrantHealthUrl = $"http://{qdrantConfig.Host}:6333/healthz";
+                var response = httpClient.GetAsync(qdrantHealthUrl).GetAwaiter().GetResult();
+                return response.IsSuccessStatusCode
+                    ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("Qdrant is reachable")
+                    : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Degraded($"Qdrant returned {response.StatusCode}");
+            }
+            catch (Exception ex)
+            {
+                return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("Qdrant unreachable", ex);
+            }
+        });
 
     // Identity using Infrastructure ApplicationUser
     builder.Services.AddIdentity<TextToSqlAgent.Infrastructure.Entities.ApplicationUser, IdentityRole>(options =>
@@ -403,13 +541,6 @@ try
         .AddEntityFrameworkStores<TextToSqlAgent.Infrastructure.Data.AppDbContext>()
         .AddDefaultTokenProviders();
 
-    // JWT Authentication with secure key management
-    var jwtKey = configService.GetSecureValue("Jwt:Key");
-    if (string.IsNullOrEmpty(jwtKey))
-    {
-        throw new InvalidOperationException("JWT Key is not configured. Please set JWT_SECRET environment variable or Jwt:Key in configuration.");
-    }
-
     // ✅ SECURITY: Configure JWT Authentication and Authorization
     builder.Services.AddJwtAuthentication(configuration);
     builder.Services.AddCustomAuthorization();
@@ -419,6 +550,13 @@ try
 
     // ✅ ADD: Response caching
     builder.Services.AddResponseCaching();
+
+    // ✅ IMP-3: Response compression (Gzip) — reduces payload 60-80%
+    builder.Services.AddResponseCompression(opts =>
+    {
+        opts.EnableForHttps = true;
+        opts.Providers.Add<GzipCompressionProvider>();
+    });
 
     // ============================================
     // 4. BUILD AND CONFIGURE
@@ -466,10 +604,19 @@ try
         app.UseCors();
     }
 
+    // ✅ IMP-3: Response compression must be early in pipeline
+    app.UseResponseCompression();
+
     app.UseHttpsRedirection();
 
     // Add correlation ID tracking early in pipeline
     app.UseCorrelationId();
+
+    // ✅ IMP-6: Structured request logging (after correlation ID so it can log corrId)
+    app.UseRequestLogging();
+
+    // ✅ IMP-2: Header-based API versioning (X-API-Version header, defaults to v1)
+    app.UseApiVersioning();
 
     // Add validation middleware
     app.UseValidationMiddleware();
@@ -519,10 +666,8 @@ try
         }
     }
 
-    // Validate configuration on startup (Temporarily disabled for local development)
-    // TODO: Re-enable when API keys are configured
-    // app.ValidateConfigurationOnStartup();
-    logger.Warning("⚠️  Configuration validation on startup is DISABLED for local development");
+    // ✅ Configuration validation is now handled at startup (lines 77-109)
+    logger.Information("✅ All startup validation complete");
 
     logger.Information("TextToSqlAgent API started successfully");
     logger.Information("Environment: {Environment}", app.Environment.EnvironmentName);

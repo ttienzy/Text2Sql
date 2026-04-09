@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
+using StackExchange.Redis;
 using System.Text.Json;
 
 namespace TextToSqlAgent.Infrastructure.Caching;
@@ -12,15 +13,18 @@ public class CacheService
     private readonly IDistributedCache _cache;
     private readonly ILogger<CacheService> _logger;
     private readonly CacheOptions _options;
+    private readonly IConnectionMultiplexer? _redis;
 
     public CacheService(
         IDistributedCache cache,
         ILogger<CacheService> logger,
-        CacheOptions? options = null)
+        CacheOptions? options = null,
+        IConnectionMultiplexer? redis = null)
     {
         _cache = cache;
         _logger = logger;
         _options = options ?? new CacheOptions();
+        _redis = redis;
     }
 
     /// <summary>
@@ -118,13 +122,40 @@ public class CacheService
     }
 
     /// <summary>
-    /// Remove multiple keys by pattern (requires Redis)
+    /// Remove multiple keys matching a glob pattern (requires Redis)
+    /// Falls back to a no-op warning when Redis is unavailable.
     /// </summary>
     public async Task RemoveByPatternAsync(string pattern, CancellationToken ct = default)
     {
-        _logger.LogWarning("RemoveByPattern not implemented for generic IDistributedCache");
-        // This would require Redis-specific implementation
-        await Task.CompletedTask;
+        // ✅ INFRA-3: Implemented via IConnectionMultiplexer.SCAN
+        if (_redis == null)
+        {
+            _logger.LogWarning("[CacheService] RemoveByPatternAsync skipped — Redis not available (pattern: {Pattern})", pattern);
+            return;
+        }
+
+        try
+        {
+            var endpoints = _redis.GetEndPoints();
+            if (endpoints.Length == 0) return;
+
+            var server = _redis.GetServer(endpoints.First());
+            var db = _redis.GetDatabase();
+
+            var keys = server.Keys(pattern: pattern).ToArray();
+            if (keys.Length == 0)
+            {
+                _logger.LogDebug("[CacheService] No keys matched pattern {Pattern}", pattern);
+                return;
+            }
+
+            await db.KeyDeleteAsync(keys);
+            _logger.LogInformation("[CacheService] Deleted {Count} keys matching pattern {Pattern}", keys.Length, pattern);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[CacheService] RemoveByPatternAsync failed for pattern {Pattern}", pattern);
+        }
     }
 
     /// <summary>

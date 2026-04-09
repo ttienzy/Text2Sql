@@ -50,7 +50,7 @@ public class ConnectionService : IConnectionService
                 try
                 {
                     // Extract database name from connection string
-                    var connectionString = _encryptionService.DecryptPassword(connection.ConnectionString, connection.Id);
+                    var connectionString = _encryptionService.GetConnectionString(connection);
                     var databaseName = ExtractDatabaseNameFromConnectionString(connectionString);
 
                     // Test database connection
@@ -448,8 +448,23 @@ public class ConnectionService : IConnectionService
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            // Decrypt connection string
-            var connectionString = _encryptionService.DecryptPassword(connection.ConnectionString, connection.Id);
+            // Get connection string with backward compatibility
+            string connectionString;
+            try
+            {
+                connectionString = _encryptionService.GetConnectionString(connection);
+            }
+            catch (InvalidOperationException ex)
+            {
+                stopwatch.Stop();
+                _logger.LogWarning("Cannot build connection string for {ConnectionId}: {Error}", connection.Id, ex.Message);
+                return new TestConnectionResult
+                {
+                    Success = false,
+                    ErrorMessage = $"Invalid connection configuration: {ex.Message}",
+                    ResponseTime = stopwatch.Elapsed
+                };
+            }
 
             // Test connection using database adapter
             var isValid = await _databaseAdapter.TestConnectionAsync(connectionString);

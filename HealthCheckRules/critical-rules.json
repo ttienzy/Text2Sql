@@ -1,0 +1,43 @@
+{
+    "rules": [
+        {
+            "id": "missing-pk",
+            "name": "Missing Primary Key",
+            "severity": "critical",
+            "type": "metadata",
+            "check": {
+                "condition": "table.PrimaryKeys.Count == 0"
+            },
+            "message": "Table '{tableName}' has no primary key",
+            "recommendation": "Add a primary key to ensure data integrity and enable efficient indexing",
+            "sqlFix": "ALTER TABLE [{schema}].[{tableName}] ADD CONSTRAINT PK_{tableName} PRIMARY KEY ([Id])",
+            "documentation": "https://docs.microsoft.com/sql/relational-databases/tables/primary-and-foreign-key-constraints"
+        },
+        {
+            "id": "password-not-encrypted",
+            "name": "Password Column Not Encrypted",
+            "severity": "critical",
+            "type": "metadata",
+            "check": {
+                "condition": "column.Name matches passwordPattern AND column.DataType == 'varchar'"
+            },
+            "message": "Column '{columnName}' in table '{tableName}' appears to store passwords without encryption",
+            "recommendation": "Use hashed passwords (bcrypt, PBKDF2) or encrypted columns. Never store plain text passwords.",
+            "sqlFix": "-- Migrate to hashed passwords\n-- 1. Add new column: ALTER TABLE [{tableName}] ADD PasswordHash VARBINARY(MAX)\n-- 2. Migrate data with hashing\n-- 3. Drop old column",
+            "documentation": "https://docs.microsoft.com/sql/relational-databases/security/encryption/always-encrypted-database-engine"
+        },
+        {
+            "id": "missing-fk-index",
+            "name": "Foreign Key Without Index",
+            "severity": "critical",
+            "type": "metadata",
+            "check": {
+                "condition": "column.IsForeignKey AND !table.Indexes.Any(i => i.Columns.Contains(column.Name))"
+            },
+            "message": "Foreign key column '{columnName}' in table '{tableName}' has no index",
+            "recommendation": "Create an index on this FK column to improve JOIN performance",
+            "sqlFix": "CREATE INDEX IX_{tableName}_{columnName} ON [{schema}].[{tableName}]([{columnName}])",
+            "estimatedImpact": "40-60% faster JOIN queries"
+        }
+    ]
+}

@@ -264,6 +264,21 @@ const ConnectionCard = ({
                 </Text>
               </Space>
             )}
+
+            {/* ✅ P1: Schema Loaded Status */}
+            {connection.schemaLoaded !== undefined && (
+              <Space>
+                {connection.schemaLoaded ? (
+                  <Tag icon={<CheckCircleOutlined />} color="success">
+                    Schema Loaded {connection.tableCount ? `(${connection.tableCount} tables)` : ''}
+                  </Tag>
+                ) : (
+                  <Tag icon={<CloseCircleOutlined />} color="warning">
+                    Schema Not Loaded
+                  </Tag>
+                )}
+              </Space>
+            )}
           </Space>
         </div>
 

@@ -209,26 +209,31 @@ Text-to-SQL Agent là một hệ thống AI-powered chuyển đổi ngôn ngữ 
 
 ## Giai đoạn phát triển
 
-**Hiện tại: Production-Ready MVP**
+**Hiện tại: Production-Ready MVP với một số gaps**
 
-Hệ thống đã có đầy đủ tính năng cho production:
-- ✅ Multi-turn conversation support
+Hệ thống đã có đầy đủ tính năng core cho production:
+- ✅ Multi-turn conversation support với context enrichment
 - ✅ Intent-based routing (QUERY/WRITE/DDL/FORBIDDEN)
 - ✅ Self-correction với max 3 attempts
 - ✅ Comprehensive error handling với retry strategies
 - ✅ RAG với hybrid search (vector + keyword + graph)
-- ✅ Query result pagination
-- ✅ JWT authentication với refresh token
-- ✅ Rate limiting và security middleware
+- ✅ Query result pagination với Redis caching
+- ✅ JWT authentication với refresh token rotation
 - ✅ Structured logging với correlation ID
 - ✅ Docker deployment support
 
-**Cần cải thiện**:
-- Performance optimization (caching, query optimization)
-- Test coverage (unit + integration tests)
-- Monitoring và alerting
+**Critical Gaps (cần fix trước production)**:
+- ⚠️ Test coverage thấp (20-30%) - cần tăng lên 80%+
+- ⚠️ Rate limiting disabled by default - cần enable
+- ⚠️ Schema auto-sync disabled - cần fix connection issues
+- ⚠️ Không có monitoring/alerting system
+- ⚠️ Connection strings không encrypted
+
+**Nice-to-have (có thể defer)**:
 - Multi-database support (PostgreSQL, MySQL)
 - Advanced analytics và reporting
+- Query plan caching
+- Streaming responses
 
 ## Key Metrics
 

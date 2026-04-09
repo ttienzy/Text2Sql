@@ -50,7 +50,6 @@ export const clearStorageKeys = (keys = []) => {
 export const clearNonEssentialStorage = () => {
     try {
         const essentialKeys = [
-            'tts_access_token',
             'tts_refresh_token',
             'app_theme',
             'app_language',

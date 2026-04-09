@@ -1,4 +1,4 @@
-﻿namespace TextToSqlAgent.Infrastructure.Configuration;
+namespace TextToSqlAgent.Infrastructure.Configuration;
 
 public class QdrantConfig
 {
@@ -7,7 +7,8 @@ public class QdrantConfig
     public string ApiKey { get; set; } = string.Empty;
     public string CollectionName { get; set; } = "schema_embeddings";
     public bool UseGrpc { get; set; } = true;
-    public int VectorSize { get; set; } = 768;
+    // ✅ TD-9: Default matches text-embedding-3-large (3072) used in appsettings.json
+    public int VectorSize { get; set; } = 3072;
 
     /// <summary>
     /// OpenAI embedding model to use for generating embeddings (default: text-embedding-3-small).

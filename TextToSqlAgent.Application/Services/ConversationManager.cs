@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging;
 using TextToSqlAgent.Core.Models;
 using TextToSqlAgent.Core.Helpers;
-
+using System.Collections.Concurrent;
 namespace TextToSqlAgent.Application.Services;
 
 /// <summary>
@@ -12,7 +12,7 @@ public class ConversationManager
 {
     private readonly ILogger<ConversationManager> _logger;
     private readonly CoreferenceResolver _coreferenceResolver;
-    private readonly Dictionary<string, ConversationContext> _conversations = new();
+    private readonly ConcurrentDictionary<string, ConversationContext> _conversations = new();
     private readonly int _maxHistorySize;
     private readonly TimeSpan _conversationTimeout;
 
@@ -44,7 +44,7 @@ public class ConversationManager
                     "[ConversationManager] Conversation {Id} timed out, creating new context",
                     conversationId);
 
-                _conversations.Remove(conversationId);
+                _conversations.TryRemove(conversationId, out _);
                 context = new ConversationContext { ConversationId = conversationId };
                 _conversations[conversationId] = context;
             }
@@ -288,7 +288,7 @@ public class ConversationManager
     /// </summary>
     public void ClearContext(string conversationId)
     {
-        if (_conversations.Remove(conversationId))
+        if (_conversations.TryRemove(conversationId, out _))
         {
             _logger.LogInformation(
                 "[ConversationManager] Cleared conversation {Id}",
@@ -309,7 +309,7 @@ public class ConversationManager
 
         foreach (var id in timedOut)
         {
-            _conversations.Remove(id);
+            _conversations.TryRemove(id, out _);
         }
 
         return _conversations.Count;

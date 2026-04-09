@@ -67,6 +67,9 @@ public class ConsoleRequestProcessor
             question,
             conversationId,
             conversationHistory: null,
+            progress: null,
+            sqlTokenCallback: null,
+            preClassified: null, // No pre-classification in console
             cancellationToken);
     }
 }

@@ -25,6 +25,58 @@ public class SchemaIndexer
         _logger = logger;
     }
 
+    /// <summary>
+    /// PHASE-2 TASK 2.1: Check if schema is already indexed by comparing fingerprints.
+    /// Prevents redundant indexing on every request.
+    /// </summary>
+    public virtual async Task<bool> IsSchemaIndexedAsync(
+        SchemaFingerprint fingerprint,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Check if collection exists first
+            var collectionExists = await _vectorStore.CollectionExistsAsync(cancellationToken);
+            if (!collectionExists)
+            {
+                _logger.LogDebug("[SchemaIndexer] Collection does not exist, schema not indexed");
+                return false;
+            }
+
+            // Try to retrieve stored fingerprint
+            var storedFingerprint = await _vectorStore.GetStoredFingerprintAsync(cancellationToken);
+            if (storedFingerprint == null)
+            {
+                _logger.LogDebug("[SchemaIndexer] No stored fingerprint found, schema not indexed");
+                return false;
+            }
+
+            // Compare fingerprints
+            var isMatch = storedFingerprint.Hash == fingerprint.Hash &&
+                          storedFingerprint.TableCount == fingerprint.TableCount &&
+                          storedFingerprint.ColumnCount == fingerprint.ColumnCount;
+
+            if (isMatch)
+            {
+                _logger.LogInformation(
+                    "[SchemaIndexer] ✓ Schema already indexed (fingerprint match: {Hash})",
+                    fingerprint.Hash.Substring(0, 8));
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "[SchemaIndexer] Schema fingerprint mismatch - re-indexing required");
+            }
+
+            return isMatch;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[SchemaIndexer] Failed to check schema fingerprint, assuming not indexed");
+            return false;
+        }
+    }
+
     public virtual async Task<ConnectionResult> IndexSchemaAsync(
         DatabaseSchema schema,
         SchemaFingerprint fingerprint,

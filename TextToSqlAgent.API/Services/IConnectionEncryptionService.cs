@@ -19,4 +19,10 @@ public interface IConnectionEncryptionService
     /// Build a connection string from connection parameters
     /// </summary>
     string BuildConnectionString(string provider, string host, int port, string database, string username, string password);
+
+    /// <summary>
+    /// Get connection string from Connection entity with backward compatibility.
+    /// If ConnectionString field is empty, rebuilds from individual fields.
+    /// </summary>
+    string GetConnectionString(TextToSqlAgent.Infrastructure.Entities.Connection connection);
 }

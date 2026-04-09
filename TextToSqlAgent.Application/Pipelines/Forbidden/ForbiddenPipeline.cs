@@ -82,29 +82,38 @@ public class ForbiddenPipeline : IForbiddenPipeline
         bool isVietnamese,
         CancellationToken cancellationToken)
     {
-        // Use AI to generate message
+        // Use AI to generate contextual message with markdown
         if (_llmClient != null)
         {
             try
             {
-                var aiMessage = await GenerateAIMessageAsync(result, isVietnamese, cancellationToken);
-                if (!string.IsNullOrWhiteSpace(aiMessage))
-                {
-                    _logger.LogDebug("[ForbiddenPipeline] Using AI-generated message");
-                    return aiMessage;
-                }
+                _logger.LogDebug("[ForbiddenPipeline] Generating AI message with markdown");
+                return await GenerateAIMessageAsync(result, isVietnamese, cancellationToken);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[ForbiddenPipeline] AI message generation failed");
+                _logger.LogWarning(ex, "[ForbiddenPipeline] AI generation failed, using fallback template");
             }
         }
 
-        // Simple fallback if AI unavailable
-        _logger.LogDebug("[ForbiddenPipeline] Using simple fallback message");
+        // Fallback to static template if AI unavailable
+        _logger.LogDebug("[ForbiddenPipeline] Using static template message");
+        var tableName = ExtractTableName(result.OriginalQuestion);
+
+        if (!string.IsNullOrEmpty(tableName))
+        {
+            return ForbiddenMessageTemplates.GetCustomMessage(
+                string.Join(", ", result.DetectedPatterns ?? new List<string>()),
+                isVietnamese,
+                tableName
+            );
+        }
+
         return isVietnamese
-            ? "⚠️ Thao tác này không được phép vì sẽ xóa dữ liệu vĩnh viễn."
-            : "⚠️ This operation is not allowed as it would permanently delete data.";
+            ? ForbiddenMessageTemplates.GetVietnameseMessage(
+                string.Join(", ", result.DetectedPatterns ?? new List<string>()))
+            : ForbiddenMessageTemplates.GetEnglishMessage(
+                string.Join(", ", result.DetectedPatterns ?? new List<string>()));
     }
 
     private async Task<string> GenerateAIMessageAsync(
@@ -113,48 +122,84 @@ public class ForbiddenPipeline : IForbiddenPipeline
         CancellationToken cancellationToken)
     {
         var language = isVietnamese ? "Vietnamese" : "English";
-        var detectedOperation = string.Join(", ", result.DetectedPatterns ?? new List<string>());
+        var tableName = ExtractTableName(result.OriginalQuestion);
 
-        var systemPrompt = $@"You are a database security assistant. Generate a CONCISE warning message.
+        var systemPrompt = $@"You are a database security assistant. Generate a clear, helpful warning message.
 
 **CRITICAL RULES:**
-1. Be direct and clear, NOT verbose
-2. Use {language} language ONLY
-3. Keep it SHORT - max 200 words
-4. Use emojis: ⚠️ for warning, 💡 for tips
-5. Format with markdown
-6. Focus on WHY it's blocked and 2-3 safe alternatives
+1. Use {language} language ONLY
+2. Keep it SHORT and actionable (max 250 words)
+3. Use markdown for better readability:
+   - Use **bold** for important warnings
+   - Use ```sql code blocks for SQL examples
+   - Use bullet points for lists
+   - Use emojis: ⚠️ for warning, 💡 for tips, ✅ for recommendations
+4. Focus on WHY it's blocked and provide 2-3 concrete alternatives
+5. Make SQL examples specific to the user's context when possible
 
 **Structure:**
-1. Warning (1 line)
-2. Brief reason (1-2 sentences)
-3. 2-3 safe alternatives with SHORT examples
-4. One-line tip
+1. Clear warning with emoji
+2. Brief explanation of the risk
+3. 2-3 safe alternatives with SQL examples
+4. Helpful tip at the end";
 
-**Tone:**
-- Direct but helpful
-- Educational, not accusatory
-- Concise, no fluff
+        var userPrompt = $@"Generate a {language} security warning for this blocked operation:
 
-Return ONLY the message, no extra text.";
+**Original Question:** {result.OriginalQuestion}
+**Detected Patterns:** {string.Join(", ", result.DetectedPatterns ?? new List<string>())}
+**Table Name:** {(string.IsNullOrEmpty(tableName) ? "unknown" : tableName)}
+**Reason:** {result.RejectionReason}
 
-        var userPrompt = $@"User query: ""{result.OriginalQuestion}""
-Detected: {detectedOperation}
-
-Generate a SHORT {language} warning that:
-1. States it's blocked (1 line)
-2. Explains why (1-2 sentences)
-3. Lists 2-3 alternatives with brief SQL examples
-4. Ends with a tip (1 line)
-
-Keep it under 200 words.";
+Provide specific, actionable alternatives with real SQL examples.";
 
         var response = await _llmClient!.CompleteWithSystemPromptAsync(
             systemPrompt,
             userPrompt,
-            cancellationToken);
+            cancellationToken
+        );
 
-        return response?.Trim() ?? string.Empty;
+        return response?.Trim() ?? result.RejectionReason;
+    }
+
+    private string ExtractTableName(string question)
+    {
+        // Simple extraction - look for common patterns
+        var lowerQuestion = question.ToLowerInvariant();
+
+        // Pattern: "delete from <table>"
+        var deleteFromMatch = System.Text.RegularExpressions.Regex.Match(
+            lowerQuestion,
+            @"delete\s+from\s+(\w+)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase
+        );
+        if (deleteFromMatch.Success)
+        {
+            return deleteFromMatch.Groups[1].Value;
+        }
+
+        // Pattern: "xóa <table>" or "xoá <table>"
+        var vietnameseMatch = System.Text.RegularExpressions.Regex.Match(
+            lowerQuestion,
+            @"(?:xóa|xoá)\s+(?:bảng\s+)?(\w+)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase
+        );
+        if (vietnameseMatch.Success)
+        {
+            return vietnameseMatch.Groups[1].Value;
+        }
+
+        // Pattern: "drop table <table>"
+        var dropMatch = System.Text.RegularExpressions.Regex.Match(
+            lowerQuestion,
+            @"drop\s+table\s+(\w+)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase
+        );
+        if (dropMatch.Success)
+        {
+            return dropMatch.Groups[1].Value;
+        }
+
+        return string.Empty;
     }
 
     private bool ContainsVietnamese(string text)

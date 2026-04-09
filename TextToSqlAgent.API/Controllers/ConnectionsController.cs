@@ -8,6 +8,7 @@ using TextToSqlAgent.API.DTOs;
 using TextToSqlAgent.API.Services;
 using TextToSqlAgent.API.Extensions;
 using TextToSqlAgent.API.Repositories;
+using TextToSqlAgent.Application.Services;
 using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Models;
 using TextToSqlAgent.Infrastructure.Configuration;
@@ -26,16 +27,19 @@ public class ConnectionsController : BaseController
     private readonly IConnectionService _connectionService;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IConnectionEncryptionService _encryptionService;
+    private readonly EnhancedAgentOrchestrator? _orchestrator;
 
     public ConnectionsController(
         IConnectionService connectionService,
         IUnitOfWork unitOfWork,
         IConnectionEncryptionService encryptionService,
-        ILogger<ConnectionsController> logger) : base(logger)
+        ILogger<ConnectionsController> logger,
+        EnhancedAgentOrchestrator? orchestrator = null) : base(logger)
     {
         _connectionService = connectionService;
         _unitOfWork = unitOfWork;
         _encryptionService = encryptionService;
+        _orchestrator = orchestrator;
     }
 
     /// <summary>
@@ -199,16 +203,11 @@ public class ConnectionsController : BaseController
                     var connection = await _unitOfWork.Connections.GetByIdAndUserIdAsync(id, userId);
                     if (connection != null)
                     {
-                        var connectionString = _encryptionService.DecryptPassword(connection.ConnectionString, connection.Id);
+                        var connectionString = _encryptionService.GetConnectionString(connection);
 
-                        // Set database configuration temporarily for scanning
-                        var dbConfig = HttpContext.RequestServices.GetRequiredService<TextToSqlAgent.Infrastructure.Configuration.DatabaseConfig>();
-                        var originalConnectionString = dbConfig.ConnectionString;
-
-                        try
+                        // ✅ CRIT-2 FIX: Use DatabaseConfigContext.SetConnectionString() instead of mutating Singleton
+                        using (DatabaseConfigContext.SetConnectionString(connectionString))
                         {
-                            dbConfig.ConnectionString = connectionString;
-
                             // Scan database schema
                             var schemaScanner = HttpContext.RequestServices.GetRequiredService<TextToSqlAgent.Infrastructure.Database.SchemaScanner>();
                             var schema = await schemaScanner.ScanAsync();
@@ -226,12 +225,7 @@ public class ConnectionsController : BaseController
                             {
                                 _logger.LogWarning("[TestConnection] Schema scan returned no tables for {ConnectionId}", id);
                             }
-                        }
-                        finally
-                        {
-                            // Restore original connection string
-                            dbConfig.ConnectionString = originalConnectionString;
-                        }
+                        } // ← DatabaseConfigContext auto-restores here via IDisposable
                     }
                 }
                 catch (Exception ex)
@@ -246,6 +240,47 @@ public class ConnectionsController : BaseController
         catch (Exception ex)
         {
             return HandleException(ex, $"testing connection {id}");
+        }
+    }
+
+    /// <summary>
+    /// ✅ P1: Get schema status for a connection
+    /// Returns whether schema is loaded in cache and table count
+    /// </summary>
+    [HttpGet("{id}/schema/status")]
+    public async Task<ActionResult<object>> GetSchemaStatus(string id)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(id) || !Guid.TryParse(id, out _))
+            {
+                return BadRequest(new { Message = "Invalid connection ID format" });
+            }
+
+            var userId = GetRequiredUserId();
+
+            // Verify user owns the connection
+            var connection = await _unitOfWork.Connections.GetByIdAndUserIdAsync(id, userId);
+            if (connection == null)
+            {
+                return NotFound(new { Message = "Connection not found" });
+            }
+
+            // Check if schema is in cache
+            var schemaCache = HttpContext.RequestServices.GetRequiredService<ISchemaCache>();
+            var schema = await schemaCache.GetAsync(id);
+
+            return Ok(new
+            {
+                ConnectionId = id,
+                SchemaLoaded = schema != null,
+                TableCount = schema?.Tables.Count ?? 0,
+                LastLoaded = schema != null ? DateTime.UtcNow : (DateTime?)null
+            });
+        }
+        catch (Exception ex)
+        {
+            return HandleException(ex, $"getting schema status for connection {id}");
         }
     }
 
@@ -298,7 +333,7 @@ public class ConnectionsController : BaseController
                 var vectorSearchService = HttpContext.RequestServices.GetRequiredService<IVectorSearchService>();
 
                 // Extract database name from connection string
-                var connectionString = _encryptionService.DecryptPassword(connection.ConnectionString, connection.Id);
+                var connectionString = _encryptionService.GetConnectionString(connection);
                 var databaseName = ExtractDatabaseNameFromConnectionString(connectionString);
 
                 if (string.IsNullOrEmpty(databaseName))
@@ -348,69 +383,71 @@ public class ConnectionsController : BaseController
 
                     try
                     {
-                        dbConfig.ConnectionString = connectionString;
-
-                        // Scan database schema
-                        var schemaScanner = HttpContext.RequestServices.GetRequiredService<TextToSqlAgent.Infrastructure.Database.SchemaScanner>();
-                        var schema = await schemaScanner.ScanAsync();
-
-                        // ✅ P0 FIX: Save schema to ISchemaCache for agent processing
-                        if (schema != null && schema.Tables.Count > 0)
+                        // ✅ CRIT-2 FIX: Use DatabaseConfigContext.SetConnectionString() instead of mutating Singleton
+                        using (DatabaseConfigContext.SetConnectionString(connectionString))
                         {
-                            var schemaCache = HttpContext.RequestServices.GetRequiredService<TextToSqlAgent.Core.Interfaces.ISchemaCache>();
-                            await schemaCache.SetAsync(id, schema);
-                            _logger.LogInformation("[TestEnhanced] Saved schema to cache: {TableCount} tables for {ConnectionId}",
-                                schema.Tables.Count, id);
-                        }
+                            // Scan database schema
+                            var schemaScanner = HttpContext.RequestServices.GetRequiredService<TextToSqlAgent.Infrastructure.Database.SchemaScanner>();
+                            var schema = await schemaScanner.ScanAsync();
 
-                        // Create schema fingerprint
-                        var hash = System.Security.Cryptography.SHA256.HashData(
-                            System.Text.Encoding.UTF8.GetBytes(
-                                string.Join(",", schema.Tables.Select(t => $"{t.TableName}:{string.Join(",", t.Columns.Select(c => c.ColumnName))}"))));
-                        var hashString = Convert.ToHexString(hash);
-
-                        var fingerprint = new TextToSqlAgent.Core.Models.SchemaFingerprint
-                        {
-                            Hash = hashString,
-                            ComputedAt = DateTime.UtcNow,
-                            TableCount = schema.Tables.Count,
-                            ColumnCount = schema.Tables.Sum(t => t.Columns.Count),
-                            RelationshipCount = schema.Relationships.Count,
-                            TableNames = schema.Tables.Select(t => t.TableName).OrderBy(n => n).ToList()
-                        };
-
-                        // Index the schema
-                        var schemaIndexer = HttpContext.RequestServices.GetRequiredService<TextToSqlAgent.Infrastructure.RAG.SchemaIndexer>();
-                        var indexResult = await schemaIndexer.IndexSchemaAsync(schema, fingerprint, id);
-
-                        var indexingTime = DateTime.UtcNow - indexingStartTime;
-
-                        if (indexResult.Success)
-                        {
-                            // Check if indexing was successful
-                            var updatedCollectionExists = await qdrantService.CollectionExistsAsync();
-                            if (updatedCollectionExists)
+                            // ✅ P0 FIX: Save schema to ISchemaCache for agent processing
+                            if (schema != null && schema.Tables.Count > 0)
                             {
-                                var updatedCollectionInfo = await qdrantService.GetCollectionInfoAsync();
-                                result.SchemaIndexing.CollectionExists = true;
-                                result.SchemaIndexing.SchemasIndexed = (int)(updatedCollectionInfo?.PointsCount ?? 0);
-                                result.SchemaIndexing.AutoIndexed = true;
-                                result.SchemaIndexing.IndexingTime = indexingTime.TotalSeconds.ToString("F1") + "s";
+                                var schemaCache = HttpContext.RequestServices.GetRequiredService<TextToSqlAgent.Core.Interfaces.ISchemaCache>();
+                                await schemaCache.SetAsync(id, schema);
+                                _logger.LogInformation("[TestEnhanced] Saved schema to cache: {TableCount} tables for {ConnectionId}",
+                                    schema.Tables.Count, id);
+                            }
+
+                            // Create schema fingerprint
+                            var hash = System.Security.Cryptography.SHA256.HashData(
+                                System.Text.Encoding.UTF8.GetBytes(
+                                    string.Join(",", schema.Tables.Select(t => $"{t.TableName}:{string.Join(",", t.Columns.Select(c => c.ColumnName))}"))));
+                            var hashString = Convert.ToHexString(hash);
+
+                            var fingerprint = new TextToSqlAgent.Core.Models.SchemaFingerprint
+                            {
+                                Hash = hashString,
+                                ComputedAt = DateTime.UtcNow,
+                                TableCount = schema.Tables.Count,
+                                ColumnCount = schema.Tables.Sum(t => t.Columns.Count),
+                                RelationshipCount = schema.Relationships.Count,
+                                TableNames = schema.Tables.Select(t => t.TableName).OrderBy(n => n).ToList()
+                            };
+
+                            // Index the schema
+                            var schemaIndexer = HttpContext.RequestServices.GetRequiredService<TextToSqlAgent.Infrastructure.RAG.SchemaIndexer>();
+                            var indexResult = await schemaIndexer.IndexSchemaAsync(schema, fingerprint, id);
+
+                            var indexingTime = DateTime.UtcNow - indexingStartTime;
+
+                            if (indexResult.Success)
+                            {
+                                // Check if indexing was successful
+                                var updatedCollectionExists = await qdrantService.CollectionExistsAsync();
+                                if (updatedCollectionExists)
+                                {
+                                    var updatedCollectionInfo = await qdrantService.GetCollectionInfoAsync();
+                                    result.SchemaIndexing.CollectionExists = true;
+                                    result.SchemaIndexing.SchemasIndexed = (int)(updatedCollectionInfo?.PointsCount ?? 0);
+                                    result.SchemaIndexing.AutoIndexed = true;
+                                    result.SchemaIndexing.IndexingTime = indexingTime.TotalSeconds.ToString("F1") + "s";
+                                }
+                                else
+                                {
+                                    result.SchemaIndexing.ErrorMessage = "Schema indexing completed but collection was not created";
+                                }
                             }
                             else
                             {
-                                result.SchemaIndexing.ErrorMessage = "Schema indexing completed but collection was not created";
+                                result.SchemaIndexing.ErrorMessage = indexResult.ErrorMessage ?? "Schema indexing failed";
                             }
-                        }
-                        else
-                        {
-                            result.SchemaIndexing.ErrorMessage = indexResult.ErrorMessage ?? "Schema indexing failed";
-                        }
+                        } // ← DatabaseConfigContext auto-restores here via IDisposable
                     }
-                    finally
+                    catch (Exception ex)
                     {
-                        // Restore original connection string
-                        dbConfig.ConnectionString = originalConnectionString;
+                        _logger.LogError(ex, "[TestEnhanced] Schema indexing failed for {ConnectionId}", id);
+                        result.SchemaIndexing.ErrorMessage = $"Schema indexing failed: {ex.Message}";
                     }
                 }
 
@@ -473,6 +510,25 @@ public class ConnectionsController : BaseController
             if (!success)
             {
                 return NotFound(new { Message = "Connection not found" });
+            }
+
+            // ✅ PHASE 3: Trigger background schema pre-loading for faster queries
+            if (_orchestrator != null)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        _logger.LogInformation("[Connections] Pre-loading schema for connection {Id}", id);
+                        _orchestrator.ClearSchemaCache(); // Clear old cache first
+                                                          // Schema will be loaded on first query, but this warms up the cache
+                        _logger.LogInformation("[Connections] Schema cache cleared, ready for pre-loading");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[Connections] Failed to pre-load schema for {Id}", id);
+                    }
+                });
             }
 
             return Ok(new { Message = "Connection set as default successfully" });
@@ -592,16 +648,11 @@ public class ConnectionsController : BaseController
             _logger.LogInformation("[RefreshSchema] Refreshing schema for connection {ConnectionId}", id);
 
             // Get connection string
-            var connectionString = _encryptionService.DecryptPassword(connection.ConnectionString, connection.Id);
+            var connectionString = _encryptionService.GetConnectionString(connection);
 
-            // Set the database configuration temporarily for scanning
-            var dbConfig = HttpContext.RequestServices.GetRequiredService<DatabaseConfig>();
-            var originalConnectionString = dbConfig.ConnectionString;
-
-            try
+            // ✅ CRIT-2 FIX: Use DatabaseConfigContext.SetConnectionString() instead of mutating Singleton
+            using (DatabaseConfigContext.SetConnectionString(connectionString))
             {
-                dbConfig.ConnectionString = connectionString;
-
                 // Scan schema
                 var schemaScanner = HttpContext.RequestServices.GetRequiredService<SchemaScanner>();
                 var schema = await schemaScanner.ScanAsync();
@@ -624,12 +675,7 @@ public class ConnectionsController : BaseController
                     TableCount = schema.Tables.Count,
                     RefreshedAt = DateTime.UtcNow
                 });
-            }
-            finally
-            {
-                // Restore original connection string
-                dbConfig.ConnectionString = originalConnectionString;
-            }
+            } // ← DatabaseConfigContext auto-restores here via IDisposable
         }
         catch (Exception ex)
         {

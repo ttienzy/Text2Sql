@@ -1,0 +1,38 @@
+{
+    "rules": [
+        {
+            "id": "orphan-table",
+            "name": "Orphan Table",
+            "severity": "info",
+            "type": "metadata",
+            "check": {
+                "condition": "!schema.Relationships.Any(r => r.FromTable == table.Name || r.ToTable == table.Name)"
+            },
+            "message": "Table '{tableName}' has no relationships with other tables",
+            "recommendation": "Verify if this table is still needed or should be connected to other tables"
+        },
+        {
+            "id": "inconsistent-naming",
+            "name": "Inconsistent Naming Convention",
+            "severity": "info",
+            "type": "metadata",
+            "check": {
+                "condition": "table.NamingStyle != config.PreferredStyle"
+            },
+            "message": "Table '{tableName}' uses {actualStyle} but database prefers {preferredStyle}",
+            "recommendation": "Consider renaming to follow consistent naming convention: {suggestedName}"
+        },
+        {
+            "id": "no-length-constraint",
+            "name": "Text Column Without Length",
+            "severity": "info",
+            "type": "metadata",
+            "check": {
+                "condition": "column.DataType == 'varchar' AND column.MaxLength == -1"
+            },
+            "message": "Column '{columnName}' in table '{tableName}' is VARCHAR(MAX) without length constraint",
+            "recommendation": "Specify a reasonable max length to prevent excessive storage usage",
+            "sqlFix": "ALTER TABLE [{tableName}] ALTER COLUMN [{columnName}] VARCHAR(500)"
+        }
+    ]
+}

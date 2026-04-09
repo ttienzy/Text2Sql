@@ -149,6 +149,79 @@ public class OpenAIClient : ILLMClient
         return await CompleteAsync(fullPrompt, cancellationToken);
     }
 
+    /// <summary>
+    /// Generate completion with streaming support (token-by-token)
+    /// Emits tokens via callback as they arrive from OpenAI
+    /// </summary>
+    public async Task<string> CompleteWithSystemPromptStreamAsync(
+        string systemPrompt,
+        string userPrompt,
+        Action<string>? tokenCallback = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(systemPrompt) || string.IsNullOrWhiteSpace(userPrompt))
+        {
+            throw new ArgumentException("System prompt and user prompt cannot be null or empty");
+        }
+
+        _logger.LogDebug("[OpenAI Client] Starting streaming completion ({SystemLength} + {UserLength} chars)",
+            systemPrompt.Length, userPrompt.Length);
+
+        try
+        {
+            var settings = new OpenAIPromptExecutionSettings
+            {
+                Temperature = _config.Temperature,
+                MaxTokens = _config.MaxTokens
+            };
+
+            var fullPrompt = $"{systemPrompt}\n\n{userPrompt}";
+            var responseBuilder = new System.Text.StringBuilder();
+
+            // Use Semantic Kernel streaming API
+            await foreach (var chunk in _kernel.InvokePromptStreamingAsync(
+                fullPrompt,
+                new KernelArguments(settings),
+                cancellationToken: cancellationToken))
+            {
+                var token = chunk.ToString();
+                if (!string.IsNullOrEmpty(token))
+                {
+                    responseBuilder.Append(token);
+                    tokenCallback?.Invoke(token);
+                }
+            }
+
+            var response = responseBuilder.ToString();
+
+            if (string.IsNullOrWhiteSpace(response))
+            {
+                throw new LLMApiException("OpenAI API returned an empty response.");
+            }
+
+            _logger.LogDebug("[OpenAI Client] Streaming complete ({Length} chars)", response.Length);
+
+            return response;
+        }
+        catch (HttpRequestException ex)
+        {
+            throw HandleHttpException(ex);
+        }
+        catch (KernelException ex)
+        {
+            var innerEx = ex.InnerException;
+            if (innerEx is HttpRequestException httpEx)
+            {
+                throw HandleHttpException(httpEx);
+            }
+
+            throw new LLMApiException(
+                $"OpenAI API error: {ex.Message}",
+                null,
+                ex);
+        }
+    }
+
     private bool ValidateApiKey(string apiKey)
     {
         if (string.IsNullOrWhiteSpace(apiKey))

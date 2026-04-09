@@ -11,23 +11,27 @@ import {
   RobotOutlined,
   ArrowDownOutlined,
   EditOutlined,
+  LoadingOutlined,
 } from '@ant-design/icons';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { MessageBubble, ChatInput, MessageSkeleton, ConversationStatus } from '../chat';
-import SmartProcessingProgress from '../chat/SmartProcessingProgress';
+import StageProgressBar from '../chat/StageProgressBar';
 import ConversationLimitBanner from '../chat/ConversationLimitBanner';
 import { ResponsiveChatMessageSkeleton } from '../common';
+import WriteConfirmationModal from '../write/WriteConfirmationModal';
+import ForbiddenAlert from '../forbidden/ForbiddenAlert';
 import { useDelayedLoading } from '../../hooks/useDelayedLoading';
+import { useStreamingQuery } from '../../hooks/useStreamingQuery';
 import useConversationStore from '../../store/conversationStore';
 import useConnectionStore from '../../store/connectionStore';
 import { useMessagesQuery } from '../../api/messages';
 import { useUpdateConversationMutation } from '../../api/conversations';
 import { useProcessMessageMutation } from '../../api/agent';
 import { useRefreshSchemaMutation } from '../../api/connections';
+import { executeWriteOperation } from '../../api/write';
 import { useQueryClient } from '@tanstack/react-query';
 import { conversationKeys } from '../../api/conversations/queries';
 import { useTablesQuery } from '../../api/dbExplorer';
-// import { useProcessMessageV2Mutation } from '../../api/agent/v2';
 
 const { Title, Text } = Typography;
 
@@ -45,6 +49,36 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const isFirstMessageRef = useRef(false);
+
+  // WRITE/DDL operation modal state
+  const [showWriteModal, setShowWriteModal] = useState(false);
+  const [writePreview, setWritePreview] = useState(null);
+  const [pendingQuestion, setPendingQuestion] = useState('');
+  const [isExecutingWrite, setIsExecutingWrite] = useState(false);
+
+  // FORBIDDEN operation alert state
+  const [showForbiddenAlert, setShowForbiddenAlert] = useState(false);
+  const [forbiddenResult, setForbiddenResult] = useState(null);
+
+  // ✅ SSE Streaming hook — primary query method
+  const {
+    stages: sseStages,
+    currentStage: sseCurrentStage,
+    progress: sseProgress,
+    result: sseResult,
+    error: sseError,
+    isStreaming: sseIsStreaming,
+    generatedSql: sseGeneratedSql,
+    startStream,
+    reset: resetStream,
+  } = useStreamingQuery();
+
+  // ✅ Generate unique IDs using useRef for lint compliance
+  const messageIdRef = useRef(0);
+  const getUniqueId = (prefix) => {
+    messageIdRef.current += 1;
+    return `${prefix}-${messageIdRef.current}-${Date.now()}`;
+  };
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -87,7 +121,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
 
       // Optimistically add user message
       const userMessage = {
-        id: `temp-user-${Date.now()}`,
+        id: getUniqueId('temp-user'),
         conversationId: currentConversation?.id,
         role: 'user',
         content: variables.question,
@@ -108,7 +142,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
 
       // Create user message
       const userMessage = {
-        id: `user-${Date.now()}`,
+        id: getUniqueId('user'),
         conversationId: currentConversation?.id,
         role: 'user',
         content: variables.question,
@@ -137,7 +171,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
 
       // Create assistant message with rich content
       const assistantMessage = {
-        id: `assistant-${Date.now()}`,
+        id: getUniqueId('assistant'),
         conversationId: currentConversation?.id,
         role: 'assistant',
         content: answer,
@@ -160,6 +194,18 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
 
       setMessages([...filteredMessages, userMessage, assistantMessage]);
 
+      // ✅ FIX: Dispatch approval event when requiresConfirmation=true (for NotificationBell)
+      if (unifiedResponse.requiresConfirmation) {
+        window.dispatchEvent(new CustomEvent('agent:approval-needed', {
+          detail: {
+            sessionId: unifiedResponse.sessionId,
+            question: variables.question,
+            sqlPreview: sqlQuery,
+            clarificationType: unifiedResponse.intent === 'ddl' ? 'ddl_operation' : 'dml_confirmation',
+          }
+        }));
+      }
+
       // Auto-generate title from first question if needed
       if (currentConversation?.title === 'New Conversation' && !isFirstMessageRef.current) {
         isFirstMessageRef.current = true;
@@ -176,7 +222,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
 
       message.success('Query executed successfully');
     },
-    onError: (error) => {
+    onError: (error, variables) => {
       // Clear current question
       setCurrentQuestion('');
 
@@ -217,7 +263,36 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
         return;
       }
 
+      // ✅ Handle INPUT_NOT_SUPPORTED error (image input)
+      if (error.response?.data?.error === 'INPUT_NOT_SUPPORTED') {
+        const inputError = error.response.data;
+        message.error(inputError.message || 'Image input is not supported. Please ask a text-based question.');
+        return;
+      }
+
       const errorMsg = error.response?.data?.message || error.message || 'Failed to process message';
+
+      // ✅ FIX: Build suggestedQueries from error context for ErrorRecovery UI
+      const lastQuery = variables?.question || currentQuestion;
+      const suggestions = lastQuery ? [
+        `Show all tables in the database`,
+        `${lastQuery} (simplified)`,
+      ] : [];
+
+      const errorAssistant = {
+        id: getUniqueId('error'),
+        conversationId: currentConversation?.id,
+        role: 'assistant',
+        content: errorMsg,
+        success: false,
+        errorMessage: errorMsg,
+        originalQuestion: lastQuery,
+        suggestedQueries: suggestions,
+        createdAt: new Date().toISOString(),
+      };
+      const cleanMessages = messages.filter(m => !m.isOptimistic && !m.isPending);
+      setMessages([...cleanMessages, errorAssistant]);
+
       message.error(errorMsg);
     },
   });
@@ -314,7 +389,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
     }
   }, [messages, scrollToBottom]);
 
-  // Handle sending a message - uses production API
+  // Handle sending a message — uses SSE streaming as primary, v1 mutation as fallback
   const handleSend = async (content) => {
     if (!currentConversation?.id || !activeConnection?.id) {
       message.warning('Please select a connection first');
@@ -324,13 +399,26 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
     try {
       // Clear context message after sending
       setContextMessage('');
+      setCurrentQuestion(content);
 
-      // Use production API to process message (v1 for now)
-      await processMessageMutation.mutateAsync({
-        connectionId: activeConnection.id,
-        question: content,
-        conversationId: currentConversation.id,
-      });
+      // Optimistically add user message
+      const userMessage = {
+        id: getUniqueId('temp-user'),
+        conversationId: currentConversation?.id,
+        role: 'user',
+        content: content,
+        createdAt: new Date().toISOString(),
+        isOptimistic: true,
+      };
+      setMessages([...messages, userMessage]);
+
+      // ✅ SSE STREAMING: Fire the real-time stream
+      // Result handling is done via useEffect watchers below
+      await startStream(
+        content,
+        currentConversation.id,
+        activeConnection.id
+      );
 
       // Call external callback if provided
       if (onSendMessage) {
@@ -338,7 +426,16 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
       }
     } catch (error) {
       console.error('Failed to send message:', error);
-      // Error handling is done in the mutation onError callback
+      // Fallback to v1 mutation
+      try {
+        await processMessageMutation.mutateAsync({
+          connectionId: activeConnection.id,
+          question: content,
+          conversationId: currentConversation.id,
+        });
+      } catch (fallbackErr) {
+        console.error('Fallback also failed:', fallbackErr);
+      }
     }
   };
 
@@ -367,6 +464,317 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
     }
   };
 
+  // Handle WRITE operation confirmation
+  const handleConfirmWrite = async () => {
+    if (!writePreview || !pendingQuestion) return;
+
+    try {
+      setIsExecutingWrite(true);
+
+      // Call WRITE execute endpoint
+      const result = await executeWriteOperation({
+        question: pendingQuestion,
+        connectionId: activeConnection.id,
+        conversationId: currentConversation.id,
+        confirmed: true,
+        preview: writePreview
+      });
+
+      // Add success message to chat
+      const successMessage = {
+        id: getUniqueId('assistant'),
+        conversationId: currentConversation?.id,
+        role: 'assistant',
+        content: `✓ Successfully ${result.operationType?.toLowerCase() || 'modified'} ${result.actualAffectedRows || 0} row(s)`,
+        sqlQuery: result.sqlExecuted,
+        success: true,
+        rowCount: result.actualAffectedRows || 0,
+        createdAt: new Date().toISOString(),
+      };
+
+      const currentMessages = messages.filter(m => !m.isPending);
+      setMessages([...currentMessages, successMessage]);
+
+      setShowWriteModal(false);
+      setWritePreview(null);
+      setPendingQuestion('');
+      setCurrentQuestion('');
+
+      message.success(`Operation executed successfully - ${result.actualAffectedRows || 0} row(s) affected`);
+
+      // Invalidate queries to refresh conversation list
+      queryClient.invalidateQueries({ queryKey: conversationKeys.lists() });
+
+    } catch (error) {
+      console.error('Failed to execute WRITE operation:', error);
+      const errorMsg = error.response?.data?.message || error.message || 'Failed to execute operation';
+
+      // Add error message to chat
+      const errorMessage = {
+        id: getUniqueId('error'),
+        conversationId: currentConversation?.id,
+        role: 'assistant',
+        content: `✗ Failed to execute operation: ${errorMsg}`,
+        success: false,
+        errorMessage: errorMsg,
+        createdAt: new Date().toISOString(),
+      };
+
+      const currentMessages = messages.filter(m => !m.isPending);
+      setMessages([...currentMessages, errorMessage]);
+
+      message.error(errorMsg);
+    } finally {
+      setIsExecutingWrite(false);
+    }
+  };
+
+  // Handle WRITE operation cancellation
+  const handleCancelWrite = () => {
+    setShowWriteModal(false);
+    setWritePreview(null);
+    setPendingQuestion('');
+    setCurrentQuestion('');
+    message.info('Operation cancelled');
+  };
+
+  // Handle FORBIDDEN operation alert close
+  const handleForbiddenClose = () => {
+    setShowForbiddenAlert(false);
+
+    // Add rejection message to chat
+    if (forbiddenResult) {
+      const rejectionMessage = {
+        id: getUniqueId('assistant'),
+        conversationId: currentConversation?.id,
+        role: 'assistant',
+        content: `⛔ ${forbiddenResult.rejectionReason || 'This operation is not allowed'}`,
+        success: false,
+        isForbidden: true,
+        createdAt: new Date().toISOString(),
+      };
+
+      const currentMessages = messages.filter(m => !m.isPending);
+      setMessages([...currentMessages, rejectionMessage]);
+    }
+
+    setForbiddenResult(null);
+    setCurrentQuestion('');
+  };
+
+  // ✅ SSE RESULT WATCHER — convert SSE result into assistant message
+  useEffect(() => {
+    if (!sseResult) return;
+
+    // Check pipeline type to route to appropriate handler
+    const pipelineType = sseResult.pipeline || sseResult.Pipeline;
+
+    // FORBIDDEN operation - show alert
+    if (pipelineType === 'Forbidden') {
+      const result = sseResult.data?.result;
+      if (result && result.isBlocked) {
+        setForbiddenResult(result);
+        setShowForbiddenAlert(true);
+
+        // Add user message to chat
+        const filteredMessages = messages.filter(m => !m.isOptimistic && !m.isPending);
+        const userMessage = {
+          id: getUniqueId('user'),
+          conversationId: currentConversation?.id,
+          role: 'user',
+          content: currentQuestion,
+          createdAt: new Date().toISOString(),
+        };
+        setMessages([...filteredMessages, userMessage]);
+
+        resetStream();
+        return; // Don't add assistant message - alert will handle display
+      }
+    }
+
+    // WRITE operation - show confirmation modal
+    if (pipelineType === 'Write') {
+      const preview = sseResult.data?.preview;
+      if (preview && sseResult.requiresConfirmation) {
+        setWritePreview(preview);
+        setPendingQuestion(currentQuestion);
+        setShowWriteModal(true);
+
+        // Add user message to chat
+        const filteredMessages = messages.filter(m => !m.isOptimistic && !m.isPending);
+        const userMessage = {
+          id: getUniqueId('user'),
+          conversationId: currentConversation?.id,
+          role: 'user',
+          content: currentQuestion,
+          createdAt: new Date().toISOString(),
+        };
+        setMessages([...filteredMessages, userMessage]);
+
+        resetStream();
+        return; // Don't add assistant message yet - wait for confirmation
+      }
+    }
+
+    // DDL operation - similar handling (TODO: implement DDL modal)
+    if (pipelineType === 'Ddl') {
+      // TODO: Add DDL modal handling
+      console.log('DDL operation detected - modal not yet implemented');
+    }
+
+    // Default: QUERY operation or other types
+    const filteredMessages = messages.filter(m => !m.isOptimistic && !m.isPending);
+
+    // Build user message from the current question
+    const userMessage = {
+      id: getUniqueId('user'),
+      conversationId: currentConversation?.id,
+      role: 'user',
+      content: currentQuestion,
+      createdAt: new Date().toISOString(),
+    };
+
+    // ✅ FIX: Map UnifiedPipelineResponse fields correctly
+    // Backend sends: Message, SqlGenerated, Data, Success, Suggestions, etc.
+    const answer = sseResult.message || sseResult.Message || '';
+    const sqlQuery = sseResult.sqlGenerated || sseResult.SqlGenerated || sseResult.sql || '';
+
+    // Extract data from pipeline-specific Data object
+    let results = [];
+    let rowCount = 0;
+    let processingSteps = [];
+    let suggestedQueries = [];
+
+    if (sseResult.data) {
+      // QueryPipelineData has QueryResult.Rows
+      const data = sseResult.data;
+      if (data.queryResult?.rows) {
+        results = data.queryResult.rows;
+        rowCount = data.queryResult.rowCount || 0;
+      }
+      if (data.suggestedQueries) {
+        suggestedQueries = Array.isArray(data.suggestedQueries) ? data.suggestedQueries : [];
+      }
+      if (data.queryExplanation) {
+        processingSteps = [data.queryExplanation];
+      }
+    }
+
+    // Fallback to top-level fields if Data is not present
+    if (!results.length && sseResult.dataArray) {
+      results = sseResult.dataArray;
+    }
+    if (!suggestedQueries.length && sseResult.suggestions) {
+      suggestedQueries = sseResult.suggestions;
+    }
+    if (!suggestedQueries.length && sseResult.Suggestions) {
+      suggestedQueries = sseResult.Suggestions;
+    }
+    if (!processingSteps.length && sseResult.processingSteps) {
+      processingSteps = sseResult.processingSteps;
+    }
+    if (!processingSteps.length && sseResult.Execution?.processingSteps) {
+      processingSteps = sseResult.Execution.processingSteps;
+    }
+
+    // Build assistant message from SSE result
+    const assistantMessage = {
+      id: getUniqueId('assistant'),
+      conversationId: currentConversation?.id,
+      role: 'assistant',
+      content: answer || sseResult.errorMessage || 'Query processed.',
+      sqlQuery: sqlQuery,
+      results: results,
+      rowCount: rowCount || results.length,
+      processingSteps: processingSteps,
+      suggestedQueries: suggestedQueries,
+      createdAt: new Date().toISOString(),
+      success: sseResult.success || sseResult.Success,
+      errorMessage: (sseResult.success || sseResult.Success) ? null : (sseResult.errorMessage || sseResult.Error?.message),
+      correlationId: sseResult.correlationId,
+    };
+
+    setMessages([...filteredMessages, userMessage, assistantMessage]);
+    setCurrentQuestion('');
+
+    // Dispatch approval event if needed (for non-WRITE operations)
+    if (sseResult.requiresConfirmation && pipelineType !== 'Write') {
+      window.dispatchEvent(new CustomEvent('agent:approval-needed', {
+        detail: {
+          sessionId: sseResult.correlationId,
+          question: currentQuestion,
+          sqlPreview: sseResult.sql,
+          clarificationType: 'dml_confirmation',
+        }
+      }));
+    }
+
+    // Auto-generate title 
+    if (currentConversation?.title === 'New Conversation' && !isFirstMessageRef.current) {
+      isFirstMessageRef.current = true;
+      const firstWords = currentQuestion.split(' ').slice(0, 5).join(' ');
+      const newTitle = firstWords + (currentQuestion.split(' ').length > 5 ? '...' : '');
+      updateTitleMutation.mutate({ id: currentConversation.id, title: newTitle });
+    }
+
+    queryClient.invalidateQueries({ queryKey: conversationKeys.lists() });
+    const isSuccess = sseResult.success || sseResult.Success;
+    if (isSuccess) message.success('Query executed successfully');
+
+    resetStream();
+  }, [sseResult]);
+
+  // ✅ SSE ERROR WATCHER — convert SSE error into error message
+  useEffect(() => {
+    if (!sseError) return;
+
+    const filteredMessages = messages.filter(m => !m.isOptimistic && !m.isPending);
+
+    // ✅ P0: Enhanced error handling for SCHEMA_NOT_LOADED
+    let errorMsg = sseError.message || sseError.Message || 'Streaming error occurred';
+    let actionButton = null;
+
+    if (sseError.code === 'SCHEMA_NOT_LOADED' || sseError.Code === 'SCHEMA_NOT_LOADED') {
+      errorMsg = '⚠️ Database schema not loaded. Please test your connection first to load the schema.';
+      actionButton = {
+        label: 'Test Connection',
+        action: () => {
+          message.info('Please go to Connections page and test your connection');
+        }
+      };
+    } else if (sseError.code === 'CONNECTION_NOT_FOUND' || sseError.Code === 'CONNECTION_NOT_FOUND') {
+      errorMsg = '⚠️ Connection not found or access denied. Please select a valid connection.';
+    } else if (sseError.code === 'UNAUTHORIZED' || sseError.Code === 'UNAUTHORIZED') {
+      errorMsg = '⚠️ Authentication failed. Please log in again.';
+    } else if (sseError.code === 'PROCESSING_ERROR' || sseError.Code === 'PROCESSING_ERROR') {
+      errorMsg = `⚠️ ${sseError.message || 'An error occurred during processing'}`;
+    } else if (sseError.code === 'INPUT_NOT_SUPPORTED' || sseError.Code === 'INPUT_NOT_SUPPORTED') {
+      errorMsg = sseError.message || 'Image input is not supported. Please ask a text-based question about your database.';
+    }
+
+    const errorAssistant = {
+      id: getUniqueId('error'),
+      conversationId: currentConversation?.id,
+      role: 'assistant',
+      content: errorMsg,
+      success: false,
+      errorMessage: errorMsg,
+      errorCode: sseError.code,
+      actionButton: actionButton,
+      originalQuestion: currentQuestion,
+      suggestedQueries: [
+        'Show all tables in the database',
+        `${currentQuestion} (simplified)`,
+      ],
+      createdAt: new Date().toISOString(),
+    };
+
+    setMessages([...filteredMessages, errorAssistant]);
+    setCurrentQuestion('');
+    message.error(errorMsg);
+    resetStream();
+  }, [sseError]);
+
   // Welcome screen when no conversation is selected
   if (!currentConversation) {
     return (
@@ -393,7 +801,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
   }
 
   // Check if sending (either internal, external, or processing)
-  const isSending = externalIsSending || processMessageMutation.isPending;
+  const isSending = externalIsSending || processMessageMutation.isPending || sseIsStreaming;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -484,18 +892,65 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
               />
             ))}
 
-            {/* Show enhanced progress when processing */}
-            {isSending && currentQuestion && (
-              <SmartProcessingProgress
-                question={currentQuestion}
-                isVisible={true}
-                connectionName={activeConnection?.name || 'Database'}
-                mode="enhanced" // Can be 'enhanced', 'simple', or 'streaming'
-                onStepComplete={(stepTitle, stepIndex) => {
-                  console.log(`Completed step: ${stepTitle} (${stepIndex})`);
-                }}
+            {/* ✅ SSE: Show real-time pipeline stages during streaming */}
+            {sseIsStreaming && currentQuestion && (
+              <StageProgressBar
+                stages={sseStages}
+                currentStage={sseCurrentStage}
+                progress={sseProgress}
+                isStreaming={sseIsStreaming}
+                error={sseError}
               />
             )}
+
+            {/* ✅ SSE: Show real-time SQL generation during streaming */}
+            {sseIsStreaming && sseGeneratedSql && (
+              <div style={{
+                padding: '12px 16px',
+                backgroundColor: '#fafafa',
+                borderRadius: '8px',
+                border: '1px solid #f0f0f0',
+                marginBottom: '8px',
+                fontFamily: 'monospace',
+                fontSize: '13px',
+                color: '#595959',
+              }}>
+                <div style={{ marginBottom: '4px', color: '#8c8c8c', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{
+                    display: 'inline-block',
+                    width: '8px',
+                    height: '8px',
+                    borderRadius: '50%',
+                    backgroundColor: '#1890ff',
+                    animation: 'pulse 1s infinite'
+                  }} />
+                  Generating SQL...
+                </div>
+                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                  {sseGeneratedSql}
+                  <span style={{
+                    display: 'inline-block',
+                    width: '8px',
+                    height: '14px',
+                    backgroundColor: '#1890ff',
+                    animation: 'blink 1s infinite',
+                    verticalAlign: 'text-bottom',
+                    marginLeft: '2px'
+                  }} />
+                </pre>
+              </div>
+            )}
+
+            <style>{`
+              @keyframes pulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.4; }
+              }
+              @keyframes blink {
+                0%, 50% { opacity: 1; }
+                51%, 100% { opacity: 0; }
+              }
+            `}</style>
           </div>
         )}
 
@@ -532,7 +987,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
       {/* Chat Input */}
       <ChatInput
         onSend={handleSend}
-        isLoading={isSending}
+        isLoading={isSending || sseIsStreaming}
         disabled={!activeConnection || isLimitReached}
         placeholder={
           isLimitReached
@@ -555,6 +1010,22 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
           compact={true}
         />
       )}
+
+      {/* WRITE Confirmation Modal */}
+      <WriteConfirmationModal
+        open={showWriteModal}
+        preview={writePreview}
+        onConfirm={handleConfirmWrite}
+        onCancel={handleCancelWrite}
+        loading={isExecutingWrite}
+      />
+
+      {/* FORBIDDEN Alert */}
+      <ForbiddenAlert
+        open={showForbiddenAlert}
+        result={forbiddenResult}
+        onClose={handleForbiddenClose}
+      />
     </div>
   );
 };

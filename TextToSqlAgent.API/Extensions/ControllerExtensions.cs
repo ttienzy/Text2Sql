@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using TextToSqlAgent.API.DTOs;
 
 namespace TextToSqlAgent.API.Extensions;
 
@@ -52,5 +53,27 @@ public static class ControllerExtensions
         {
             StatusCode = 404
         };
+    }
+
+    // ==== IMP-1: ApiResponse<T> helpers ====
+
+    /// <summary>
+    /// Returns a 200 OK wrapped in a standardized ApiResponse envelope.
+    /// </summary>
+    public static OkObjectResult ApiSuccess<T>(this ControllerBase controller, T data, string? message = null)
+    {
+        var correlationId = controller.HttpContext.Items.TryGetValue("CorrelationId", out var cid)
+            ? cid?.ToString() : null;
+        return controller.Ok(ApiResponse<T>.Ok(data, message, correlationId));
+    }
+
+    /// <summary>
+    /// Returns a 201 Created wrapped in a standardized ApiResponse envelope.
+    /// </summary>
+    public static CreatedAtActionResult ApiCreated<T>(this ControllerBase controller, T data, string actionName, object? routeValues = null, string? message = null)
+    {
+        var correlationId = controller.HttpContext.Items.TryGetValue("CorrelationId", out var cid)
+            ? cid?.ToString() : null;
+        return controller.CreatedAtAction(actionName, routeValues, ApiResponse<T>.Ok(data, message, correlationId));
     }
 }

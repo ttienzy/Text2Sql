@@ -1,8 +1,8 @@
 import { Card, Tag, Space, Statistic, Row, Col, Button, Spin, Alert, Tooltip } from 'antd';
-import { DatabaseOutlined, TableOutlined, WarningOutlined, ReloadOutlined, ClockCircleOutlined, CheckCircleOutlined, HistoryOutlined } from '@ant-design/icons';
+import { DatabaseOutlined, TableOutlined, WarningOutlined, ReloadOutlined, ClockCircleOutlined, CheckCircleOutlined, HistoryOutlined, DownloadOutlined, ThunderboltOutlined, FileTextOutlined } from '@ant-design/icons';
 import { formatNumber } from '../../utils/formatters';
 
-const DatabaseOverviewCard = ({ overview, loading, error, onRefresh, onViewHealth, onViewChanges, onModuleClick, selectedModule }) => {
+const DatabaseOverviewCard = ({ overview, loading, error, onRefresh, onViewHealth, onViewChanges, onModuleClick, selectedModule, onExport, onViewIndexRecommendations, onViewNamingAnalysis }) => {
     if (loading) {
         return (
             <Card>
@@ -75,6 +75,15 @@ const DatabaseOverviewCard = ({ overview, loading, error, onRefresh, onViewHealt
                             <ClockCircleOutlined /> {formatLastAnalyzed(overview.scannedAt)}
                         </span>
                     </Tooltip>
+                    <Button icon={<ThunderboltOutlined />} onClick={onViewIndexRecommendations} size="small">
+                        Indexes
+                    </Button>
+                    <Button icon={<FileTextOutlined />} onClick={onViewNamingAnalysis} size="small">
+                        Naming
+                    </Button>
+                    <Button icon={<DownloadOutlined />} onClick={onExport} size="small">
+                        Export
+                    </Button>
                     <Button icon={<ReloadOutlined />} onClick={onRefresh} size="small">
                         Refresh
                     </Button>
@@ -86,6 +95,42 @@ const DatabaseOverviewCard = ({ overview, loading, error, onRefresh, onViewHealt
         >
             <div style={{ marginBottom: 16 }}>
                 <p style={{ color: '#666', marginBottom: 16, fontStyle: 'italic' }}>"{overview.summary}"</p>
+
+                {overview.dataFlowPattern && (
+                    <div style={{ marginBottom: 12, padding: 8, backgroundColor: '#f0f5ff', borderRadius: 4 }}>
+                        <span style={{ fontWeight: 500, color: '#1890ff' }}>💡 Data Flow: </span>
+                        <span style={{ color: '#666' }}>{overview.dataFlowPattern}</span>
+                    </div>
+                )}
+
+                {overview.keyTables && overview.keyTables.length > 0 && (
+                    <div style={{ marginBottom: 12 }}>
+                        <span style={{ fontWeight: 500, marginRight: 8 }}>🔑 Key Tables:</span>
+                        <Space wrap>
+                            {overview.keyTables.map((table) => (
+                                <Tag key={table} color="gold" style={{ fontSize: 12 }}>
+                                    {table}
+                                </Tag>
+                            ))}
+                        </Space>
+                    </div>
+                )}
+
+                {overview.technicalDebt && overview.technicalDebt.length > 0 && (
+                    <Alert
+                        message="Technical Debt Detected"
+                        description={
+                            <ul style={{ marginBottom: 0, paddingLeft: 20 }}>
+                                {overview.technicalDebt.map((debt, idx) => (
+                                    <li key={idx} style={{ fontSize: 12 }}>{debt}</li>
+                                ))}
+                            </ul>
+                        }
+                        type="info"
+                        showIcon
+                        style={{ marginTop: 12 }}
+                    />
+                )}
             </div>
 
             <Row gutter={16} style={{ marginBottom: 16 }}>

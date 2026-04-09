@@ -14,28 +14,33 @@ using TextToSqlAgent.Infrastructure.Services;
 namespace TextToSqlAgent.API.Controllers;
 
 /// <summary>
-/// Enhanced Agent Controller with conversation awareness
-/// Maintains context across multiple turns in a conversation
+/// [DEPRECATED] Enhanced Agent Controller with conversation awareness.
+/// Use StreamingAgentController (/api/v2/agent/process/stream) instead.
+/// This controller will be removed in a future release.
 /// </summary>
 [ApiController]
 [Route("api/v2/agent")]
 [Authorize]
+[Obsolete("Use StreamingAgentController instead. This controller will be removed in a future release.")]
 public class ConversationAwareAgentController : BaseController
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly IServiceProvider _serviceProvider;
     private readonly ITokenQuotaService _tokenQuotaService;
+    private readonly IConnectionEncryptionService _encryptionService;
     private readonly new ILogger<ConversationAwareAgentController> _logger;
 
     public ConversationAwareAgentController(
         IUnitOfWork unitOfWork,
         IServiceProvider serviceProvider,
         ITokenQuotaService tokenQuotaService,
+        IConnectionEncryptionService encryptionService,
         ILogger<ConversationAwareAgentController> logger) : base(logger)
     {
         _unitOfWork = unitOfWork;
         _serviceProvider = serviceProvider;
         _tokenQuotaService = tokenQuotaService;
+        _encryptionService = encryptionService;
         _logger = logger;
     }
 
@@ -106,15 +111,9 @@ public class ConversationAwareAgentController : BaseController
             using var scope = _serviceProvider.CreateScope();
             var scopedServices = scope.ServiceProvider;
 
-            // Get the database config and temporarily override it for this connection
-            var dbConfig = scopedServices.GetRequiredService<DatabaseConfig>();
-            var originalConnectionString = dbConfig.ConnectionString;
-
-            // Build connection string from connection entity
+            // ✅ CRIT-2 FIX: Use DatabaseConfigContext.SetConnectionString() instead of mutating Singleton
             var connectionString = BuildConnectionString(connection);
-            dbConfig.ConnectionString = connectionString;
-
-            try
+            using (DatabaseConfigContext.SetConnectionString(connectionString))
             {
                 // Get the orchestrator with intent routing
                 var orchestrator = scopedServices.GetRequiredService<EnhancedAgentOrchestrator>();
@@ -125,6 +124,8 @@ public class ConversationAwareAgentController : BaseController
                     request.ConnectionId,
                     request.ConversationId,
                     conversationHistory,
+                    progress: null,  // No SSE streaming for this endpoint
+                    sqlTokenCallback: null,
                     CancellationToken.None);
 
                 // Ensure conversation ID is set
@@ -226,12 +227,7 @@ public class ConversationAwareAgentController : BaseController
 
                 // Format enhanced response - Return UnifiedPipelineResponse directly
                 return Ok(unifiedResponse);
-            }
-            finally
-            {
-                // Restore original connection string
-                dbConfig.ConnectionString = originalConnectionString;
-            }
+            } // ← DatabaseConfigContext auto-restores here via IDisposable
         }
         catch (Exception ex)
         {
@@ -286,15 +282,8 @@ public class ConversationAwareAgentController : BaseController
 
     private string BuildConnectionString(Connection connection)
     {
-        // Implementation same as original AgentController
-        return $"Server={connection.Host};Database={connection.Database};User Id={connection.Username};Password={DecryptPassword(connection.EncryptedPassword)};TrustServerCertificate=True;";
-    }
-
-    private string DecryptPassword(string encryptedPassword)
-    {
-        // For now, return as-is. In production, implement proper decryption
-        // This should use the same encryption service used when storing the password
-        return encryptedPassword;
+        // Get connection string with backward compatibility
+        return _encryptionService.GetConnectionString(connection);
     }
 
     private static int EstimateTokens(string text)

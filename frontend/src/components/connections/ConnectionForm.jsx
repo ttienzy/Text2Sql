@@ -244,6 +244,68 @@ const ConnectionForm = ({
         </Space>
       </Form.Item>
 
+      <Divider orientation="left">
+        <Space>
+          <InfoCircleOutlined />
+          AI Context (Optional)
+        </Space>
+      </Divider>
+
+      <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+        Provide context to help AI better understand your database schema and naming conventions.
+        This improves accuracy for schema analysis, column interpretation, and query suggestions.
+      </Text>
+
+      {/* System Domain */}
+      <Form.Item
+        name="systemDomain"
+        label="System Domain"
+        tooltip="What type of system is this database for? (e.g., E-commerce, ERP, CRM)"
+      >
+        <Select
+          placeholder="Select system domain"
+          size="large"
+          allowClear
+        >
+          <Option value="E-commerce">E-commerce / Bán lẻ</Option>
+          <Option value="ERP">ERP / Quản lý doanh nghiệp</Option>
+          <Option value="CRM">CRM / Quản lý khách hàng</Option>
+          <Option value="Healthcare">Healthcare / Y tế</Option>
+          <Option value="Education">Education / Giáo dục</Option>
+          <Option value="Finance">Finance / Tài chính</Option>
+          <Option value="Manufacturing">Manufacturing / Sản xuất</Option>
+          <Option value="Logistics">Logistics / Vận chuyển</Option>
+          <Option value="HR">HR / Nhân sự</Option>
+          <Option value="Other">Other / Khác</Option>
+        </Select>
+      </Form.Item>
+
+      {/* Naming Convention Notes */}
+      <Form.Item
+        name="namingConventionNotes"
+        label="Naming Convention Notes"
+        tooltip="Explain your naming patterns (e.g., 'Ma = Mã, Ten = Tên, DM = Danh mục')"
+        rules={[{ max: 500, message: 'Notes cannot exceed 500 characters' }]}
+      >
+        <Input.TextArea
+          placeholder="Example: Tên bảng dùng PascalCase. Tên cột viết tắt tiếng Việt: Ma = Mã, Ten = Tên, DM = Danh mục. Foreign key pattern: Ma{Table}"
+          rows={3}
+        />
+      </Form.Item>
+
+      {/* Business Context */}
+      <Form.Item
+        name="businessContext"
+        label="Business Context"
+        tooltip="Describe what this system does and any important business rules"
+        rules={[{ max: 1000, message: 'Context cannot exceed 1000 characters' }]}
+      >
+        <Input.TextArea
+          placeholder="Example: Hệ thống ERP cho công ty sản xuất thép. Quản lý đơn hàng, kho, sản xuất, và kế toán. Database được migrate từ hệ thống cũ nên có một số bảng legacy."
+          rows={4}
+        />
+      </Form.Item>
+
       {/* Form Actions */}
       <Form.Item style={{ marginBottom: 0, marginTop: 24 }}>
         <Space style={{ width: '100%', justifyContent: 'flex-end' }}>

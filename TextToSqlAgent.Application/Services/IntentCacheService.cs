@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -24,8 +25,8 @@ public class IntentCacheService : IIntentCacheService
     private readonly ILogger<IntentCacheService> _logger;
     private readonly TimeSpan _defaultTtl = TimeSpan.FromHours(1);
 
-    // In-memory fallback cache (LRU-like, simple implementation)
-    private readonly Dictionary<string, (IntentClassificationResult Result, DateTime CachedAt)> _memoryCache = new();
+    // ✅ INFRA-7: Thread-safe concurrent dictionary (was Dictionary — NOT thread-safe)
+    private readonly ConcurrentDictionary<string, (IntentClassificationResult Result, DateTime CachedAt)> _memoryCache = new();
     private readonly int _maxMemoryCacheSize = 1000;
 
     private const string KeyPrefix = "TextToSqlAgent:intent:";
@@ -93,7 +94,7 @@ public class IntentCacheService : IIntentCacheService
             else
             {
                 // Expired, remove
-                _memoryCache.Remove(hash);
+                _memoryCache.TryRemove(hash, out _);
             }
         }
 
@@ -166,7 +167,7 @@ public class IntentCacheService : IIntentCacheService
         }
 
         // Remove from memory
-        _memoryCache.Remove(hash);
+        _memoryCache.TryRemove(hash, out _);
     }
 
     /// <summary>
@@ -230,15 +231,18 @@ public class IntentCacheService : IIntentCacheService
 
     private void SaveToMemoryCache(string hash, IntentClassificationResult result)
     {
-        // Simple eviction: if full, remove oldest entry
+        // Thread-safe eviction: if full, remove oldest entry
         if (_memoryCache.Count >= _maxMemoryCacheSize)
         {
             var oldestKey = _memoryCache
                 .OrderBy(x => x.Value.CachedAt)
-                .First()
-                .Key;
-            _memoryCache.Remove(oldestKey);
-            _logger.LogDebug("[IntentCache] Memory cache evicted oldest entry");
+                .Select(x => x.Key)
+                .FirstOrDefault();
+            if (oldestKey != null)
+            {
+                _memoryCache.TryRemove(oldestKey, out _);
+                _logger.LogDebug("[IntentCache] Memory cache evicted oldest entry");
+            }
         }
 
         _memoryCache[hash] = (result, DateTime.UtcNow);

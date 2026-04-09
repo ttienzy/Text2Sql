@@ -224,6 +224,13 @@ public class ConfigurationService : IConfigurationService
                        _configuration["Database:ConnectionString"] ??
                        _configuration.GetConnectionString("DefaultConnection");
 
+            case "connectionstrings:defaultconnection":
+                return Environment.GetEnvironmentVariable("IDENTITY_CONNECTION_STRING") ??
+                       Environment.GetEnvironmentVariable("DATABASE_CONNECTION_STRING") ??
+                       Environment.GetEnvironmentVariable("CONNECTION__DefaultConnection") ??
+                       _configuration.GetConnectionString("DefaultConnection") ??
+                       _configuration["ConnectionStrings:DefaultConnection"];
+
             case "qdrant:apikey":
                 return Environment.GetEnvironmentVariable("QDRANT_API_KEY") ?? _configuration["Qdrant:ApiKey"];
 

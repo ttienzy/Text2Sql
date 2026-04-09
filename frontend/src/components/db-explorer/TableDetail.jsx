@@ -1,12 +1,13 @@
 import { useState } from 'react';
-import { Card, Descriptions, Table, Tag, Space, Button, Empty, Spin, Tabs, Modal, message, Tooltip, Progress } from 'antd';
+import { Card, Descriptions, Table, Tag, Space, Button, Empty, Spin, Tabs, Modal, message, Tooltip, Progress, Alert } from 'antd';
 import {
     TableOutlined, KeyOutlined, LinkOutlined, DatabaseOutlined, MessageOutlined,
     EyeOutlined, CopyOutlined, StarOutlined, StarFilled, WarningOutlined, ArrowRightOutlined,
-    ThunderboltOutlined
+    ThunderboltOutlined, BulbOutlined, RobotOutlined
 } from '@ant-design/icons';
 import { formatNumber } from '../../utils/formatters';
 import { useSampleDataQuery } from '../../api/dbExplorer/queries';
+import { useAnalyzeTableDetailMutation } from '../../api/dbExplorer/commands';
 import QuerySuggestions from './QuerySuggestions';
 
 const ROLE_COLORS = {
@@ -28,6 +29,7 @@ const ROLE_ICONS = {
 const TableDetail = ({ table, loading, onQueryTable, onJumpToTable, pinnedTables = [], onTogglePin }) => {
     const [sampleModalVisible, setSampleModalVisible] = useState(false);
     const [enableSampleQuery, setEnableSampleQuery] = useState(false);
+    const [tableAnalysis, setTableAnalysis] = useState(null);
 
     // Sample data query
     const { data: sampleData, isLoading: sampleLoading } = useSampleDataQuery(
@@ -35,6 +37,17 @@ const TableDetail = ({ table, loading, onQueryTable, onJumpToTable, pinnedTables
         table?.tableName,
         { enabled: enableSampleQuery }
     );
+
+    // Table detail analysis mutation
+    const analyzeTableMutation = useAnalyzeTableDetailMutation({
+        onSuccess: (data) => {
+            setTableAnalysis(data);
+            message.success('Table analysis completed!');
+        },
+        onError: (error) => {
+            message.error(`Analysis failed: ${error.response?.data?.details || error.message}`);
+        },
+    });
 
     if (loading) {
         return (
@@ -60,6 +73,16 @@ const TableDetail = ({ table, loading, onQueryTable, onJumpToTable, pinnedTables
     const handleViewSampleData = () => {
         setEnableSampleQuery(true);
         setSampleModalVisible(true);
+    };
+
+    // Handle analyze table
+    const handleAnalyzeTable = () => {
+        if (table?.connectionId && table?.tableName) {
+            analyzeTableMutation.mutate({
+                connectionId: table.connectionId,
+                tableName: table.tableName,
+            });
+        }
     };
 
     // Copy to clipboard helper
@@ -95,14 +118,30 @@ const TableDetail = ({ table, loading, onQueryTable, onJumpToTable, pinnedTables
             title: 'Column',
             dataIndex: 'columnName',
             key: 'columnName',
-            width: '30%',
-            render: (text, record) => (
-                <Space>
-                    {record.isPrimaryKey && <Tooltip title="Primary Key"><KeyOutlined style={{ color: '#faad14' }} /></Tooltip>}
-                    {record.isForeignKey && <Tooltip title="Foreign Key"><LinkOutlined style={{ color: '#1890ff' }} /></Tooltip>}
-                    <span style={{ fontWeight: record.isPrimaryKey ? 500 : 'normal' }}>{text}</span>
-                </Space>
-            ),
+            width: '25%',
+            render: (text, record) => {
+                const interpretation = tableAnalysis?.columnInterpretations?.find(
+                    ci => ci.columnName === text
+                );
+
+                return (
+                    <Space direction="vertical" size={0}>
+                        <Space>
+                            {record.isPrimaryKey && <Tooltip title="Primary Key"><KeyOutlined style={{ color: '#faad14' }} /></Tooltip>}
+                            {record.isForeignKey && <Tooltip title="Foreign Key"><LinkOutlined style={{ color: '#1890ff' }} /></Tooltip>}
+                            <span style={{ fontWeight: record.isPrimaryKey ? 500 : 'normal' }}>{text}</span>
+                        </Space>
+                        {interpretation && (
+                            <Tooltip title={interpretation.description}>
+                                <div style={{ fontSize: 11, color: '#1890ff', marginTop: 2 }}>
+                                    <BulbOutlined /> {interpretation.vietnamese}
+                                    {interpretation.english && ` (${interpretation.english})`}
+                                </div>
+                            </Tooltip>
+                        )}
+                    </Space>
+                );
+            },
         },
         {
             title: 'Type',
@@ -277,13 +316,191 @@ const TableDetail = ({ table, loading, onQueryTable, onJumpToTable, pinnedTables
             key: 'columns',
             label: `Columns (${table.columns?.length || 0})`,
             children: (
-                <Table
-                    dataSource={table.columns}
-                    columns={columnColumns}
-                    rowKey="columnName"
-                    pagination={false}
-                    size="small"
-                />
+                <div>
+                    {!tableAnalysis && (
+                        <Alert
+                            message="AI Analysis Available"
+                            description={
+                                <Space>
+                                    <span>Get AI-powered column interpretations and implicit relationship detection</span>
+                                    <Button
+                                        type="primary"
+                                        size="small"
+                                        icon={<RobotOutlined />}
+                                        onClick={handleAnalyzeTable}
+                                        loading={analyzeTableMutation.isPending}
+                                    >
+                                        Analyze Table
+                                    </Button>
+                                </Space>
+                            }
+                            type="info"
+                            showIcon
+                            style={{ marginBottom: 16 }}
+                        />
+                    )}
+                    <Table
+                        dataSource={table.columns}
+                        columns={columnColumns}
+                        rowKey="columnName"
+                        pagination={false}
+                        size="small"
+                    />
+                </div>
+            ),
+        },
+        {
+            key: 'ai-insights',
+            label: (
+                <span>
+                    <RobotOutlined /> AI Insights
+                    {tableAnalysis && <Tag color="green" style={{ marginLeft: 8 }}>Analyzed</Tag>}
+                </span>
+            ),
+            children: tableAnalysis ? (
+                <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                    {/* Column Interpretations */}
+                    {tableAnalysis.columnInterpretations?.length > 0 && (
+                        <Card title="Column Interpretations" size="small">
+                            <Table
+                                dataSource={tableAnalysis.columnInterpretations}
+                                columns={[
+                                    {
+                                        title: 'Column',
+                                        dataIndex: 'columnName',
+                                        key: 'columnName',
+                                        width: '20%',
+                                    },
+                                    {
+                                        title: 'Vietnamese',
+                                        dataIndex: 'vietnamese',
+                                        key: 'vietnamese',
+                                        width: '25%',
+                                    },
+                                    {
+                                        title: 'English',
+                                        dataIndex: 'english',
+                                        key: 'english',
+                                        width: '25%',
+                                    },
+                                    {
+                                        title: 'Description',
+                                        dataIndex: 'description',
+                                        key: 'description',
+                                        width: '25%',
+                                    },
+                                    {
+                                        title: 'Confidence',
+                                        dataIndex: 'confidence',
+                                        key: 'confidence',
+                                        width: '5%',
+                                        render: (conf) => (
+                                            <Tag color={conf > 0.8 ? 'green' : conf > 0.6 ? 'orange' : 'red'}>
+                                                {(conf * 100).toFixed(0)}%
+                                            </Tag>
+                                        ),
+                                    },
+                                ]}
+                                rowKey="columnName"
+                                pagination={false}
+                                size="small"
+                            />
+                        </Card>
+                    )}
+
+                    {/* Implicit Relationships */}
+                    {tableAnalysis.implicitRelationships?.length > 0 && (
+                        <Card title="Implicit Relationships Detected" size="small">
+                            <Table
+                                dataSource={tableAnalysis.implicitRelationships}
+                                columns={[
+                                    {
+                                        title: 'From',
+                                        key: 'from',
+                                        render: (_, record) => `${record.fromTable}.${record.fromColumn}`,
+                                    },
+                                    {
+                                        title: 'To',
+                                        key: 'to',
+                                        render: (_, record) => `${record.toTable}.${record.toColumn}`,
+                                    },
+                                    {
+                                        title: 'Method',
+                                        dataIndex: 'detectionMethod',
+                                        key: 'detectionMethod',
+                                        render: (method) => <Tag>{method}</Tag>,
+                                    },
+                                    {
+                                        title: 'Reason',
+                                        dataIndex: 'reason',
+                                        key: 'reason',
+                                    },
+                                    {
+                                        title: 'Confidence',
+                                        dataIndex: 'confidence',
+                                        key: 'confidence',
+                                        render: (conf) => (
+                                            <Tag color={conf > 0.8 ? 'green' : conf > 0.6 ? 'orange' : 'red'}>
+                                                {(conf * 100).toFixed(0)}%
+                                            </Tag>
+                                        ),
+                                    },
+                                ]}
+                                rowKey={(record) => `${record.fromColumn}-${record.toTable}`}
+                                pagination={false}
+                                size="small"
+                            />
+                        </Card>
+                    )}
+
+                    {/* Health Issues */}
+                    {tableAnalysis.healthIssues?.length > 0 && (
+                        <Card title="Health Issues" size="small">
+                            <Space direction="vertical" style={{ width: '100%' }}>
+                                {tableAnalysis.healthIssues.map((issue, idx) => (
+                                    <Alert
+                                        key={idx}
+                                        message={issue.description}
+                                        description={issue.recommendation}
+                                        type={issue.severity === 'critical' ? 'error' : issue.severity === 'warning' ? 'warning' : 'info'}
+                                        showIcon
+                                    />
+                                ))}
+                            </Space>
+                        </Card>
+                    )}
+
+                    {tableAnalysis.columnInterpretations?.length === 0 &&
+                        tableAnalysis.implicitRelationships?.length === 0 &&
+                        tableAnalysis.healthIssues?.length === 0 && (
+                            <Empty description="No AI insights available for this table" />
+                        )}
+                </Space>
+            ) : (
+                <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                    <RobotOutlined style={{ fontSize: 48, color: '#d9d9d9', marginBottom: 16 }} />
+                    <div style={{ fontSize: 16, marginBottom: 8 }}>AI Analysis Not Run</div>
+                    <div style={{ color: '#999', marginBottom: 24 }}>
+                        Click "Analyze Table" to get AI-powered insights including:
+                        <ul style={{ textAlign: 'left', display: 'inline-block', marginTop: 8 }}>
+                            <li>Column name interpretations (Vietnamese + English)</li>
+                            <li>Implicit foreign key detection</li>
+                            <li>Table-specific health issues</li>
+                        </ul>
+                    </div>
+                    <Button
+                        type="primary"
+                        size="large"
+                        icon={<RobotOutlined />}
+                        onClick={handleAnalyzeTable}
+                        loading={analyzeTableMutation.isPending}
+                    >
+                        Analyze Table with AI
+                    </Button>
+                    <div style={{ marginTop: 12, fontSize: 12, color: '#999' }}>
+                        ⚡ Analysis takes ~3 seconds
+                    </div>
+                </div>
             ),
         },
         {

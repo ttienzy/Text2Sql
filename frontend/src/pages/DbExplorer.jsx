@@ -21,6 +21,10 @@ import {
     HealthReport,
     ERDiagramView,
     SchemaChangesModal,
+    SemanticSearch,
+    ExportDocumentationModal,
+    IndexRecommendationReport,
+    NamingConventionReport,
 } from '../components/db-explorer';
 
 const { Sider, Content } = Layout;
@@ -31,6 +35,9 @@ const DbExplorer = () => {
     const [selectedTable, setSelectedTable] = useState(null);
     const [healthModalVisible, setHealthModalVisible] = useState(false);
     const [changesModalVisible, setChangesModalVisible] = useState(false);
+    const [exportModalVisible, setExportModalVisible] = useState(false);
+    const [indexRecommendationsVisible, setIndexRecommendationsVisible] = useState(false);
+    const [namingAnalysisVisible, setNamingAnalysisVisible] = useState(false);
     const [selectedModule, setSelectedModule] = useState(null);
     const [activeTab, setActiveTab] = useState('tables'); // 'tables' or 'graph'
     const [pinnedTables, setPinnedTables] = useState(() => {
@@ -105,9 +112,11 @@ const DbExplorer = () => {
 
     // Mutations
     const analyzeMutation = useAnalyzeMutation({
+        mode: 'overview', // Use lightweight overview mode for fast initial load
         onSuccess: (data) => {
+            const modeMsg = data?.mode === 'overview' ? ' (fast overview)' : '';
             const usedQdrant = data?.usedQdrant ? ' (optimized with Qdrant)' : '';
-            message.success(`Database analysis completed successfully!${usedQdrant}`);
+            message.success(`Database analysis completed successfully!${modeMsg}${usedQdrant}`);
             refetchStatus();
             refetchOverview();
         },
@@ -133,6 +142,18 @@ const DbExplorer = () => {
     const handleViewChanges = () => {
         setChangesModalVisible(true);
         refetchChanges();
+    };
+
+    const handleExport = () => {
+        setExportModalVisible(true);
+    };
+
+    const handleViewIndexRecommendations = () => {
+        setIndexRecommendationsVisible(true);
+    };
+
+    const handleViewNamingAnalysis = () => {
+        setNamingAnalysisVisible(true);
     };
 
     const handleReAnalyzeFromChanges = () => {
@@ -230,7 +251,10 @@ const DbExplorer = () => {
                 <div style={{ marginTop: 8, color: '#999' }}>
                     {status?.hasQdrantData
                         ? '⚡ Using Qdrant embeddings for faster analysis...'
-                        : 'This may take 10-30 seconds depending on database size'}
+                        : '⚡ Fast overview mode - analyzing table names and relationships'}
+                </div>
+                <div style={{ marginTop: 8, color: '#666', fontSize: 12 }}>
+                    Deep analysis will be performed on-demand when you click a table
                 </div>
                 <div style={{ marginTop: 16, color: '#666' }}>
                     <DatabaseOutlined style={{ fontSize: 24, marginRight: 8 }} />
@@ -258,8 +282,8 @@ const DbExplorer = () => {
                             Database Not Analyzed
                         </div>
                         <div style={{ color: '#999', marginBottom: 24, textAlign: 'center', maxWidth: 500 }}>
-                            Click "Analyze Database" to start schema analysis, AI-powered insights,
-                            health checks, and ER diagram generation.
+                            Click "Analyze Database" to start fast schema overview with AI-powered insights.
+                            Deep analysis will be performed on-demand when you explore tables.
                         </div>
                         {status?.hasQdrantData && (
                             <Alert
@@ -366,8 +390,8 @@ const DbExplorer = () => {
 
                         <div style={{ marginTop: 12, fontSize: 12, color: '#999', textAlign: 'center' }}>
                             {status?.hasQdrantData
-                                ? '⚡ Fast analysis using Qdrant'
-                                : '⏱️ First analysis: 10-30 seconds'}
+                                ? '⚡ Fast analysis using Qdrant (<10s)'
+                                : '⚡ Fast overview mode (<10s for 500 tables)'}
                         </div>
                     </Card>
                 </Sider>
@@ -387,6 +411,9 @@ const DbExplorer = () => {
                     onRefresh={handleAnalyze}
                     onViewHealth={handleViewHealth}
                     onViewChanges={handleViewChanges}
+                    onExport={handleExport}
+                    onViewIndexRecommendations={handleViewIndexRecommendations}
+                    onViewNamingAnalysis={handleViewNamingAnalysis}
                     onModuleClick={handleModuleClick}
                     selectedModule={selectedModule}
                 />
@@ -427,16 +454,29 @@ const DbExplorer = () => {
                         style={{
                             borderRight: '1px solid #f0f0f0',
                             overflow: 'hidden',
+                            display: 'flex',
+                            flexDirection: 'column',
                         }}
                     >
-                        <TableList
-                            tables={tablesData?.tables}
-                            loading={tablesLoading}
-                            selectedTable={selectedTable}
-                            onTableSelect={handleTableSelect}
-                            pinnedTables={pinnedTables}
-                            moduleFilter={selectedModule}
-                        />
+                        {/* Semantic Search */}
+                        <div style={{ padding: 16, borderBottom: '1px solid #f0f0f0' }}>
+                            <SemanticSearch
+                                connectionId={activeConnection?.id}
+                                onTableSelect={handleTableSelect}
+                            />
+                        </div>
+
+                        {/* Table List */}
+                        <div style={{ flex: 1, overflow: 'hidden' }}>
+                            <TableList
+                                tables={tablesData?.tables}
+                                loading={tablesLoading}
+                                selectedTable={selectedTable}
+                                onTableSelect={handleTableSelect}
+                                pinnedTables={pinnedTables}
+                                moduleFilter={selectedModule}
+                            />
+                        </div>
                     </Sider>
 
                     {/* Table Detail - Main Panel */}
@@ -477,6 +517,28 @@ const DbExplorer = () => {
                 changes={schemaChanges}
                 loading={changesLoading}
                 onReAnalyze={handleReAnalyzeFromChanges}
+            />
+
+            {/* Export Documentation Modal */}
+            <ExportDocumentationModal
+                visible={exportModalVisible}
+                onClose={() => setExportModalVisible(false)}
+                connectionId={activeConnection?.id}
+                databaseName={connectionInfo?.database || activeConnection?.name}
+            />
+
+            {/* Index Recommendations Modal */}
+            <IndexRecommendationReport
+                visible={indexRecommendationsVisible}
+                onClose={() => setIndexRecommendationsVisible(false)}
+                connectionId={activeConnection?.id}
+            />
+
+            {/* Naming Convention Analysis Modal */}
+            <NamingConventionReport
+                visible={namingAnalysisVisible}
+                onClose={() => setNamingAnalysisVisible(false)}
+                connectionId={activeConnection?.id}
             />
         </div>
     );
