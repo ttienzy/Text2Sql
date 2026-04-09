@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Card, Table, Tag, Space, Statistic, Row, Col, Button, Empty, Spin, Alert, Modal, Input, Tooltip, message } from 'antd';
-import { ThunderboltOutlined, WarningOutlined, CheckCircleOutlined, CopyOutlined, EyeOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { ThunderboltOutlined, WarningOutlined, CheckCircleOutlined, CopyOutlined, EyeOutlined, InfoCircleOutlined, DatabaseOutlined, TableOutlined } from '@ant-design/icons';
 import { useIndexRecommendationsQuery } from '../../api/dbExplorer/queries';
 
 const { TextArea } = Input;
@@ -159,7 +159,27 @@ const IndexRecommendationReport = ({ connectionId, visible, onClose }) => {
                     <div>
                         {/* Summary Statistics */}
                         <Row gutter={16} style={{ marginBottom: 24 }}>
-                            <Col span={8}>
+                            <Col span={4}>
+                                <Card size="small">
+                                    <Statistic
+                                        title="Total Tables"
+                                        value={report.totalTables}
+                                        valueStyle={{ color: '#3f6600' }}
+                                        prefix={<TableOutlined />}
+                                    />
+                                </Card>
+                            </Col>
+                            <Col span={5}>
+                                <Card size="small">
+                                    <Statistic
+                                        title="Current Indexes"
+                                        value={report.totalIndexes}
+                                        valueStyle={{ color: '#531dab' }}
+                                        prefix={<DatabaseOutlined />}
+                                    />
+                                </Card>
+                            </Col>
+                            <Col span={5}>
                                 <Card size="small">
                                     <Statistic
                                         title="Missing Indexes"
@@ -169,7 +189,7 @@ const IndexRecommendationReport = ({ connectionId, visible, onClose }) => {
                                     />
                                 </Card>
                             </Col>
-                            <Col span={8}>
+                            <Col span={5}>
                                 <Card size="small">
                                     <Statistic
                                         title="Redundant Indexes"
@@ -179,10 +199,10 @@ const IndexRecommendationReport = ({ connectionId, visible, onClose }) => {
                                     />
                                 </Card>
                             </Col>
-                            <Col span={8}>
+                            <Col span={5}>
                                 <Card size="small">
                                     <Statistic
-                                        title="Optimization Opportunities"
+                                        title="Optimizations"
                                         value={report.optimizationCount}
                                         valueStyle={{ color: '#1890ff' }}
                                         prefix={<CheckCircleOutlined />}
