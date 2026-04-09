@@ -72,6 +72,24 @@ public class CreateConnectionRequest
     /// Whether this should be the default connection
     /// </summary>
     public bool IsDefault { get; set; }
+
+    /// <summary>
+    /// System domain for AI context (E-commerce, ERP, CRM, etc.)
+    /// </summary>
+    [StringLength(100, ErrorMessage = "System domain cannot exceed 100 characters")]
+    public string? SystemDomain { get; set; }
+
+    /// <summary>
+    /// Naming convention notes for AI interpretation
+    /// </summary>
+    [StringLength(500, ErrorMessage = "Naming convention notes cannot exceed 500 characters")]
+    public string? NamingConventionNotes { get; set; }
+
+    /// <summary>
+    /// Business context description for better AI understanding
+    /// </summary>
+    [StringLength(1000, ErrorMessage = "Business context cannot exceed 1000 characters")]
+    public string? BusinessContext { get; set; }
 }
 
 /// <summary>
@@ -124,6 +142,24 @@ public class UpdateConnectionRequest
     /// Whether this should be the default connection
     /// </summary>
     public bool IsDefault { get; set; }
+
+    /// <summary>
+    /// System domain for AI context
+    /// </summary>
+    [MaxLength(100)]
+    public string? SystemDomain { get; set; }
+
+    /// <summary>
+    /// Naming convention notes for AI interpretation
+    /// </summary>
+    [MaxLength(500)]
+    public string? NamingConventionNotes { get; set; }
+
+    /// <summary>
+    /// Business context description
+    /// </summary>
+    [MaxLength(1000)]
+    public string? BusinessContext { get; set; }
 }
 
 /// <summary>
@@ -200,6 +236,21 @@ public class ConnectionResponse
     /// Whether the connection is currently connected/available
     /// </summary>
     public bool IsConnected { get; set; }
+
+    /// <summary>
+    /// System domain for AI context
+    /// </summary>
+    public string? SystemDomain { get; set; }
+
+    /// <summary>
+    /// Naming convention notes for AI interpretation
+    /// </summary>
+    public string? NamingConventionNotes { get; set; }
+
+    /// <summary>
+    /// Business context description
+    /// </summary>
+    public string? BusinessContext { get; set; }
 }
 
 /// <summary>

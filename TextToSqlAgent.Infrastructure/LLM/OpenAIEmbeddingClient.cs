@@ -13,12 +13,14 @@ public class OpenAIEmbeddingClient : IEmbeddingClient
 {
     private readonly HttpClient _httpClient;
     private readonly OpenAIConfig _config;
+    private readonly QdrantConfig _qdrantConfig;
     private readonly ILogger<OpenAIEmbeddingClient> _logger;
     private const string BaseUrl = "https://api.openai.com/v1/embeddings";
 
-    public OpenAIEmbeddingClient(OpenAIConfig config, ILogger<OpenAIEmbeddingClient> logger)
+    public OpenAIEmbeddingClient(OpenAIConfig config, QdrantConfig qdrantConfig, ILogger<OpenAIEmbeddingClient> logger)
     {
         _config = config;
+        _qdrantConfig = qdrantConfig;
         _logger = logger;
         _httpClient = new HttpClient();
         _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {config.ApiKey}");
@@ -40,7 +42,8 @@ public class OpenAIEmbeddingClient : IEmbeddingClient
             var request = new
             {
                 input = text,
-                model = _config.EmbeddingModel
+                model = _config.EmbeddingModel,
+                dimensions = _qdrantConfig.VectorSize
             };
 
             var response = await _httpClient.PostAsJsonAsync(BaseUrl, request, cancellationToken);
@@ -90,7 +93,8 @@ public class OpenAIEmbeddingClient : IEmbeddingClient
             var request = new
             {
                 input = texts,
-                model = _config.EmbeddingModel
+                model = _config.EmbeddingModel,
+                dimensions = _qdrantConfig.VectorSize
             };
 
             var response = await _httpClient.PostAsJsonAsync(BaseUrl, request, cancellationToken);

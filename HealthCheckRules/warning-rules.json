@@ -1,0 +1,40 @@
+{
+    "rules": [
+        {
+            "id": "too-many-columns",
+            "name": "Too Many Columns",
+            "severity": "warning",
+            "type": "metadata",
+            "check": {
+                "condition": "table.ColumnCount > config.MaxColumnsPerTable"
+            },
+            "message": "Table '{tableName}' has {columnCount} columns (threshold: {threshold})",
+            "recommendation": "Consider normalizing this table into multiple related tables",
+            "documentation": "https://docs.microsoft.com/sql/relational-databases/tables/database-normalization-basics"
+        },
+        {
+            "id": "nullable-fk",
+            "name": "Nullable Foreign Key",
+            "severity": "warning",
+            "type": "metadata",
+            "check": {
+                "condition": "column.IsForeignKey AND column.IsNullable"
+            },
+            "message": "Foreign key column '{columnName}' in table '{tableName}' is nullable",
+            "recommendation": "Consider if this FK should be required (NOT NULL) for data integrity",
+            "sqlFix": "-- If FK should be required:\nALTER TABLE [{tableName}] ALTER COLUMN [{columnName}] {dataType} NOT NULL"
+        },
+        {
+            "id": "missing-audit-columns",
+            "name": "Missing Audit Trail",
+            "severity": "warning",
+            "type": "metadata",
+            "check": {
+                "condition": "!table.Columns.Any(c => auditColumns.Contains(c.Name))"
+            },
+            "message": "Table '{tableName}' has no audit trail columns (CreatedAt, UpdatedAt, etc.)",
+            "recommendation": "Add audit columns to track when records are created and modified",
+            "sqlFix": "ALTER TABLE [{tableName}] ADD CreatedAt DATETIME2 DEFAULT GETUTCDATE(), UpdatedAt DATETIME2, CreatedBy NVARCHAR(100), UpdatedBy NVARCHAR(100)"
+        }
+    ]
+}

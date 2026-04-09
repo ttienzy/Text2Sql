@@ -244,7 +244,7 @@ namespace TextToSqlAgent.Infrastructure.Migrations
                     b.HasIndex("UserId")
                         .HasDatabaseName("IX_AgentJob_UserId");
 
-                    b.ToTable("AgentJobs", (string)null);
+                    b.ToTable("AgentJobs");
                 });
 
             modelBuilder.Entity("TextToSqlAgent.Infrastructure.Entities.ApplicationUser", b =>
@@ -333,6 +333,9 @@ namespace TextToSqlAgent.Infrastructure.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<string>("BusinessContext")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("ConnectionString")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -376,6 +379,9 @@ namespace TextToSqlAgent.Infrastructure.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
+                    b.Property<string>("NamingConventionNotes")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int>("Port")
                         .HasColumnType("int");
 
@@ -386,6 +392,9 @@ namespace TextToSqlAgent.Infrastructure.Migrations
 
                     b.Property<DateTime?>("SchemaSyncedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("SystemDomain")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("UserId")
                         .IsRequired()
@@ -404,7 +413,7 @@ namespace TextToSqlAgent.Infrastructure.Migrations
                     b.HasIndex("UserId", "IsDefault")
                         .HasDatabaseName("IX_Connection_UserId_IsDefault");
 
-                    b.ToTable("Connections", (string)null);
+                    b.ToTable("Connections");
                 });
 
             modelBuilder.Entity("TextToSqlAgent.Infrastructure.Entities.Conversation", b =>
@@ -454,7 +463,7 @@ namespace TextToSqlAgent.Infrastructure.Migrations
                     b.HasIndex("UserId", "IsArchived")
                         .HasDatabaseName("IX_Conversation_UserId_IsArchived");
 
-                    b.ToTable("Conversations", (string)null);
+                    b.ToTable("Conversations");
                 });
 
             modelBuilder.Entity("TextToSqlAgent.Infrastructure.Entities.DatabaseSchema", b =>
@@ -533,7 +542,7 @@ namespace TextToSqlAgent.Infrastructure.Migrations
 
                     b.HasIndex("ConnectionId", "TableName", "ColumnName");
 
-                    b.ToTable("DatabaseSchemas", (string)null);
+                    b.ToTable("DatabaseSchemas");
                 });
 
             modelBuilder.Entity("TextToSqlAgent.Infrastructure.Entities.Message", b =>
@@ -621,7 +630,7 @@ namespace TextToSqlAgent.Infrastructure.Migrations
 
                     b.HasIndex("CreatedAt");
 
-                    b.ToTable("Messages", (string)null);
+                    b.ToTable("Messages");
                 });
 
             modelBuilder.Entity("TextToSqlAgent.Infrastructure.Entities.RefreshToken", b =>
@@ -674,7 +683,7 @@ namespace TextToSqlAgent.Infrastructure.Migrations
                     b.HasIndex("UserId")
                         .HasDatabaseName("IX_RefreshToken_UserId");
 
-                    b.ToTable("RefreshTokens", (string)null);
+                    b.ToTable("RefreshTokens");
                 });
 
             modelBuilder.Entity("TextToSqlAgent.Infrastructure.Entities.TokenUsage", b =>
@@ -723,7 +732,7 @@ namespace TextToSqlAgent.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("TokenUsages", (string)null);
+                    b.ToTable("TokenUsages");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>

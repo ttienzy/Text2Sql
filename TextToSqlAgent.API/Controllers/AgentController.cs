@@ -67,6 +67,13 @@ public class AgentController : ControllerBase
                 return BadRequest(new { error = "ConnectionId is required" });
             }
 
+            // ✅ Validate question doesn't contain image input (not supported by current model)
+            var imageValidation = ValidateQuestionInput(request.Question);
+            if (!imageValidation.IsValid)
+            {
+                return BadRequest(new { error = "INPUT_NOT_SUPPORTED", message = imageValidation.ErrorMessage });
+            }
+
             _logger.LogInformation("Processing message for user {UserId}, connection {ConnectionId}: {Question}",
                 userId, request.ConnectionId, request.Question);
 
@@ -99,15 +106,23 @@ public class AgentController : ControllerBase
             using var scope = _serviceProvider.CreateScope();
             var scopedServices = scope.ServiceProvider;
 
-            // Get the database config and temporarily override it for this connection
-            var dbConfig = scopedServices.GetRequiredService<DatabaseConfig>();
-            var originalConnectionString = dbConfig.ConnectionString;
+            // ✅ TASK 2.3: Load conversation history if conversationId is provided
+            List<Message>? conversationHistory = null;
+            if (!string.IsNullOrEmpty(request.ConversationId))
+            {
+                var messages = await _unitOfWork.Messages.GetByConversationIdAsync(request.ConversationId);
+                if (messages != null && messages.Any())
+                {
+                    conversationHistory = messages.OrderBy(m => m.CreatedAt).ToList();
+                    _logger.LogInformation(
+                        "[AgentController] Loaded {Count} messages from conversation {ConversationId}",
+                        conversationHistory.Count, request.ConversationId);
+                }
+            }
 
-            // Build connection string from connection entity
+            // ✅ CRIT-2 FIX: Use DatabaseConfigContext.SetConnectionString() instead of mutating Singleton
             var connectionString = BuildConnectionString(connection);
-            dbConfig.ConnectionString = connectionString;
-
-            try
+            using (DatabaseConfigContext.SetConnectionString(connectionString))
             {
                 // Get the enhanced agent orchestrator from scoped DI
                 var agent = scopedServices.GetRequiredService<EnhancedAgentOrchestrator>();
@@ -117,7 +132,9 @@ public class AgentController : ControllerBase
                     request.Question,
                     request.ConnectionId,
                     request.ConversationId,
-                    null, // No conversation history for this endpoint
+                    conversationHistory, // ✅ TASK 2.3: Pass loaded conversation history
+                    progress: null,  // No SSE streaming for this endpoint
+                    sqlTokenCallback: null,
                     CancellationToken.None);
 
                 // Save user message to database
@@ -203,12 +220,7 @@ public class AgentController : ControllerBase
 
                 // ✅ Return UnifiedPipelineResponse directly    
                 return Ok(unifiedResponse);
-            }
-            finally
-            {
-                // Restore original connection string
-                dbConfig.ConnectionString = originalConnectionString;
-            }
+            } // ← DatabaseConfigContext auto-restores here via IDisposable
         }
         catch (Exception ex)
         {
@@ -224,6 +236,76 @@ public class AgentController : ControllerBase
     {
         // Get connection string with backward compatibility
         return _encryptionService.GetConnectionString(connection);
+    }
+
+    /// <summary>
+    /// Validates question input for unsupported formats (images, files)
+    /// Current model (gpt-4o) does not support vision/multimodal input
+    /// </summary>
+    private static InputValidationResult ValidateQuestionInput(string question)
+    {
+        if (string.IsNullOrEmpty(question))
+        {
+            return new InputValidationResult { IsValid = true };
+        }
+
+        var lowerQuestion = question.ToLowerInvariant();
+
+        // Check for image URLs
+        if (question.Contains("http://", StringComparison.OrdinalIgnoreCase) ||
+            question.Contains("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            var imageExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg" };
+            foreach (var ext in imageExtensions)
+            {
+                if (lowerQuestion.Contains(ext))
+                {
+                    return new InputValidationResult
+                    {
+                        IsValid = false,
+                        ErrorMessage = "Image input is not supported. The current AI model does not support image analysis. Please describe your question in text format."
+                    };
+                }
+            }
+        }
+
+        // Check for base64 image data
+        if (question.Contains("data:image/", StringComparison.OrdinalIgnoreCase))
+        {
+            return new InputValidationResult
+            {
+                IsValid = false,
+                ErrorMessage = "Image input is not supported. The current AI model does not support image analysis. Please describe your question in text format."
+            };
+        }
+
+        // Check for image-related keywords
+        var imageKeywords = new[] { "analyze this image", "look at this", "what's in this picture", 
+            "describe the image", "what does this show", "read this image", "extract text from image",
+            "ocr", "convert image to text" };
+        
+        foreach (var keyword in imageKeywords)
+        {
+            if (lowerQuestion.Contains(keyword))
+            {
+                return new InputValidationResult
+                {
+                    IsValid = false,
+                    ErrorMessage = "Image analysis is not supported. The current AI model does not support vision/multimodal input. Please ask a text-based database question."
+                };
+            }
+        }
+
+        return new InputValidationResult { IsValid = true };
+    }
+
+    /// <summary>
+    /// Input validation result
+    /// </summary>
+    private class InputValidationResult
+    {
+        public bool IsValid { get; set; }
+        public string? ErrorMessage { get; set; }
     }
 
     /// <summary>

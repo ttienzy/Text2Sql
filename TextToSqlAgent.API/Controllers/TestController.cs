@@ -23,6 +23,7 @@ public class TestController : ControllerBase
     private readonly IServiceProvider _serviceProvider;
     private readonly TextToSqlAgent.Infrastructure.Services.ITokenQuotaService _tokenQuotaService;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IWebHostEnvironment _environment;
 
     // Mock connection string
     private const string TEST_CONNECTION_STRING = "Server=.;Database=TextToSqlTest;User Id=sa;Password=123;TrustServerCertificate=True;";
@@ -32,12 +33,14 @@ public class TestController : ControllerBase
         ILogger<TestController> logger,
         IServiceProvider serviceProvider,
         TextToSqlAgent.Infrastructure.Services.ITokenQuotaService tokenQuotaService,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IWebHostEnvironment environment)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
         _tokenQuotaService = tokenQuotaService;
         _unitOfWork = unitOfWork;
+        _environment = environment;
     }
 
     /// <summary>
@@ -105,7 +108,7 @@ public class TestController : ControllerBase
                 success = false,
                 step = "exception",
                 error = ex.Message,
-                stackTrace = ex.StackTrace
+                stackTrace = _environment.IsDevelopment() ? ex.StackTrace : null // ✅ TASK 2.1: Only expose in Development
             });
         }
     }
@@ -227,14 +230,8 @@ public class TestController : ControllerBase
             using var scope = _serviceProvider.CreateScope();
             var scopedServices = scope.ServiceProvider;
 
-            // Get the database config and temporarily override it for this test
-            var dbConfig = scopedServices.GetRequiredService<DatabaseConfig>();
-            var originalConnectionString = dbConfig.ConnectionString;
-
-            // Temporarily override to use test database
-            dbConfig.ConnectionString = TEST_CONNECTION_STRING;
-
-            try
+            // ✅ CRIT-2 FIX: Use DatabaseConfigContext.SetConnectionString() instead of mutating Singleton
+            using (DatabaseConfigContext.SetConnectionString(TEST_CONNECTION_STRING))
             {
                 // Get the enhanced agent orchestrator and pipeline orchestrator from scoped DI
                 var agent = scopedServices.GetRequiredService<EnhancedAgentOrchestrator>();
@@ -282,12 +279,7 @@ public class TestController : ControllerBase
                 };
 
                 return Ok(result);
-            }
-            finally
-            {
-                // Restore original connection string
-                dbConfig.ConnectionString = originalConnectionString;
-            }
+            } // ← DatabaseConfigContext auto-restores here via IDisposable
         }
         catch (Exception ex)
         {

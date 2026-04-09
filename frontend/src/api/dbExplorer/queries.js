@@ -179,3 +179,57 @@ export const useSchemaChangesQuery = (connectionId, options = {}) => {
         ...options,
     });
 };
+
+/**
+ * useSemanticSearchQuery - Search tables using semantic search (Qdrant)
+ */
+export const useSemanticSearchQuery = (connectionId, query, options = {}) => {
+    return useQuery({
+        queryKey: [...dbExplorerKeys.all, 'search', connectionId, query],
+        queryFn: async () => {
+            const response = await axiosInstance.get(`/api/db-explorer/${connectionId}/search`, {
+                params: {
+                    query,
+                    limit: options.limit || 10,
+                    scoreThreshold: options.scoreThreshold || 0.7,
+                },
+            });
+            return response.data;
+        },
+        enabled: !!connectionId && !!query && query.length >= 2,
+        staleTime: 1000 * 60 * 5, // 5 minutes
+        ...options,
+    });
+};
+
+/**
+ * useIndexRecommendationsQuery - Get index recommendations for database
+ */
+export const useIndexRecommendationsQuery = (connectionId, options = {}) => {
+    return useQuery({
+        queryKey: [...dbExplorerKeys.all, 'indexRecommendations', connectionId],
+        queryFn: async () => {
+            const response = await axiosInstance.get(`/api/db-explorer/${connectionId}/index-recommendations`);
+            return response.data;
+        },
+        enabled: !!connectionId && options.enabled !== false,
+        staleTime: 1000 * 60 * 60, // 1 hour
+        ...options,
+    });
+};
+
+/**
+ * useNamingAnalysisQuery - Get naming convention analysis for database
+ */
+export const useNamingAnalysisQuery = (connectionId, options = {}) => {
+    return useQuery({
+        queryKey: [...dbExplorerKeys.all, 'namingAnalysis', connectionId],
+        queryFn: async () => {
+            const response = await axiosInstance.get(`/api/db-explorer/${connectionId}/naming-analysis`);
+            return response.data;
+        },
+        enabled: !!connectionId && options.enabled !== false,
+        staleTime: 1000 * 60 * 60, // 1 hour
+        ...options,
+    });
+};

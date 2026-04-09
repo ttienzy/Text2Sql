@@ -83,28 +83,30 @@ public class DDLOperationController : ControllerBase
             using var scope = _serviceProvider.CreateScope();
             var scopedServices = scope.ServiceProvider;
 
-            var dbConfig = scopedServices.GetRequiredService<DatabaseConfig>();
-            dbConfig.ConnectionString = BuildConnectionString(connection);
-
-            var ddlPipeline = scopedServices.GetRequiredService<IDDLPipeline>();
-
-            // Generate preview with impact analysis
-            var preview = await ddlPipeline.GeneratePreviewAsync(request);
-
-            // Create intent result for response builder
-            var intentResult = new IntentClassificationResult
+            // ✅ CRIT-2 FIX: Use DatabaseConfigContext.SetConnectionString() instead of mutating Singleton
+            var connectionString = BuildConnectionString(connection);
+            using (DatabaseConfigContext.SetConnectionString(connectionString))
             {
-                Intent = MapDDLTypeToIntent(preview.OperationType),
-                Route = PipelineRoute.Ddl,
-                Confidence = 1.0,
-                DetectedEntities = new List<string> { preview.TargetObject },
-                MatchedKeywords = new List<string>()
-            };
+                var ddlPipeline = scopedServices.GetRequiredService<IDDLPipeline>();
 
-            // Build unified response
-            var response = _responseBuilder.BuildDdlPreviewResponse(preview, intentResult, stopwatch);
+                // Generate preview with impact analysis
+                var preview = await ddlPipeline.GeneratePreviewAsync(request);
 
-            return Ok(response);
+                // Create intent result for response builder
+                var intentResult = new IntentClassificationResult
+                {
+                    Intent = MapDDLTypeToIntent(preview.OperationType),
+                    Route = PipelineRoute.Ddl,
+                    Confidence = 1.0,
+                    DetectedEntities = new List<string> { preview.TargetObject },
+                    MatchedKeywords = new List<string>()
+                };
+
+                // Build unified response
+                var response = _responseBuilder.BuildDdlPreviewResponse(preview, intentResult, stopwatch);
+
+                return Ok(response);
+            } // ← DatabaseConfigContext auto-restores here via IDisposable
         }
         catch (Exception ex)
         {
@@ -154,42 +156,44 @@ public class DDLOperationController : ControllerBase
             using var scope = _serviceProvider.CreateScope();
             var scopedServices = scope.ServiceProvider;
 
-            var dbConfig = scopedServices.GetRequiredService<DatabaseConfig>();
-            dbConfig.ConnectionString = BuildConnectionString(connection);
-
-            var ddlPipeline = scopedServices.GetRequiredService<IDDLPipeline>();
-
-            // Execute with confirmation
-            var operationRequest = new DDLOperationRequest
+            // ✅ CRIT-2 FIX: Use DatabaseConfigContext.SetConnectionString() instead of mutating Singleton
+            var connectionString = BuildConnectionString(connection);
+            using (DatabaseConfigContext.SetConnectionString(connectionString))
             {
-                Question = request.Question,
-                ConnectionId = request.ConnectionId,
-                ConversationId = request.ConversationId,
-                IsConfirmed = true
-            };
+                var ddlPipeline = scopedServices.GetRequiredService<IDDLPipeline>();
 
-            var result = await ddlPipeline.ExecuteAsync(operationRequest, request.Preview);
+                // Execute with confirmation
+                var operationRequest = new DDLOperationRequest
+                {
+                    Question = request.Question,
+                    ConnectionId = request.ConnectionId,
+                    ConversationId = request.ConversationId,
+                    IsConfirmed = true
+                };
 
-            // Save to message history
-            await SaveDDLOperationToHistory(
-                request.ConversationId,
-                request.Question,
-                result);
+                var result = await ddlPipeline.ExecuteAsync(operationRequest, request.Preview);
 
-            // Create intent result for response builder
-            var intentResult = new IntentClassificationResult
-            {
-                Intent = MapDDLTypeToIntent(result.OperationType),
-                Route = PipelineRoute.Ddl,
-                Confidence = 1.0,
-                DetectedEntities = new List<string> { result.TargetObject },
-                MatchedKeywords = new List<string>()
-            };
+                // Save to message history
+                await SaveDDLOperationToHistory(
+                    request.ConversationId,
+                    request.Question,
+                    result);
 
-            // Build unified response
-            var response = _responseBuilder.BuildDdlResultResponse(result, intentResult);
+                // Create intent result for response builder
+                var intentResult = new IntentClassificationResult
+                {
+                    Intent = MapDDLTypeToIntent(result.OperationType),
+                    Route = PipelineRoute.Ddl,
+                    Confidence = 1.0,
+                    DetectedEntities = new List<string> { result.TargetObject },
+                    MatchedKeywords = new List<string>()
+                };
 
-            return Ok(response);
+                // Build unified response
+                var response = _responseBuilder.BuildDdlResultResponse(result, intentResult);
+
+                return Ok(response);
+            } // ← DatabaseConfigContext auto-restores here via IDisposable
         }
         catch (Exception ex)
         {

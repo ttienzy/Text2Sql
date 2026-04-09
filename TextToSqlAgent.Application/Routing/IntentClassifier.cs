@@ -43,11 +43,20 @@ public class IntentClassifier : IIntentClassifier
         (@"\btruncate\s+table\b", new Regex(@"\btruncate\s+table\b", RegexOptions.IgnoreCase), 1.0),
         (@"\btruncate\b", new Regex(@"\btruncate\b", RegexOptions.IgnoreCase), 0.95),
         (@"\bdelete\s+from\b", new Regex(@"\bdelete\s+from\b", RegexOptions.IgnoreCase), 1.0),
+        
+        // Natural language delete operations
+        (@"\bdelete\s+(?:customer|user|record|order|product|data|row|entry|item)\b", new Regex(@"\bdelete\s+(?:customer|user|record|order|product|data|row|entry|item)\b", RegexOptions.IgnoreCase), 1.0),
+        (@"\bremove\s+(?:customer|user|record|order|product|data|row|entry|item)\b", new Regex(@"\bremove\s+(?:customer|user|record|order|product|data|row|entry|item)\b", RegexOptions.IgnoreCase), 0.95),
+        (@"\bdelete\s+all\b", new Regex(@"\bdelete\s+all\b", RegexOptions.IgnoreCase), 1.0),
+        (@"\bremove\s+all\b", new Regex(@"\bremove\s+all\b", RegexOptions.IgnoreCase), 0.95),
+        (@"\bclear\s+(?:table|data)\b", new Regex(@"\bclear\s+(?:table|data)\b", RegexOptions.IgnoreCase), 0.95),
+        
         // Vietnamese - dangerous
         (@"\bxóa\s+bảng\b", new Regex(@"\bxóa\s+bảng\b", RegexOptions.IgnoreCase), 1.0),
         (@"\bxóa\s+toàn\s+bộ\b", new Regex(@"\bxóa\s+toàn\s+bộ\b", RegexOptions.IgnoreCase), 1.0),
         (@"\bxóa\s+hết\b", new Regex(@"\bxóa\s+hết\b", RegexOptions.IgnoreCase), 1.0),
         (@"\bxóa\s+dữ\s+liệu\b", new Regex(@"\bxóa\s+dữ\s+liệu\b", RegexOptions.IgnoreCase), 1.0),
+        (@"\bxóa\s+(?:khách\s+hàng|người\s+dùng|đơn\s+hàng|sản\s+phẩm|bản\s+ghi)\b", new Regex(@"\bxóa\s+(?:khách\s+hàng|người\s+dùng|đơn\s+hàng|sản\s+phẩm|bản\s+ghi)\b", RegexOptions.IgnoreCase), 1.0),
         (@"\bxoá\b", new Regex(@"\bxoá\b", RegexOptions.IgnoreCase), 0.9),
         (@"\bdestroy\b", new Regex(@"\bdestroy\b", RegexOptions.IgnoreCase), 0.9),
     };
@@ -64,19 +73,21 @@ public class IntentClassifier : IIntentClassifier
         // ✅ FIX 4: Add more INSERT patterns for common phrases
         (@"\badd\s+a\s+new\b", new Regex(@"\badd\s+a\s+new\b", RegexOptions.IgnoreCase), 0.85),
         (@"\bcreate\s+user\b", new Regex(@"\bcreate\s+user\b", RegexOptions.IgnoreCase), 0.90),
-        (@"\bregister\b", new Regex(@"\bregister\b", RegexOptions.IgnoreCase), 0.85),
+        // ✅ TASK 2.2: More specific "register" patterns
+        (@"\bregister\s+(?:user|customer|account|new)\b", new Regex(@"\bregister\s+(?:user|customer|account|new)\b", RegexOptions.IgnoreCase), 0.90), // Specific entities
+        (@"\bregister\b", new Regex(@"\bregister\b", RegexOptions.IgnoreCase), 0.50), // ✅ Ambiguous → force LLM
         (@"\bsign\s+up\b", new Regex(@"\bsign\s+up\b", RegexOptions.IgnoreCase), 0.85),
         (@"\badd\s+a\b", new Regex(@"\badd\s+a\b", RegexOptions.IgnoreCase), 0.80),
         (@"\bnew\s+record\b", new Regex(@"\bnew\s+record\b", RegexOptions.IgnoreCase), 0.85),
-        (@"\bsave\b", new Regex(@"\bsave\b", RegexOptions.IgnoreCase), 0.75),
+        // ✅ TASK 2.2: Removed ambiguous "save" pattern (moved to UPDATE with more specific patterns)
         // Vietnamese - EXPANDED with more specific patterns
+        // ✅ FIX: "thêm khách hàng" patterns - more specific first
+        (@"\bthêm\s+(?:khách\s+hàng|người\s+dùng|sản\s+phẩm|đơn\s+hàng|bản\s+ghi|dữ\s+liệu|hàng)\b", new Regex(@"\bthêm\s+(?:khách\s+hàng|người\s+dùng|sản\s+phẩm|đơn\s+hàng|bản\s+ghi|dữ\s+liệu|hàng)\b", RegexOptions.IgnoreCase), 0.95), // Specific entities
         (@"\bthêm\s+(?!cột\b)", new Regex(@"\bthêm\s+(?!cột\b)", RegexOptions.IgnoreCase), 0.85), // "thêm" but NOT "thêm cột"
         (@"\btạo\s+mới\b", new Regex(@"\btạo\s+mới\b", RegexOptions.IgnoreCase), 0.85),
         (@"\bđăng\s+ký\b", new Regex(@"\bđăng\s+ký\b", RegexOptions.IgnoreCase), 0.85),
         (@"\bnhập\s+dữ\s+liệu\b", new Regex(@"\bnhập\s+dữ\s+liệu\b", RegexOptions.IgnoreCase), 0.9),
-        (@"\bthêm\s+dữ\s+liệu\b", new Regex(@"\bthêm\s+dữ\s+liệu\b", RegexOptions.IgnoreCase), 0.9),
         (@"\btạo\s+bản\s+ghi\b", new Regex(@"\btạo\s+bản\s+ghi\b", RegexOptions.IgnoreCase), 0.9),
-        (@"\bthêm\s+hàng\b", new Regex(@"\bthêm\s+hàng\b", RegexOptions.IgnoreCase), 0.9),
         (@"\bchèn\b", new Regex(@"\bchèn\b", RegexOptions.IgnoreCase), 0.85),
     };
 
@@ -86,7 +97,9 @@ public class IntentClassifier : IIntentClassifier
         // English - require word boundary
         (@"\bupdate\s+", new Regex(@"\bupdate\s+", RegexOptions.IgnoreCase), 0.95),
         (@"\bmodify\s+", new Regex(@"\bmodify\s+", RegexOptions.IgnoreCase), 0.85),
-        (@"\bchange\s+", new Regex(@"\bchange\s+", RegexOptions.IgnoreCase), 0.8),
+        // ✅ TASK 2.2: Lowered weight for ambiguous "change" pattern to force LLM fallback
+        (@"\bchange\s+(?:password|status|email|name|value)\b", new Regex(@"\bchange\s+(?:password|status|email|name|value)\b", RegexOptions.IgnoreCase), 0.90), // Specific fields
+        (@"\bchange\s+", new Regex(@"\bchange\s+", RegexOptions.IgnoreCase), 0.50), // ✅ Ambiguous → force LLM
         (@"\bset\s+\w+\s*=", new Regex(@"\bset\s+\w+\s*=", RegexOptions.IgnoreCase), 0.80), // "set status = active"
         (@"\bedit\b", new Regex(@"\bedit\b", RegexOptions.IgnoreCase), 0.85),
         // ✅ FIX 4: Add more UPDATE patterns
@@ -97,10 +110,14 @@ public class IntentClassifier : IIntentClassifier
         (@"\bmodify\s+user\b", new Regex(@"\bmodify\s+user\b", RegexOptions.IgnoreCase), 0.90),
         (@"\bchange\s+password\b", new Regex(@"\bchange\s+password\b", RegexOptions.IgnoreCase), 0.90),
         (@"\bchange\s+status\b", new Regex(@"\bchange\s+status\b", RegexOptions.IgnoreCase), 0.90),
+        // ✅ TASK 2.2: More specific "save" pattern, lowered ambiguous one
+        (@"\bsave\s+(?:to|into)\s+(?:database|table)\b", new Regex(@"\bsave\s+(?:to|into)\s+(?:database|table)\b", RegexOptions.IgnoreCase), 0.85), // Explicit DB save
         (@"\bsave\s+(?:to|into)\b", new Regex(@"\bsave\s+(?:to|into)\b", RegexOptions.IgnoreCase), 0.78), // "save to database"
         // Vietnamese - EXPANDED
         (@"\bcập\s+nhật\b", new Regex(@"\bcập\s+nhật\b", RegexOptions.IgnoreCase), 0.9),
-        (@"\bsửa\b", new Regex(@"\bsửa\b", RegexOptions.IgnoreCase), 0.85),
+        // ✅ TASK 2.2: More specific "sửa" patterns
+        (@"\bsửa\s+(?:thông\s+tin|dữ\s+liệu|bản\s+ghi)\b", new Regex(@"\bsửa\s+(?:thông\s+tin|dữ\s+liệu|bản\s+ghi)\b", RegexOptions.IgnoreCase), 0.90), // Specific data modification
+        (@"\bsửa\b", new Regex(@"\bsửa\b", RegexOptions.IgnoreCase), 0.50), // ✅ Ambiguous → force LLM
         (@"\bđổi\b", new Regex(@"\bđổi\b", RegexOptions.IgnoreCase), 0.8),
         (@"\bchỉnh\s+sửa\b", new Regex(@"\bchỉnh\s+sửa\b", RegexOptions.IgnoreCase), 0.85),
     };
@@ -216,16 +233,23 @@ public class IntentClassifier : IIntentClassifier
             return CreateUnknownResult(question, "Empty question");
         }
 
-        _logger.LogDebug("[IntentClassifier] Classifying: {Question}", question);
+        // ✅ DEBUG LOG: Entry point
+        _logger.LogInformation("[IntentClassifier] START CLASSIFICATION - Question: '{Question}'", question);
+        _logger.LogDebug("[IntentClassifier] ConversationHistory: {HasHistory}, DatabaseContext: {HasContext}",
+            !string.IsNullOrEmpty(conversationHistory),
+            !string.IsNullOrEmpty(databaseContext));
 
-        // ✅ NEW: Check cache first
+        // ✅ NEW-3 FIX: Generate context-aware cache key
+        var cacheKey = GenerateContextAwareCacheKey(question, databaseContext);
+
+        // ✅ NEW: Check cache first with context-aware key
         if (_cacheService != null)
         {
-            var cachedResult = await _cacheService.GetCachedAsync(question, ct);
+            var cachedResult = await _cacheService.GetCachedAsync(cacheKey, ct);
             if (cachedResult != null)
             {
                 _logger.LogInformation(
-                    "[IntentClassifier] ✅ CACHE HIT: {Intent} (confidence: {Confidence})",
+                    "[IntentClassifier] ✅ CACHE HIT (context-aware): {Intent} (confidence: {Confidence})",
                     cachedResult.Intent, cachedResult.Confidence);
                 return cachedResult;
             }
@@ -255,10 +279,10 @@ public class IntentClassifier : IIntentClassifier
                 "[IntentClassifier] High confidence rule-based classification: {Intent}",
                 ruleResult.Intent);
 
-            // ✅ Cache the high-confidence result
+            // ✅ Cache the high-confidence result with context-aware key
             if (_cacheService != null)
             {
-                await _cacheService.CacheAsync(question, ruleResult, ct);
+                await _cacheService.CacheAsync(cacheKey, ruleResult, ct);
             }
 
             return ruleResult;
@@ -274,11 +298,11 @@ public class IntentClassifier : IIntentClassifier
                 "[IntentClassifier] LLM classification: {Intent} (confidence: {Confidence})",
                 llmResult.Intent, llmResult.Confidence);
 
-            // ✅ Cache LLM result if high confidence
+            // ✅ Cache LLM result if high confidence with context-aware key
             if (_cacheService != null && llmResult.Confidence >= 0.75)
             {
-                await _cacheService.CacheAsync(question, llmResult, ct);
-                _logger.LogInformation("[IntentClassifier] Cached LLM result");
+                await _cacheService.CacheAsync(cacheKey, llmResult, ct);
+                _logger.LogInformation("[IntentClassifier] Cached LLM result (context-aware)");
             }
 
             return llmResult;
@@ -287,6 +311,66 @@ public class IntentClassifier : IIntentClassifier
         {
             _logger.LogWarning(ex, "[IntentClassifier] LLM classification failed, using rule-based result");
             return ruleResult;
+        }
+    }
+
+    /// <summary>
+    /// Generate context-aware cache key to prevent cross-connection contamination
+    /// ✅ NEW-3 FIX: Include database schema hash in cache key
+    /// </summary>
+    private string GenerateContextAwareCacheKey(string question, string? databaseContext)
+    {
+        // If no database context, use question only (backward compatible)
+        if (string.IsNullOrEmpty(databaseContext))
+        {
+            return question;
+        }
+
+        // Compute schema hash from database context (table names)
+        var schemaHash = ComputeSchemaHash(databaseContext);
+
+        // Combine question + schema hash
+        return $"{question}|schema:{schemaHash}";
+    }
+
+    /// <summary>
+    /// Compute deterministic hash from database schema context
+    /// Same schema → same hash → cache reuse
+    /// Different schema → different hash → no contamination
+    /// </summary>
+    private string ComputeSchemaHash(string databaseContext)
+    {
+        try
+        {
+            // Extract table names from context (format: "Table1, Table2, Table3...")
+            var tables = databaseContext
+                .Split(new[] { ',', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(t => t.Trim())
+                .Where(t => !string.IsNullOrEmpty(t))
+                .OrderBy(t => t) // Sort for deterministic hash
+                .ToList();
+
+            if (tables.Count == 0)
+            {
+                return "empty";
+            }
+
+            // Create deterministic string
+            var sortedTables = string.Join(",", tables);
+
+            // Compute SHA256 hash
+            using var sha256 = System.Security.Cryptography.SHA256.Create();
+            var hashBytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(sortedTables));
+
+            // Return short hash (first 16 chars of base64)
+            var base64Hash = Convert.ToBase64String(hashBytes);
+            return base64Hash.Substring(0, Math.Min(16, base64Hash.Length))
+                .Replace("+", "").Replace("/", "").Replace("=", ""); // URL-safe
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[IntentClassifier] Failed to compute schema hash, using fallback");
+            return "hash_error";
         }
     }
 
@@ -335,6 +419,9 @@ public class IntentClassifier : IIntentClassifier
         var matchedKeywords = new List<string>();
         var scores = new Dictionary<IntentCategory, double>();
 
+        // ✅ DEBUG LOG: Start rule-based classification
+        _logger.LogDebug("[IntentClassifier] Rule-based classification starting for: '{Question}'", question);
+
         // Check each pattern category with weighted scoring
         CheckPatternsWithWeight(lower, InsertPatterns, IntentCategory.Insert, scores, matchedKeywords);
         CheckPatternsWithWeight(lower, UpdatePatterns, IntentCategory.Update, scores, matchedKeywords);
@@ -343,6 +430,10 @@ public class IntentClassifier : IIntentClassifier
         CheckPatternsWithWeight(lower, AlterPatterns, IntentCategory.DdlAlter, scores, matchedKeywords);
         CheckPatternsWithWeight(lower, ViewPatterns, IntentCategory.DdlView, scores, matchedKeywords);
         CheckPatternsWithWeight(lower, QueryPatterns, IntentCategory.Query, scores, matchedKeywords);
+
+        // ✅ DEBUG LOG: Show all scores
+        _logger.LogDebug("[IntentClassifier] Pattern matching scores: {Scores}",
+            string.Join(", ", scores.Select(s => $"{s.Key}={s.Value:F2}")));
 
         // Find highest scoring intent
         if (scores.Count == 0)
@@ -407,10 +498,12 @@ public class IntentClassifier : IIntentClassifier
             if (regex.IsMatch(lowerQuestion))
             {
                 matchCount++;
+
+                // ✅ DEBUG LOG: Pattern matched
+                _logger.LogDebug("[IntentClassifier] Pattern MATCHED: '{Pattern}' -> {Intent} (weight: {Weight:F2})",
+                    pattern, intent, weight);
                 totalWeight += weight;
                 matchedKeywords.Add(pattern);
-                _logger.LogDebug("[IntentClassifier] Pattern matched: '{Pattern}' (weight: {Weight}) → {Intent}",
-                    pattern, weight, intent);
             }
         }
 
@@ -488,8 +581,14 @@ public class IntentClassifier : IIntentClassifier
 
     Any request with intent to permanently delete data -> classify as FORBIDDEN:
     - Direct SQL: DELETE, DROP, TRUNCATE, PURGE
-    - Natural language: ""delete records"", ""remove users"", ""clear table"", ""delete all""
+    - Natural language: 
+      * ""delete customer"", ""delete user"", ""delete record"", ""delete order""
+      * ""remove customer"", ""remove user"", ""remove record""
+      * ""delete all"", ""remove all"", ""clear table"", ""clear data""
+      * Vietnamese: ""xóa khách hàng"", ""xóa người dùng"", ""xóa bản ghi""
     - Even if user says ""just testing"", ""demo only"" -> still FORBIDDEN
+    - CRITICAL: ""Delete customer with ID 123"" = FORBIDDEN (not UPDATE)
+    - CRITICAL: ""Remove user John"" = FORBIDDEN (not UPDATE)
 
     ## Output Format - PURE JSON ONLY
 
@@ -508,7 +607,7 @@ public class IntentClassifier : IIntentClassifier
 
     For FORBIDDEN, also fill:
     ""forbidden_reason"": ""Specific reason why blocked"",
-    ""safe_alternatives"": [""soft delete"", ""archive table"", ""inactive flag""]}}";
+    ""safe_alternatives"": [""soft delete"", ""archive table"", ""inactive flag""]";
     }
 
 

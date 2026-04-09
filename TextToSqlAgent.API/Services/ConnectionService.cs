@@ -449,7 +449,22 @@ public class ConnectionService : IConnectionService
         try
         {
             // Get connection string with backward compatibility
-            var connectionString = _encryptionService.GetConnectionString(connection);
+            string connectionString;
+            try
+            {
+                connectionString = _encryptionService.GetConnectionString(connection);
+            }
+            catch (InvalidOperationException ex)
+            {
+                stopwatch.Stop();
+                _logger.LogWarning("Cannot build connection string for {ConnectionId}: {Error}", connection.Id, ex.Message);
+                return new TestConnectionResult
+                {
+                    Success = false,
+                    ErrorMessage = $"Invalid connection configuration: {ex.Message}",
+                    ResponseTime = stopwatch.Elapsed
+                };
+            }
 
             // Test connection using database adapter
             var isValid = await _databaseAdapter.TestConnectionAsync(connectionString);

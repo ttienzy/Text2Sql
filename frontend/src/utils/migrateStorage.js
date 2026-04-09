@@ -1,13 +1,16 @@
 /**
  * Storage Migration Utility
- * Cleans up deprecated localStorage keys from old token strategy
+ * Cleans up deprecated localStorage keys from old token strategies
  * 
- * Run once on app initialization to remove tts_access_token
- * (accessToken is now memory-only per CRIT-4 security requirement)
+ * CURRENT STRATEGY (2026-04-08):
+ * - Both accessToken and refreshToken stored in localStorage for simplicity
+ * - Keys: 'tts_access_token' and 'tts_refresh_token' are VALID
+ * 
+ * Run once on app initialization to clean up truly deprecated keys
  */
 
 const DEPRECATED_KEYS = [
-    'tts_access_token', // Removed: accessToken is now memory-only
+    // No deprecated keys currently - both tokens are stored in localStorage
 ];
 
 /**

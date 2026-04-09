@@ -36,8 +36,14 @@ public class EnhancedAgentOrchestrator
     private readonly IQueryResultCache? _queryResultCache;
     private readonly PipelineResponseBuilder _responseBuilder;
 
-    private DatabaseSchema? _cachedSchema;
-    private bool _schemaIndexed = false;
+    // ✅ NEW-2 FIX: Make schema state static to persist across requests
+    // EnhancedAgentOrchestrator is Scoped (per-request), but schema should be global
+    private static DatabaseSchema? _globalCachedSchema;
+    private static bool _globalSchemaIndexed = false;
+
+    // ✅ CRIT-1 FIX: SemaphoreSlim to prevent race condition on _cachedSchema
+    // Made static to work with global schema cache
+    private static readonly SemaphoreSlim _globalSchemaScanLock = new(1, 1);
 
     // Pagination settings
     private const int DefaultPageSize = 50;  // First page size
@@ -105,7 +111,7 @@ public class EnhancedAgentOrchestrator
             ConversationHistory = conversationHistory,
             Progress = progress,
             SqlTokenCallback = sqlTokenCallback,
-            Schema = _cachedSchema // Share cached schema if available
+            Schema = _globalCachedSchema // Share global cached schema if available
         };
 
         return await pipelineOrchestrator.ExecuteAsync(context, cancellationToken);
@@ -122,6 +128,7 @@ public class EnhancedAgentOrchestrator
         List<TextToSqlAgent.Infrastructure.Entities.Message>? conversationHistory = null,
         IProgress<AgentStageEvent>? progress = null,
         Action<string>? sqlTokenCallback = null,
+        IntentClassificationResult? preClassified = null, // ✅ TASK 1.2: NEW parameter to avoid double classification
         CancellationToken cancellationToken = default)
     {
         var response = new AgentResponse();
@@ -138,161 +145,27 @@ public class EnhancedAgentOrchestrator
             }
 
             // ====================================
-            // STEP -1: INTENT CLASSIFICATION (NEW!)
-            // Route to appropriate pipeline BEFORE processing
+            // STEP -1: INTENT CLASSIFICATION (LEGACY - DISABLED)
+            // ✅ SERIOUS-5 FIX: Removed duplicate intent classification
+            // Intent is now classified ONCE in ProcessMessageWithIntentRoutingAsync
+            // This method (ProcessQueryAsync) is called AFTER routing decision is made
             // ====================================
-            if (_intentClassifier != null)
+            // ✅ TASK 1.2: If preClassified is provided, use it instead of classifying again
+            if (preClassified != null)
             {
-                steps.Add("Step -1: Intent classification and routing");
-
-                // ✅ PROGRESS: Emit classification stage
-                progress?.Report(new AgentStageEvent
-                {
-                    Stage = AgentStage.CLASSIFYING,
-                    Message = "Analyzing your question intent...",
-                    Progress = 0.10
-                });
-
-                try
-                {
-                    _logger.LogInformation("[EnhancedAgent] 🎯 Classifying intent for routing");
-
-                    var conversationContext = BuildConversationContext(conversationHistory);
-
-                    // WARNING FIX 3: Build database context for better entity extraction
-                    var databaseContext = _cachedSchema != null
-                        ? string.Join(", ", _cachedSchema.Tables.Take(20).Select(t => t.TableName))
-                        : "";
-
-                    if (string.IsNullOrEmpty(databaseContext))
-                    {
-                        try
-                        {
-                            // Try to load schema for context (but don't fail if it doesn't work)
-                            await EnsureSchemaLoadedAsync(steps, cancellationToken);
-                            databaseContext = _cachedSchema != null
-                                ? string.Join(", ", _cachedSchema.Tables.Take(20).Select(t => t.TableName))
-                                : "";
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "[EnhancedAgent] Could not load schema for context, proceeding without it");
-                        }
-                    }
-
-                    var intentResult = await _intentClassifier.ClassifyAsync(
-                        userQuestion,
-                        conversationContext,
-                        databaseContext,
-                        cancellationToken);
-
-                    _logger.LogInformation(
-                        "[EnhancedAgent] Intent: {Intent} → Route: {Route} (confidence: {Confidence:P0})",
-                        intentResult.Intent,
-                        intentResult.Route,
-                        intentResult.Confidence);
-
-                    // Route to specialized pipelines if needed
-                    switch (intentResult.Route)
-                    {
-                        case PipelineRoute.Write:
-                            _logger.LogInformation("[EnhancedAgent] → Detected WRITE operation: {Intent}", intentResult.Intent);
-
-                            // CRITICAL FIX 1: Return early for Write operations, don't fall through to Query pipeline
-                            response.Success = true;
-                            response.Answer = "⚠️ Đây là thao tác ghi dữ liệu (INSERT/UPDATE). Vui lòng sử dụng Write pipeline endpoint để thực hiện thao tác này.";
-                            response.ProcessingSteps = steps;
-                            response.Metadata = new Dictionary<string, object>
-                            {
-                                ["pipeline"] = "WRITE",
-                                ["intent"] = intentResult.Intent.ToString(),
-                                ["isWriteOperation"] = true,
-                                ["requiresConfirmation"] = true,
-                                ["detectedEntities"] = intentResult.DetectedEntities,
-                                ["suggestedEndpoint"] = "/api/write/preview"
-                            };
-                            return response; // ← STOP HERE, don't continue to Query pipeline
-
-                        case PipelineRoute.Ddl:
-                            _logger.LogInformation("[EnhancedAgent] → Detected DDL operation: {Intent}", intentResult.Intent);
-
-                            // CRITICAL FIX 1: Return early for DDL operations, don't fall through to Query pipeline  
-                            response.Success = true;
-                            response.Answer = "⚠️ Đây là thao tác DDL (CREATE/ALTER/DROP). Vui lòng sử dụng DDL pipeline endpoint để thực hiện thao tác này.";
-                            response.ProcessingSteps = steps;
-                            response.Metadata = new Dictionary<string, object>
-                            {
-                                ["pipeline"] = "DDL",
-                                ["intent"] = intentResult.Intent.ToString(),
-                                ["isDdlOperation"] = true,
-                                ["requiresConfirmation"] = true,
-                                ["detectedEntities"] = intentResult.DetectedEntities,
-                                ["suggestedEndpoint"] = "/api/ddl/preview"
-                            };
-                            return response; // ← STOP HERE, don't continue to Query pipeline
-
-                        case PipelineRoute.Forbidden:
-                            _logger.LogWarning("[EnhancedAgent] → FORBIDDEN operation detected: {Reason}", intentResult.ForbiddenReason);
-
-                            if (_forbiddenPipeline != null)
-                            {
-                                var forbiddenResult = await _forbiddenPipeline.RejectAsync(
-                                    userQuestion,
-                                    intentResult,
-                                    cancellationToken);
-
-                                // ✅ Return as SUCCESS (not error) with friendly message
-                                response.Success = true; // Not an error, just a policy rejection
-                                response.Answer = forbiddenResult.UserFacingMessage;
-                                response.ProcessingSteps = steps;
-
-                                // Add metadata for frontend to render special UI
-                                response.Metadata = new Dictionary<string, object>
-                                {
-                                    ["isForbidden"] = true,
-                                    ["forbiddenReason"] = forbiddenResult.RejectionReason,
-                                    ["safeAlternatives"] = forbiddenResult.SafeAlternatives,
-                                    ["detectedPatterns"] = forbiddenResult.DetectedPatterns ?? new List<string>()
-                                };
-
-                                return response;
-                            }
-                            break;
-
-                        case PipelineRoute.Reject:
-                            _logger.LogInformation("[EnhancedAgent] → Query rejected: {Reason}", intentResult.Reasoning);
-
-                            var rejectMessage = intentResult.Intent switch
-                            {
-                                IntentCategory.OffTopic => "I'm a database assistant. I can only help with database-related questions.",
-                                IntentCategory.Unknown => "I couldn't understand your request. Please be more specific about what you want to do with the database.",
-                                _ => "I cannot process this request."
-                            };
-
-                            response.Success = false;
-                            response.Answer = rejectMessage;
-                            response.ErrorMessage = rejectMessage;
-                            response.ProcessingSteps = steps;
-
-                            return response;
-
-                        case PipelineRoute.Query:
-                        default:
-                            _logger.LogInformation("[EnhancedAgent] → Routing to QUERY pipeline (SELECT)");
-                            // Continue to normal QUERY processing below
-                            break;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "[EnhancedAgent] Intent classification failed, falling back to QUERY pipeline");
-                    // Continue to normal QUERY processing
-                }
+                _logger.LogInformation(
+                    "[EnhancedAgent] ✅ Using pre-classified intent: {Intent} (confidence: {Confidence:P0}, entities: [{Entities}])",
+                    preClassified.Intent,
+                    preClassified.Confidence,
+                    string.Join(", ", preClassified.DetectedEntities ?? new List<string>()));
             }
-            else
-            {
-                _logger.LogDebug("[EnhancedAgent] Intent classifier not available, using QUERY pipeline only");
-            }
+            // NOTE: If this method is called directly (not through routing), it will skip
+            // intent-based routing and process as a regular query. This is intentional
+            // for backward compatibility with direct calls.
+
+            // ====================================
+            // STEP 0: NORMALIZE QUESTION
+            // ====================================
 
             // Get services on-demand (lazy loading)
             QueryValidatorPlugin queryValidator;
@@ -525,7 +398,7 @@ public class EnhancedAgentOrchestrator
                 throw new InvalidOperationException($"Failed to load database schema: {ex.Message}", ex);
             }
 
-            var tableNames = _cachedSchema?.Tables.Select(t => t.TableName).ToList() ?? new List<string>();
+            var tableNames = _globalCachedSchema?.Tables.Select(t => t.TableName).ToList() ?? new List<string>();
 
             // ====================================
             // STEP 2: Context-Aware Normalization
@@ -563,7 +436,7 @@ public class EnhancedAgentOrchestrator
             var schemaRetriever = _serviceFactory.GetSchemaRetriever();
             var relevantSchema = await schemaRetriever.RetrieveAsync(
                 normalized.NormalizedText,
-                _cachedSchema!,
+                _globalCachedSchema!,
                 cancellationToken);
 
             _logger.LogDebug(
@@ -584,7 +457,7 @@ public class EnhancedAgentOrchestrator
                     tableNames,
                     cancellationToken);
 
-                relevantSchema = BuildFallbackSchema(intent.Target, _cachedSchema);
+                relevantSchema = BuildFallbackSchema(intent.Target, _globalCachedSchema);
             }
             else
             {
@@ -918,52 +791,70 @@ public class EnhancedAgentOrchestrator
 
     private async Task EnsureSchemaLoadedAsync(List<string> steps, CancellationToken cancellationToken)
     {
-        if (_cachedSchema != null)
+        // ✅ CRIT-1 FIX: Double-check locking pattern to prevent race condition
+        // ✅ NEW-2 FIX: Use global static cache to persist across requests
+        if (_globalCachedSchema != null)
         {
-            steps.Add("Step 1.1: Use cached schema");
+            steps.Add("Step 1.1: Use global cached schema");
             return;
         }
 
-        steps.Add("Step 1.1: Scan database schema");
-
+        await _globalSchemaScanLock.WaitAsync(cancellationToken);
         try
         {
-            var schemaScanner = _serviceFactory.GetSchemaScanner();
-            _cachedSchema = await schemaScanner.ScanAsync(cancellationToken);
-        }
-        catch (DatabaseConnectionException ex)
-        {
-            _logger.LogError(ex, "[EnhancedAgent] Cannot connect to database");
-            throw;
-        }
-        catch (DatabasePermissionException ex)
-        {
-            _logger.LogError(ex, "[EnhancedAgent] Insufficient database permissions");
-            throw;
-        }
-
-        // ✅ FIX: Set correct collection name BEFORE indexing
-        try
-        {
-            var dbName = ExtractDatabaseName(_dbConfig);
-            if (!string.IsNullOrEmpty(dbName))
+            // Double-check after acquiring lock
+            if (_globalCachedSchema != null)
             {
-                var qdrantService = _serviceFactory.GetQdrantService();
-                qdrantService.SetCollectionName(dbName);
-                _logger.LogInformation("[EnhancedAgent] Collection name set to: {Name}", dbName);
+                steps.Add("Step 1.1: Use global cached schema (acquired after lock)");
+                return;
+            }
+
+            steps.Add("Step 1.1: Scan database schema");
+
+            try
+            {
+                var schemaScanner = _serviceFactory.GetSchemaScanner();
+                _globalCachedSchema = await schemaScanner.ScanAsync(cancellationToken);
+            }
+            catch (DatabaseConnectionException ex)
+            {
+                _logger.LogError(ex, "[EnhancedAgent] Cannot connect to database");
+                throw;
+            }
+            catch (DatabasePermissionException ex)
+            {
+                _logger.LogError(ex, "[EnhancedAgent] Insufficient database permissions");
+                throw;
+            }
+
+            // ✅ FIX: Set correct collection name BEFORE indexing
+            try
+            {
+                var dbName = ExtractDatabaseName(_dbConfig);
+                if (!string.IsNullOrEmpty(dbName))
+                {
+                    var qdrantService = _serviceFactory.GetQdrantService();
+                    qdrantService.SetCollectionName(dbName);
+                    _logger.LogInformation("[EnhancedAgent] Collection name set to: {Name}", dbName);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[EnhancedAgent] Cannot set collection name, using default");
+            }
+
+            // Auto-index schema (only once per app lifetime)
+            if (!_globalSchemaIndexed)
+            {
+                steps.Add("Step 1.2: Index schema into vector database");
+                await TryEnsureSchemaIndexedAsync(_globalCachedSchema, cancellationToken);
+                _globalSchemaIndexed = true;
+                _logger.LogInformation("[EnhancedAgent] ✅ Schema indexed globally (will persist across requests)");
             }
         }
-        catch (Exception ex)
+        finally
         {
-            _logger.LogWarning(ex, "[EnhancedAgent] Cannot set collection name, using default");
-        }
-
-        // Auto-index schema
-        if (!_schemaIndexed)
-        {
-            steps.Add("Step 1.2: Index schema into vector database");
-            await TryEnsureSchemaIndexedAsync(_cachedSchema, cancellationToken);
-            _schemaIndexed = true;
+            _globalSchemaScanLock.Release();
         }
     }
 
@@ -1437,9 +1328,9 @@ public class EnhancedAgentOrchestrator
 
     public void ClearSchemaCache()
     {
-        _cachedSchema = null;
-        _schemaIndexed = false;
-        _logger.LogInformation("[EnhancedAgent] Schema cache cleared");
+        _globalCachedSchema = null;
+        _globalSchemaIndexed = false;
+        _logger.LogInformation("[EnhancedAgent] Global schema cache cleared");
     }
 
     private async Task<bool> TryEnsureSchemaIndexedAsync(
@@ -1522,26 +1413,45 @@ public class EnhancedAgentOrchestrator
     /// Process message with intent-based routing to appropriate pipeline
     /// Routes to: QUERY (existing), WRITE (new), DDL (new), or FORBIDDEN (new)
     /// </summary>
+    /// <param name="userQuestion">User's natural language question</param>
+    /// <param name="connectionId">Database connection ID</param>
+    /// <param name="conversationId">Optional conversation ID</param>
+    /// <param name="conversationHistory">Previous messages in conversation</param>
+    /// <param name="progress">Progress reporter for SSE stage updates</param>
+    /// <param name="sqlTokenCallback">Callback for SQL token streaming</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>UnifiedPipelineResponse with pipeline-specific data</returns>
     public async Task<UnifiedPipelineResponse> ProcessMessageWithIntentRoutingAsync(
         string userQuestion,
         string connectionId,
         string? conversationId = null,
         List<Message>? conversationHistory = null,
+        IProgress<AgentStageEvent>? progress = null,
+        Action<string>? sqlTokenCallback = null,
         CancellationToken cancellationToken = default)
     {
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        _logger.LogInformation("[EnhancedAgent] 🎯 Processing with intent-based routing");
+        _logger.LogInformation("[EnhancedAgent] Processing with intent-based routing");
 
         // Check if intent routing is enabled
         if (_intentClassifier == null)
         {
             _logger.LogWarning("[EnhancedAgent] Intent classifier not available, falling back to QUERY pipeline");
-            var queryResponse = await ProcessQueryAsync(userQuestion, conversationId, conversationHistory, progress: null, sqlTokenCallback: null, cancellationToken);
+            var queryResponse = await ProcessQueryAsync(userQuestion, conversationId, conversationHistory, progress, sqlTokenCallback, null, cancellationToken);
             return _responseBuilder.BuildQueryResponse(queryResponse, null, stopwatch);
         }
 
         try
         {
+            // Report progress: Intent Classification
+            progress?.Report(new AgentStageEvent
+            {
+                Stage = AgentStage.CLASSIFYING,
+                Message = "Classifying intent...",
+                Progress = 0.1,
+                Timestamp = DateTime.UtcNow
+            });
+
             // Step 1: Classify intent
             _logger.LogInformation("[EnhancedAgent] Step 1: Classifying intent");
 
@@ -1560,17 +1470,27 @@ public class EnhancedAgentOrchestrator
                 intentResult.Route,
                 intentResult.Confidence);
 
+            // Report progress: Routing decision
+            progress?.Report(new AgentStageEvent
+            {
+                Stage = AgentStage.AGENT_THINKING,
+                Message = $"Routing to {intentResult.Route} pipeline...",
+                Progress = 0.15,
+                Detail = intentResult.Route.ToString(),
+                Timestamp = DateTime.UtcNow
+            });
+
             // Step 2: Route to appropriate pipeline
             return intentResult.Route switch
             {
                 PipelineRoute.Query => await RouteToQueryPipelineAsync(
-                    userQuestion, conversationId, conversationHistory, intentResult, stopwatch, cancellationToken),
+                    userQuestion, conversationId, conversationHistory, intentResult, stopwatch, progress, sqlTokenCallback, cancellationToken),
 
                 PipelineRoute.Write => await RouteToWritePipelineAsync(
-                    userQuestion, connectionId, conversationId, intentResult, stopwatch, cancellationToken),
+                    userQuestion, connectionId, conversationId, intentResult, stopwatch, progress, cancellationToken),
 
                 PipelineRoute.Ddl => await RouteToDDLPipelineAsync(
-                    userQuestion, connectionId, conversationId, intentResult, stopwatch, cancellationToken),
+                    userQuestion, connectionId, conversationId, intentResult, stopwatch, progress, cancellationToken),
 
                 PipelineRoute.Forbidden => await RoutToForbiddenPipeline(
                     userQuestion, intentResult, stopwatch, cancellationToken),
@@ -1605,13 +1525,21 @@ public class EnhancedAgentOrchestrator
 
     /// <summary>
     /// Ensure schema is loaded for the connection. Auto-scan if cache miss.
+    /// ✅ SERIOUS-6 FIX: Proper null handling for _schemaCache
     /// </summary>
     private async Task<DatabaseSchema?> EnsureSchemaLoadedAsync(string connectionId, CancellationToken ct)
     {
         try
         {
+            // ✅ FIX: Check if cache is available before using
+            if (_schemaCache == null)
+            {
+                _logger.LogWarning("[Schema] Schema cache not available for connection {ConnectionId}", connectionId);
+                return null;
+            }
+
             // Try cache first
-            var schema = await _schemaCache?.GetAsync(connectionId, ct)!;
+            var schema = await _schemaCache.GetAsync(connectionId, ct);
             if (schema != null)
             {
                 _logger.LogDebug("[Schema] Cache hit for connection {ConnectionId}", connectionId);
@@ -1631,7 +1559,7 @@ public class EnhancedAgentOrchestrator
             }
 
             // Save to cache
-            await _schemaCache?.SetAsync(connectionId, schema, ct)!;
+            await _schemaCache.SetAsync(connectionId, schema, ct);
             _logger.LogInformation("[Schema] Auto-scanned and cached {TableCount} tables for {ConnectionId}",
                 schema.Tables.Count, connectionId);
 
@@ -1691,10 +1619,30 @@ public class EnhancedAgentOrchestrator
         List<Message>? conversationHistory,
         IntentClassificationResult intentResult,
         System.Diagnostics.Stopwatch stopwatch,
+        IProgress<AgentStageEvent>? progress,
+        Action<string>? sqlTokenCallback,
         CancellationToken ct)
     {
         _logger.LogInformation("[EnhancedAgent] → Routing to QUERY pipeline");
-        var queryResponse = await ProcessQueryAsync(userQuestion, conversationId, conversationHistory, progress: null, sqlTokenCallback: null, ct);
+
+        // Report progress: Starting query pipeline
+        progress?.Report(new AgentStageEvent
+        {
+            Stage = AgentStage.SCHEMA_RETRIEVAL,
+            Message = "Retrieving database schema...",
+            Progress = 0.2,
+            Timestamp = DateTime.UtcNow
+        });
+
+        // ✅ TASK 1.2: Pass intentResult to avoid double classification
+        var queryResponse = await ProcessQueryAsync(
+            userQuestion,
+            conversationId,
+            conversationHistory,
+            progress,
+            sqlTokenCallback,
+            intentResult, // ← Pass pre-classified intent
+            ct);
 
         // ✅ Check if result needs pagination
         var rowCount = queryResponse.QueryResult?.RowCount ?? 0;
@@ -1753,9 +1701,19 @@ public class EnhancedAgentOrchestrator
         string? conversationId,
         IntentClassificationResult intentResult,
         System.Diagnostics.Stopwatch stopwatch,
+        IProgress<AgentStageEvent>? progress,
         CancellationToken ct)
     {
         _logger.LogInformation("[EnhancedAgent] → Routing to WRITE pipeline");
+
+        // Report progress: Starting WRITE pipeline
+        progress?.Report(new AgentStageEvent
+        {
+            Stage = AgentStage.AGENT_THINKING,
+            Message = "Generating INSERT/UPDATE preview...",
+            Progress = 0.2,
+            Timestamp = DateTime.UtcNow
+        });
 
         if (_writePipeline == null)
         {
@@ -1775,7 +1733,26 @@ public class EnhancedAgentOrchestrator
             PreResolvedEntities = intentResult.DetectedEntities // FIX 1: Pass entities from IntentClassifier
         };
 
+        // Report progress: Analyzing query
+        progress?.Report(new AgentStageEvent
+        {
+            Stage = AgentStage.SCHEMA_RETRIEVAL,
+            Message = "Identifying target table...",
+            Progress = 0.4,
+            Timestamp = DateTime.UtcNow
+        });
+
         var preview = await _writePipeline.GeneratePreviewAsync(request, ct);
+
+        // Report progress: Preview generated
+        progress?.Report(new AgentStageEvent
+        {
+            Stage = AgentStage.BUILDING_RESPONSE,
+            Message = "Preview generated - awaiting confirmation",
+            Progress = 0.9,
+            Timestamp = DateTime.UtcNow
+        });
+
         return _responseBuilder.BuildWritePreviewResponse(preview, intentResult, stopwatch);
     }
 
@@ -1785,9 +1762,19 @@ public class EnhancedAgentOrchestrator
         string? conversationId,
         IntentClassificationResult intentResult,
         System.Diagnostics.Stopwatch stopwatch,
+        IProgress<AgentStageEvent>? progress,
         CancellationToken ct)
     {
         _logger.LogInformation("[EnhancedAgent] → Routing to DDL pipeline");
+
+        // Report progress: Starting DDL pipeline
+        progress?.Report(new AgentStageEvent
+        {
+            Stage = AgentStage.AGENT_THINKING,
+            Message = "Generating DDL preview...",
+            Progress = 0.2,
+            Timestamp = DateTime.UtcNow
+        });
 
         if (_ddlPipeline == null)
         {
@@ -1806,7 +1793,26 @@ public class EnhancedAgentOrchestrator
             IsConfirmed = false // Always require confirmation
         };
 
+        // Report progress: Analyzing DDL operation
+        progress?.Report(new AgentStageEvent
+        {
+            Stage = AgentStage.SCHEMA_RETRIEVAL,
+            Message = "Analyzing schema changes...",
+            Progress = 0.4,
+            Timestamp = DateTime.UtcNow
+        });
+
         var preview = await _ddlPipeline.GeneratePreviewAsync(request, ct);
+
+        // Report progress: Preview generated
+        progress?.Report(new AgentStageEvent
+        {
+            Stage = AgentStage.BUILDING_RESPONSE,
+            Message = "DDL preview generated - awaiting confirmation",
+            Progress = 0.9,
+            Timestamp = DateTime.UtcNow
+        });
+
         return _responseBuilder.BuildDdlPreviewResponse(preview, intentResult, stopwatch);
     }
 

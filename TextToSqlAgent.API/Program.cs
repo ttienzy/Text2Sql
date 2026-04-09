@@ -363,11 +363,26 @@ try
     builder.Services.AddIntentBasedPipelines();
     logger.Information("✅ Intent-based pipelines registered (WRITE/DDL/FORBIDDEN)");
 
+    // ✅ SERIOUS-8 FIX: Override PipelineResponseBuilder registration with isDevelopment flag
+    builder.Services.AddSingleton<PipelineResponseBuilder>(sp =>
+    {
+        var logger = sp.GetRequiredService<ILogger<PipelineResponseBuilder>>();
+        return new PipelineResponseBuilder(logger, builder.Environment.IsDevelopment());
+    });
+
     // ============================================
     // DB EXPLORER SERVICES
     // ============================================
+    // Core infrastructure services
+    builder.Services.AddSingleton<PromptTemplateService>();
+    builder.Services.AddSingleton<RuleEngine>();
+
+    // Analysis and scanning services
     builder.Services.AddScoped<EnhancedSchemaScanner>();
     builder.Services.AddScoped<DatabaseAnalyzer>();
+    builder.Services.AddScoped<ImplicitRelationshipDetector>();
+    builder.Services.AddScoped<SemanticTagGenerator>();
+    builder.Services.AddScoped<DbExplorerQdrantIndexer>();
     builder.Services.AddScoped<GraphDataBuilder>();
     builder.Services.AddScoped<QuerySuggestionService>();
     builder.Services.AddScoped<SchemaChangeDetector>();

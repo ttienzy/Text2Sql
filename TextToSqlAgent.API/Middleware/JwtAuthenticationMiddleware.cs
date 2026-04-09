@@ -82,16 +82,31 @@ public class JwtAuthenticationMiddleware
         try
         {
             var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]!);
+
+            // Try environment variable first, then configuration
+            var jwtKey = Environment.GetEnvironmentVariable("JWT_SECRET") ??
+                         _configuration["Jwt:Key"];
+            var jwtIssuer = Environment.GetEnvironmentVariable("JWT_ISSUER") ??
+                            _configuration["Jwt:Issuer"];
+            var jwtAudience = Environment.GetEnvironmentVariable("JWT_AUDIENCE") ??
+                              _configuration["Jwt:Audience"];
+
+            if (string.IsNullOrEmpty(jwtKey))
+            {
+                _logger.LogError("JWT Key is not configured. Check JWT_SECRET environment variable or Jwt:Key in configuration.");
+                return null;
+            }
+
+            var key = Encoding.UTF8.GetBytes(jwtKey);
 
             var validationParameters = new TokenValidationParameters
             {
                 ValidateIssuerSigningKey = true,
                 IssuerSigningKey = new SymmetricSecurityKey(key),
                 ValidateIssuer = true,
-                ValidIssuer = _configuration["Jwt:Issuer"],
+                ValidIssuer = jwtIssuer,
                 ValidateAudience = true,
-                ValidAudience = _configuration["Jwt:Audience"],
+                ValidAudience = jwtAudience,
                 ValidateLifetime = true,
                 ClockSkew = TimeSpan.FromMinutes(5), // Allow 5 minutes clock skew
                 RequireExpirationTime = true,

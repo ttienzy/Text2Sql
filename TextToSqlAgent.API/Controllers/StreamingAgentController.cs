@@ -23,6 +23,9 @@ public class StreamingAgentController : ControllerBase
     private readonly TextToSqlAgent.Infrastructure.Services.ITokenQuotaService _tokenQuotaService;
     private readonly TextToSqlAgent.API.Services.IConnectionEncryptionService _encryptionService;
 
+    // ✅ CRIT-3 FIX: SemaphoreSlim to serialize SSE writes (prevent race conditions)
+    private readonly SemaphoreSlim _sseWriteLock = new(1, 1);
+
     public StreamingAgentController(
         IUnitOfWork unitOfWork,
         ILogger<StreamingAgentController> logger,
@@ -61,6 +64,14 @@ public class StreamingAgentController : ControllerBase
 
         try
         {
+            // ✅ DEBUG LOG: Entry point
+            _logger.LogInformation(
+                "[StreamingAgent] REQUEST RECEIVED - Question: '{Question}', ConnectionId: {ConnectionId}, ConversationId: {ConversationId}, CorrelationId: {CorrelationId}",
+                request.Question,
+                request.ConnectionId,
+                request.ConversationId ?? "null",
+                correlationId);
+
             _logger.LogInformation("[StreamingAgent] SSE stream started for correlationId={CorrelationId}", correlationId);
 
             // ✅ Extract user ID and validate
@@ -86,6 +97,22 @@ public class StreamingAgentController : ControllerBase
                     correlationId
                 }, ct);
                 return;
+            }
+
+            // ✅ Validate question doesn't contain image input (not supported by current model)
+            if (!string.IsNullOrEmpty(request.Question))
+            {
+                var imageValidation = ValidateQuestionInput(request.Question);
+                if (!imageValidation.IsValid)
+                {
+                    await WriteSseEventAsync("error", new
+                    {
+                        code = "INPUT_NOT_SUPPORTED",
+                        message = imageValidation.ErrorMessage,
+                        correlationId
+                    }, ct);
+                    return;
+                }
             }
 
             // ✅ Verify user owns the connection
@@ -121,20 +148,61 @@ public class StreamingAgentController : ControllerBase
                 return;
             }
 
-            // ✅ Create scoped service provider with overridden database configuration
-            using var scope = _serviceProvider.CreateScope();
-            var scopedServices = scope.ServiceProvider;
-
-            // Get the database config and temporarily override it for this connection
-            var dbConfig = scopedServices.GetRequiredService<TextToSqlAgent.Infrastructure.Configuration.DatabaseConfig>();
-            var originalConnectionString = dbConfig.ConnectionString;
-
-            // Build connection string from connection entity (decrypt it)
+            // ✅ CRIT-2 FIX: Use DatabaseConfigContext (AsyncLocal) to safely override connection per-request
+            // This prevents race conditions when multiple users query different databases simultaneously
             var connectionString = _encryptionService.GetConnectionString(connection);
-            dbConfig.ConnectionString = connectionString;
 
-            try
+            using (TextToSqlAgent.Infrastructure.Configuration.DatabaseConfigContext.SetConnectionString(connectionString))
             {
+                // All database operations in this async context will use the override connection string
+                // No need for scoped service provider - DatabaseConfig.ConnectionString will automatically
+                // return the async-local override for this request only
+
+                // ✅ CRIT-4 FIX: Use Channel for SQL token streaming to prevent race conditions
+                // Channel ensures tokens are written in order and thread-safe
+                var sqlTokenChannel = System.Threading.Channels.Channel.CreateUnbounded<string>(
+                    new System.Threading.Channels.UnboundedChannelOptions
+                    {
+                        SingleReader = true, // Only one consumer task
+                        SingleWriter = false // Multiple LLM callbacks can write
+                    });
+
+                // Background task to consume tokens from channel and write to SSE
+                var tokenWriterTask = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await foreach (var token in sqlTokenChannel.Reader.ReadAllAsync(ct))
+                        {
+                            try
+                            {
+                                await WriteSseEventAsync("sql_token", new { token }, ct);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogDebug(ex, "[StreamingAgent] Failed to write SQL token (client disconnected)");
+                                break; // Stop consuming if client disconnected
+                            }
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        _logger.LogDebug("[StreamingAgent] Token writer cancelled");
+                    }
+                }, ct);
+
+                // SQL token callback - write to channel (non-blocking, thread-safe)
+                Action<string> sqlTokenCallback = (token) =>
+                {
+                    if (ct.IsCancellationRequested) return;
+
+                    // TryWrite is non-blocking and thread-safe
+                    if (!sqlTokenChannel.Writer.TryWrite(token))
+                    {
+                        _logger.LogWarning("[StreamingAgent] Failed to write token to channel (channel full or closed)");
+                    }
+                };
+
                 // Create progress reporter that writes SSE events
                 var progress = new Progress<AgentStageEvent>(async stageEvent =>
                 {
@@ -145,28 +213,9 @@ public class StreamingAgentController : ControllerBase
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogDebug(ex, "[StreamingAgent] Failed to write SSE event (client may have disconnected)");
+                        _logger.LogDebug(ex, "[StreamingAgent] Failed to write stage update (client may have disconnected)");
                     }
                 });
-
-                // ✅ PHASE-1 TASK 1.2: Create SQL token callback with fire-and-forget pattern (no deadlock)
-                Action<string> sqlTokenCallback = (token) =>
-                {
-                    if (ct.IsCancellationRequested) return;
-
-                    // Fire-and-forget pattern to avoid blocking the LLM streaming thread
-                    _ = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            await WriteSseEventAsync("sql_token", new { token }, ct);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogDebug(ex, "[StreamingAgent] Failed to write SQL token (client may have disconnected)");
-                        }
-                    }, ct);
-                };
 
                 // Load conversation history if provided
                 List<TextToSqlAgent.Infrastructure.Entities.Message>? conversationHistory = null;
@@ -206,15 +255,19 @@ public class StreamingAgentController : ControllerBase
                     }
                 }
 
-                // ✅ PHASE-1 TASK 1.1: Use EnhancedAgentOrchestrator with Intent Routing (not PipelineOrchestrator)
-                var agent = scopedServices.GetRequiredService<TextToSqlAgent.Application.Services.EnhancedAgentOrchestrator>();
+                // ✅ PHASE-1 TASK 1.1: Use EnhancedAgentOrchestrator with Intent Routing
+                // Agent will automatically use the async-local connection string override
+                var agent = _serviceProvider.GetRequiredService<TextToSqlAgent.Application.Services.EnhancedAgentOrchestrator>();
 
                 // Call ProcessMessageWithIntentRoutingAsync for unified pipeline routing
+                // Pass progress and sqlTokenCallback for real-time SSE stage updates
                 var unifiedResponse = await agent.ProcessMessageWithIntentRoutingAsync(
                     request.Question,
                     request.ConnectionId,
                     request.ConversationId,
                     conversationHistory,
+                    progress,
+                    sqlTokenCallback,
                     ct);
 
                 // ✅ PHASE-1 TASK 1.1: Save messages with UnifiedPipelineResponse data
@@ -359,12 +412,11 @@ public class StreamingAgentController : ControllerBase
 
                 // ✅ PHASE-1 TASK 1.3: Emit UnifiedPipelineResponse directly (correct format for frontend)
                 await WriteSseEventAsync("result", unifiedResponse, ct);
-            }
-            finally
-            {
-                // ✅ Restore original connection string
-                dbConfig.ConnectionString = originalConnectionString;
-            }
+
+                // ✅ CRIT-4 FIX: Close channel and wait for token writer to finish
+                sqlTokenChannel.Writer.Complete();
+                await tokenWriterTask; // Wait for all tokens to be written
+            } // End of using DatabaseConfigContext
         }
         catch (OperationCanceledException)
         {
@@ -385,26 +437,107 @@ public class StreamingAgentController : ControllerBase
             }
             catch
             {
-                // Client already disconnected
+                // Ignore secondary errors during error handling
             }
         }
     }
 
     /// <summary>
+    /// Validates question input for unsupported formats (images, files)
+    /// Current model (gpt-4o) does not support vision/multimodal input
+    /// </summary>
+    private static InputValidationResult ValidateQuestionInput(string question)
+    {
+        if (string.IsNullOrEmpty(question))
+        {
+            return new InputValidationResult { IsValid = true };
+        }
+
+        var lowerQuestion = question.ToLowerInvariant();
+
+        // Check for image URLs (http/https with common image extensions)
+        if (question.Contains("http://", StringComparison.OrdinalIgnoreCase) ||
+            question.Contains("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            var imageExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg" };
+
+            foreach (var ext in imageExtensions)
+            {
+                if (lowerQuestion.Contains(ext))
+                {
+                    return new InputValidationResult
+                    {
+                        IsValid = false,
+                        ErrorMessage = "Image input is not supported. The current AI model does not support image analysis. Please describe your question in text format."
+                    };
+                }
+            }
+        }
+
+        // Check for base64 image data
+        if (question.Contains("data:image/", StringComparison.OrdinalIgnoreCase))
+        {
+            return new InputValidationResult
+            {
+                IsValid = false,
+                ErrorMessage = "Image input is not supported. The current AI model does not support image analysis. Please describe your question in text format."
+            };
+        }
+
+        // Check for common image-related keywords in user request
+        var imageKeywords = new[] { "analyze this image", "look at this", "what's in this picture", 
+            "describe the image", "what does this show", "read this image", "extract text from image",
+            "ocr", "convert image to text" };
+        
+        foreach (var keyword in imageKeywords)
+        {
+            if (lowerQuestion.Contains(keyword))
+            {
+                return new InputValidationResult
+                {
+                    IsValid = false,
+                    ErrorMessage = "Image analysis is not supported. The current AI model does not support vision/multimodal input. Please ask a text-based database question."
+                };
+            }
+        }
+
+        return new InputValidationResult { IsValid = true };
+    }
+
+    /// <summary>
+    /// Input validation result
+    /// </summary>
+    private class InputValidationResult
+    {
+        public bool IsValid { get; set; }
+        public string? ErrorMessage { get; set; }
+    }
+
     /// Writes a Server-Sent Event to the response stream.
     /// Format: "event: {eventType}\ndata: {json}\n\n"
+    /// 
+    /// ✅ CRIT-3 FIX: Thread-safe with SemaphoreSlim to prevent concurrent writes
+    /// from Progress<T> callbacks and Channel consumer running on different threads
     /// </summary>
     private async Task WriteSseEventAsync(string eventType, object data, CancellationToken ct)
     {
-        var json = JsonSerializer.Serialize(data, new JsonSerializerOptions
+        await _sseWriteLock.WaitAsync(ct);
+        try
         {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-        });
+            var json = JsonSerializer.Serialize(data, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+            });
 
-        var sseMessage = $"event: {eventType}\ndata: {json}\n\n";
-        await Response.WriteAsync(sseMessage, ct);
-        await Response.Body.FlushAsync(ct);
+            var sseMessage = $"event: {eventType}\ndata: {json}\n\n";
+            await Response.WriteAsync(sseMessage, ct);
+            await Response.Body.FlushAsync(ct);
+        }
+        finally
+        {
+            _sseWriteLock.Release();
+        }
     }
 }
 

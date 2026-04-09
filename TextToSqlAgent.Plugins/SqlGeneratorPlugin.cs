@@ -143,15 +143,34 @@ public class SqlGeneratorPlugin
         return sql;
     }
 
+    /// <summary>
+    /// Validate SQL safety with context-aware rules per pipeline type
+    /// ✅ NEW-1 FIX: Different validation rules for Query/Write/DDL pipelines
+    /// </summary>
     [KernelFunction, Description("Validate SQL safety")]
-    public bool ValidateSql(string sql)
+    public bool ValidateSql(string sql, string pipelineType = "Query")
     {
-        _logger.LogDebug("[Agent] Validating SQL...");
+        _logger.LogDebug("[Agent] Validating SQL for pipeline: {PipelineType}...", pipelineType);
 
-        // Convert to uppercase for checking
         var upperSql = sql.ToUpper();
 
-        // Dangerous keywords
+        // Route to appropriate validation based on pipeline type
+        return pipelineType.ToLower() switch
+        {
+            "query" => ValidateQuerySql(upperSql),
+            "write" => ValidateWriteSql(upperSql),
+            "ddl" => ValidateDdlSql(upperSql),
+            "forbidden" => false, // Always reject
+            _ => ValidateQuerySql(upperSql) // Default to strictest
+        };
+    }
+
+    /// <summary>
+    /// Validate Query pipeline SQL - Only SELECT allowed
+    /// </summary>
+    private bool ValidateQuerySql(string upperSql)
+    {
+        // Dangerous keywords for Query pipeline
         var dangerousKeywords = new[]
         {
             "DROP", "DELETE", "TRUNCATE", "ALTER", "CREATE",
@@ -163,7 +182,7 @@ public class SqlGeneratorPlugin
         {
             if (Regex.IsMatch(upperSql, $@"\b{keyword}\b"))
             {
-                _logger.LogWarning("[Agent] SQL contains dangerous keyword: {Keyword}", keyword);
+                _logger.LogWarning("[Agent] Query SQL contains dangerous keyword: {Keyword}", keyword);
                 return false;
             }
         }
@@ -171,11 +190,81 @@ public class SqlGeneratorPlugin
         // Must contain SELECT
         if (!upperSql.Contains("SELECT"))
         {
-            _logger.LogWarning("[Agent] SQL does not contain SELECT");
+            _logger.LogWarning("[Agent] Query SQL does not contain SELECT");
             return false;
         }
 
-        _logger.LogDebug("[Agent] SQL valid");
+        _logger.LogDebug("[Agent] Query SQL valid");
+        return true;
+    }
+
+    /// <summary>
+    /// Validate Write pipeline SQL - Allow INSERT, UPDATE but not DELETE, DROP
+    /// </summary>
+    private bool ValidateWriteSql(string upperSql)
+    {
+        // Forbidden keywords for Write pipeline
+        var forbiddenKeywords = new[]
+        {
+            "DROP", "TRUNCATE", "EXEC", "EXECUTE",
+            "SP_", "XP_", "GRANT", "REVOKE", "SHUTDOWN"
+        };
+
+        foreach (var keyword in forbiddenKeywords)
+        {
+            if (Regex.IsMatch(upperSql, $@"\b{keyword}\b"))
+            {
+                _logger.LogWarning("[Agent] Write SQL contains forbidden keyword: {Keyword}", keyword);
+                return false;
+            }
+        }
+
+        // Must contain INSERT or UPDATE
+        bool hasInsert = upperSql.Contains("INSERT");
+        bool hasUpdate = upperSql.Contains("UPDATE");
+
+        if (!hasInsert && !hasUpdate)
+        {
+            _logger.LogWarning("[Agent] Write SQL must contain INSERT or UPDATE");
+            return false;
+        }
+
+        _logger.LogDebug("[Agent] Write SQL valid");
+        return true;
+    }
+
+    /// <summary>
+    /// Validate DDL pipeline SQL - Allow CREATE, ALTER but not DROP
+    /// </summary>
+    private bool ValidateDdlSql(string upperSql)
+    {
+        // Forbidden keywords for DDL pipeline
+        var forbiddenKeywords = new[]
+        {
+            "DROP", "TRUNCATE", "DELETE", "EXEC", "EXECUTE",
+            "SP_", "XP_", "GRANT", "REVOKE", "SHUTDOWN"
+        };
+
+        foreach (var keyword in forbiddenKeywords)
+        {
+            if (Regex.IsMatch(upperSql, $@"\b{keyword}\b"))
+            {
+                _logger.LogWarning("[Agent] DDL SQL contains forbidden keyword: {Keyword}", keyword);
+                return false;
+            }
+        }
+
+        // Must contain CREATE or ALTER
+        bool hasCreate = upperSql.Contains("CREATE");
+        bool hasAlter = upperSql.Contains("ALTER");
+
+        if (!hasCreate && !hasAlter)
+        {
+            _logger.LogWarning("[Agent] DDL SQL must contain CREATE or ALTER");
+            return false;
+        }
+
+        _logger.LogDebug("[Agent] DDL SQL valid");
         return true;
     }
 
@@ -375,39 +464,6 @@ public class SqlGeneratorPlugin
             result.Sql = CleanSqlResponse(result.Sql);
 
             // ✅ Handle Case C: LLM uses alternative keys like "suggestions" instead of "suggested_queries"
-            if (result.SuggestedQueries.Count == 0)
-            {
-                try
-                {
-                    // Try parsing manually with JsonDocument
-                    using var doc = JsonDocument.Parse(cleaned);
-                    var root = doc.RootElement;
-
-                    // Check alternative keys LLM commonly uses
-                    string[] altKeys = ["suggestions", "follow_up", "related_queries", "next_queries", "followup_queries"];
-                    foreach (var key in altKeys)
-                    {
-                        if (root.TryGetProperty(key, out var arr) && arr.ValueKind == JsonValueKind.Array)
-                        {
-                            result.SuggestedQueries = arr
-                                .EnumerateArray()
-                                .Select(e => e.GetString() ?? "")
-                                .Where(s => !string.IsNullOrWhiteSpace(s))
-                                .ToList();
-
-                            if (result.SuggestedQueries.Count > 0)
-                            {
-                                _logger.LogDebug("[SqlGenerator] Found {Count} suggestions under key '{Key}'", result.SuggestedQueries.Count, key);
-                                break;
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "[SqlGenerator] Failed to parse alternative suggestion keys");
-                }
-            }
             if (result.SuggestedQueries.Count == 0)
             {
                 try

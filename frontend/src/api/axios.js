@@ -4,6 +4,7 @@ import { extractErrorMessage, createError } from '../utils/errorHandler';
 
 // LocalStorage keys (must match authStore.js)
 const STORAGE_KEYS = {
+  ACCESS_TOKEN: 'tts_access_token',
   REFRESH_TOKEN: 'tts_refresh_token',
 };
 
@@ -44,17 +45,11 @@ const axiosInstance = axios.create({
 // Store for managing token refresh
 let refreshTokenPromise = null;
 
-// Function to get auth store dynamically (avoid circular dependency)
-let getAuthStore = null;
-export const setAuthStoreGetter = (getter) => {
-  getAuthStore = getter;
-};
-
-// Request interceptor - attach Bearer token from authStore (memory-only)
+// Request interceptor - attach Bearer token from localStorage
 axiosInstance.interceptors.request.use(
   (config) => {
-    // Get token from authStore (memory-only, secure against XSS)
-    const token = getAuthStore?.()?.accessToken;
+    // Get token from localStorage
+    const token = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
 
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -83,14 +78,23 @@ axiosInstance.interceptors.response.use(
     if (error.response?.status === HTTP_STATUS.UNAUTHORIZED && !originalRequest._retry) {
       originalRequest._retry = true;
 
+      // Add retry counter to prevent infinite loops
+      originalRequest._refreshRetryCount = (originalRequest._refreshRetryCount || 0) + 1;
+
+      if (originalRequest._refreshRetryCount > 1) {
+        console.error('❌ Max refresh retry limit reached (1 retry allowed)');
+        window.dispatchEvent(new CustomEvent('auth:logout', { detail: { reason: 'max_retry_exceeded' } }));
+        return Promise.reject(standardizedError);
+      }
+
       try {
         // If already refreshing, wait for that promise
         if (refreshTokenPromise) {
           console.log('🔄 Waiting for existing refresh token promise...');
           await refreshTokenPromise;
 
-          // Get the new token from authStore (memory-only)
-          const newToken = getAuthStore?.()?.accessToken;
+          // Get the new token from localStorage
+          const newToken = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
           if (newToken) {
             originalRequest.headers.Authorization = `Bearer ${newToken}`;
             return axiosInstance(originalRequest);
@@ -114,15 +118,15 @@ axiosInstance.interceptors.response.use(
           console.log('🔄 Starting token refresh...');
           try {
             const response = await axios.post(`${API_BASE_URL}/api/auth/refresh`, {
-              refreshToken,
+              refreshToken, // camelCase to match backend DTO
             });
 
             const { accessToken, refreshToken: newRefreshToken } = response.data;
 
-            // Update authStore (memory-only for accessToken, localStorage for refreshToken)
-            const authStore = getAuthStore?.();
-            if (authStore) {
-              authStore.setToken(accessToken, newRefreshToken);
+            // Update localStorage directly
+            localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
+            if (newRefreshToken) {
+              localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, newRefreshToken);
             }
 
             console.log('✅ Token refresh successful');
@@ -130,7 +134,8 @@ axiosInstance.interceptors.response.use(
           } catch (refreshError) {
             console.error('❌ Token refresh failed:', refreshError);
 
-            // Clear tokens and force logout
+            // Clear both tokens and force logout
+            localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
             localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
 
             window.dispatchEvent(new CustomEvent('auth:logout', {
@@ -146,8 +151,8 @@ axiosInstance.interceptors.response.use(
         // Wait for refresh and retry original request
         await refreshTokenPromise;
 
-        // Get the new token from authStore (memory-only)
-        const newAccessToken = getAuthStore?.()?.accessToken;
+        // Get the new token from localStorage
+        const newAccessToken = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
         if (!newAccessToken) {
           throw new Error('No access token after refresh');
         }

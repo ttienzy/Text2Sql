@@ -93,7 +93,9 @@ public class QdrantService
     public virtual void SetCollectionName(string databaseName)
     {
         _currentCollectionName = CollectionNameHelper.NormalizeCollectionName(databaseName);
-        _logger.LogInformation("[Qdrant] Collection name: {CollectionName}", _currentCollectionName);
+        _logger.LogInformation(
+            "[Qdrant] 🔍 DEBUG - SetCollectionName called with: '{DatabaseName}' → Normalized to: '{CollectionName}'",
+            databaseName, _currentCollectionName);
     }
 
     public virtual void SetUserCollectionName(string userId)
@@ -459,9 +461,9 @@ public class QdrantService
 
         try
         {
-            _logger.LogDebug(
-                "[Qdrant] Search - Limit: {Limit}, Threshold: {Threshold}, VectorDim: {VectorDim}, Filter: {HasFilter}",
-                limit, scoreThreshold, queryVector.Length, filter != null);
+            _logger.LogInformation(
+                "[Qdrant] 🔍 SEARCH DEBUG - Collection: '{Collection}', Limit: {Limit}, Threshold: {Threshold}, VectorDim: {VectorDim}",
+                _currentCollectionName, limit, scoreThreshold, queryVector.Length);
 
             var request = new
             {
@@ -475,12 +477,21 @@ public class QdrantService
             var json = JsonSerializer.Serialize(request, new JsonSerializerOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull });
             var content = new StringContent(json, Encoding.UTF8, "application/json");
 
+            var searchUrl = $"{_baseUrl}/collections/{_currentCollectionName}/points/search";
+            _logger.LogInformation(
+                "[Qdrant] 🔍 SEARCH DEBUG - Calling URL: {Url}",
+                searchUrl);
+
             var response = await _httpClient.PostAsync(
-                $"{_baseUrl}/collections/{_currentCollectionName}/points/search",
+                searchUrl,
                 content,
                 cancellationToken);
 
             var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            _logger.LogInformation(
+                "[Qdrant] 🔍 SEARCH DEBUG - Response Status: {Status}, Body length: {Length}",
+                response.StatusCode, responseBody.Length);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -529,15 +540,17 @@ public class QdrantService
                 }
             }
 
-            _logger.LogInformation("[Qdrant] Found {Count} results (filtered: {HasFilter})", scoredPoints.Count, filter != null);
+            _logger.LogInformation(
+                "[Qdrant] 🔍 SEARCH DEBUG - Found {Count} results (filtered: {HasFilter})",
+                scoredPoints.Count, filter != null);
 
             if (scoredPoints.Count == 0)
             {
                 var pointCount = await GetPointCountAsync(cancellationToken);
                 _logger.LogWarning(
-                    "[Qdrant] ⚠️ No results found. Collection has {Count} points. " +
-                    "Try lowering score_threshold or check vector quality.",
-                    pointCount);
+                    "[Qdrant] ⚠️ SEARCH DEBUG - No results found! Collection: '{Collection}' has {Count} points. " +
+                    "Try lowering score_threshold or check if collection name is correct.",
+                    _currentCollectionName, pointCount);
             }
 
             return scoredPoints;

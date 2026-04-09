@@ -28,7 +28,6 @@ const ConversationContext = ({ conversationId, visible = true }) => {
         refetch
     } = useConversationContextQuery(conversationId, {
         enabled: !!conversationId && visible,
-        refetchInterval: 30000, // Refresh every 30 seconds
     });
 
     if (!visible || !conversationId) {

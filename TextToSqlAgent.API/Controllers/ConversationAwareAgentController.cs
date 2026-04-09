@@ -111,15 +111,9 @@ public class ConversationAwareAgentController : BaseController
             using var scope = _serviceProvider.CreateScope();
             var scopedServices = scope.ServiceProvider;
 
-            // Get the database config and temporarily override it for this connection
-            var dbConfig = scopedServices.GetRequiredService<DatabaseConfig>();
-            var originalConnectionString = dbConfig.ConnectionString;
-
-            // Build connection string from connection entity
+            // ✅ CRIT-2 FIX: Use DatabaseConfigContext.SetConnectionString() instead of mutating Singleton
             var connectionString = BuildConnectionString(connection);
-            dbConfig.ConnectionString = connectionString;
-
-            try
+            using (DatabaseConfigContext.SetConnectionString(connectionString))
             {
                 // Get the orchestrator with intent routing
                 var orchestrator = scopedServices.GetRequiredService<EnhancedAgentOrchestrator>();
@@ -130,6 +124,8 @@ public class ConversationAwareAgentController : BaseController
                     request.ConnectionId,
                     request.ConversationId,
                     conversationHistory,
+                    progress: null,  // No SSE streaming for this endpoint
+                    sqlTokenCallback: null,
                     CancellationToken.None);
 
                 // Ensure conversation ID is set
@@ -231,12 +227,7 @@ public class ConversationAwareAgentController : BaseController
 
                 // Format enhanced response - Return UnifiedPipelineResponse directly
                 return Ok(unifiedResponse);
-            }
-            finally
-            {
-                // Restore original connection string
-                dbConfig.ConnectionString = originalConnectionString;
-            }
+            } // ← DatabaseConfigContext auto-restores here via IDisposable
         }
         catch (Exception ex)
         {

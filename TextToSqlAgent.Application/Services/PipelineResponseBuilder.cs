@@ -11,10 +11,14 @@ namespace TextToSqlAgent.Application.Services;
 public class PipelineResponseBuilder
 {
     private readonly ILogger<PipelineResponseBuilder> _logger;
+    private readonly bool _isDevelopment;
 
-    public PipelineResponseBuilder(ILogger<PipelineResponseBuilder> logger)
+    public PipelineResponseBuilder(
+        ILogger<PipelineResponseBuilder> logger,
+        bool isDevelopment = false)
     {
         _logger = logger;
+        _isDevelopment = isDevelopment;
     }
 
     /// <summary>
@@ -367,7 +371,8 @@ public class PipelineResponseBuilder
             {
                 Code = "INTERNAL_ERROR",
                 Message = exception.Message,
-                StackTrace = exception.StackTrace,
+                // ✅ SERIOUS-8 FIX: Only expose StackTrace in Development environment (security)
+                StackTrace = _isDevelopment ? exception.StackTrace : null,
                 AdditionalInfo = new Dictionary<string, object>
                 {
                     ["exceptionType"] = exception.GetType().Name

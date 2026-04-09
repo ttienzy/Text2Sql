@@ -87,6 +87,31 @@ public class DbExplorerController : BaseController
     }
 
     /// <summary>
+    /// Build system context from connection settings
+    /// </summary>
+    private string BuildSystemContext(Connection connection)
+    {
+        var parts = new List<string>();
+
+        if (!string.IsNullOrEmpty(connection.SystemDomain))
+        {
+            parts.Add($"Domain: {connection.SystemDomain}");
+        }
+
+        if (!string.IsNullOrEmpty(connection.NamingConventionNotes))
+        {
+            parts.Add($"Naming Convention: {connection.NamingConventionNotes}");
+        }
+
+        if (!string.IsNullOrEmpty(connection.BusinessContext))
+        {
+            parts.Add($"Business Context: {connection.BusinessContext}");
+        }
+
+        return parts.Count > 0 ? string.Join("\n", parts) : "No specific context provided.";
+    }
+
+    /// <summary>
     /// Get cache status for a connection
     /// </summary>
     [HttpGet("{connectionId}/status")]
@@ -162,12 +187,13 @@ public class DbExplorerController : BaseController
     }
 
     /// <summary>
-    /// Analyze database schema (trigger full crawl + AI analysis)
+    /// Analyze database schema - LIGHTWEIGHT overview (lazy loading strategy)
     /// </summary>
     [HttpPost("{connectionId}/analyze")]
     public async Task<IActionResult> AnalyzeDatabase(
         string connectionId,
         [FromQuery] bool forceRefresh = false,
+        [FromQuery] string mode = "overview",
         CancellationToken cancellationToken = default)
     {
         try
@@ -198,10 +224,18 @@ public class DbExplorerController : BaseController
                 var connectionString = _encryptionService.DecryptPassword(connection!.ConnectionString, connection.Id);
                 var databaseName = ExtractDatabaseNameFromConnectionString(connectionString);
 
+                _logger.LogInformation(
+                    "[DbExplorer] 🔍 ANALYZE DEBUG - Database name extracted: '{DatabaseName}'",
+                    databaseName);
+
                 if (!string.IsNullOrEmpty(databaseName))
                 {
                     var qdrantService = HttpContext.RequestServices.GetRequiredService<TextToSqlAgent.Infrastructure.VectorDB.QdrantService>();
                     qdrantService.SetCollectionName(databaseName);
+
+                    _logger.LogInformation(
+                        "[DbExplorer] 🔍 ANALYZE DEBUG - Collection name set for indexing");
+
                     var collectionExists = await qdrantService.CollectionExistsAsync();
 
                     if (collectionExists)
@@ -245,8 +279,23 @@ public class DbExplorerController : BaseController
             // Cache schema
             _cache.CacheSchema(connectionId, schema);
 
-            // Run AI analysis (will be faster if Qdrant data exists)
-            var analysis = await _analyzer.AnalyzeAsync(schema, cancellationToken);
+            // Get system context from connection
+            var systemContext = BuildSystemContext(connection);
+
+            // Run AI analysis based on mode
+            DatabaseAnalysis analysis;
+            if (mode == "overview")
+            {
+                // Lightweight overview only (fast)
+                analysis = await _analyzer.AnalyzeOverviewAsync(schema, systemContext, cancellationToken);
+            }
+            else
+            {
+                // Full analysis (legacy, slower)
+#pragma warning disable CS0618 // Type or member is obsolete
+                analysis = await _analyzer.AnalyzeAsync(schema, cancellationToken);
+#pragma warning restore CS0618 // Type or member is obsolete
+            }
 
             // Cache analysis
             _cache.CacheAnalysis(connectionId, analysis);
@@ -262,6 +311,7 @@ public class DbExplorerController : BaseController
             return Ok(new
             {
                 message = "Analysis complete",
+                mode,
                 tables = schema.EnhancedTables.Count,
                 issues = analysis.HealthIssues.Count,
                 domain = analysis.Domain,
@@ -411,7 +461,6 @@ public class DbExplorerController : BaseController
             return StatusCode(500, new { error = "Failed to get tables", details = ex.Message });
         }
     }
-
     /// <summary>
     /// Get table detail
     /// </summary>
@@ -516,6 +565,99 @@ public class DbExplorerController : BaseController
         {
             _logger.LogError(ex, "[DbExplorer] Error getting table detail for {Table}", tableName);
             return StatusCode(500, new { error = "Failed to get table detail", details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Analyze table detail on-demand (lazy loading)
+    /// </summary>
+    [HttpPost("{connectionId}/tables/{tableName}/analyze")]
+    public async Task<IActionResult> AnalyzeTableDetail(
+        string connectionId,
+        string tableName,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("[DbExplorer] Analyzing table detail for {TableName}", tableName);
+
+            // Validate connection access
+            var (connection, errorResult) = await ValidateConnectionAccessAsync(connectionId);
+            if (errorResult != null) return errorResult;
+
+            // Get cached schema
+            var schema = _cache.GetCachedSchema(connectionId);
+            if (schema == null)
+            {
+                return NotFound(new { error = "No schema data available. Please analyze database first." });
+            }
+
+            // Find table
+            var table = schema.EnhancedTables.FirstOrDefault(t =>
+                t.TableName.Equals(tableName, StringComparison.OrdinalIgnoreCase));
+
+            if (table == null)
+            {
+                return NotFound(new { error = $"Table '{tableName}' not found" });
+            }
+
+            // Build system context
+            var systemContext = BuildSystemContext(connection!);
+
+            // Analyze table detail
+            var tableDetail = await _analyzer.AnalyzeTableDetailAsync(
+                table,
+                schema,
+                systemContext,
+                connection.NamingConventionNotes,
+                cancellationToken);
+
+            // Build response
+            var response = new
+            {
+                tableName = tableDetail.TableName,
+                analyzedAt = tableDetail.AnalyzedAt,
+                columnInterpretations = tableDetail.ColumnInterpretations.Select(kvp => new
+                {
+                    columnName = kvp.Key,
+                    vietnamese = kvp.Value.Vietnamese,
+                    english = kvp.Value.English,
+                    description = kvp.Value.Description,
+                    confidence = kvp.Value.Confidence
+                }),
+                implicitRelationships = tableDetail.ImplicitRelationships.Select(r => new
+                {
+                    fromTable = r.FromTable,
+                    fromColumn = r.FromColumn,
+                    toTable = r.ToTable,
+                    toColumn = r.ToColumn,
+                    confidence = r.Confidence,
+                    detectionMethod = r.DetectionMethod,
+                    reason = r.Reason,
+                    requiresDataValidation = r.RequiresDataValidation
+                }),
+                healthIssues = tableDetail.HealthIssues.Select(i => new
+                {
+                    severity = i.Severity.ToString().ToLower(),
+                    type = i.Type.ToString().ToLower(),
+                    table = i.Table,
+                    column = i.Column,
+                    description = i.Description,
+                    recommendation = i.Recommendation
+                })
+            };
+
+            _logger.LogInformation(
+                "[DbExplorer] ✅ Table detail analysis complete: {Columns} columns, {ImplicitFKs} implicit FKs",
+                tableDetail.ColumnInterpretations.Count,
+                tableDetail.ImplicitRelationships.Count);
+
+            return Ok(response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[DbExplorer] Error analyzing table detail for {TableName}", tableName);
+            return StatusCode(500, new { error = "Failed to analyze table detail", details = ex.Message });
         }
     }
 
@@ -872,6 +1014,349 @@ public class DbExplorerController : BaseController
                 error = "Failed to generate suggestions",
                 details = ex.Message
             });
+        }
+    }
+
+
+
+    /// <summary>
+    /// Export database documentation
+    /// </summary>
+    [HttpGet("{connectionId}/export")]
+    public async Task<IActionResult> ExportDocumentation(
+        string connectionId,
+        [FromQuery] string format = "markdown")
+    {
+        try
+        {
+            // Validate connection access
+            var (connection, errorResult) = await ValidateConnectionAccessAsync(connectionId);
+            if (errorResult != null) return errorResult;
+
+            _logger.LogInformation("[DbExplorer] Exporting documentation for connection {ConnectionId}, format={Format}",
+                connectionId, format);
+
+            // Get cached schema
+            var cacheKey = $"dbexplorer:schema:{connectionId}";
+            var schema = _cache.GetCachedSchema(connectionId);
+
+            if (schema == null)
+            {
+                return NotFound(new { error = "Schema not found. Please analyze the database first." });
+            }
+
+            // Get cached analysis
+            var analysisCacheKey = $"dbexplorer:analysis:{connectionId}";
+            var analysis = _cache.GetCachedAnalysis(connectionId);
+
+            // Extract database name and server name
+            var databaseName = ExtractDatabaseNameFromConnectionString(connection!.ConnectionString);
+            var serverName = connection.Name;
+
+            // Generate documentation
+            var generator = new DocumentationGenerator(HttpContext.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger<DocumentationGenerator>());
+
+            if (format.ToLower() == "markdown")
+            {
+                var markdown = generator.GenerateMarkdown(schema, analysis, databaseName, serverName);
+                var fileName = $"{databaseName ?? "Database"}_Documentation_{DateTime.UtcNow:yyyyMMdd_HHmmss}.md";
+
+                return File(
+                    System.Text.Encoding.UTF8.GetBytes(markdown),
+                    "text/markdown",
+                    fileName);
+            }
+            else if (format.ToLower() == "summary")
+            {
+                var summary = generator.GenerateSummary(schema, analysis, databaseName, serverName);
+                return Ok(summary);
+            }
+            else
+            {
+                return BadRequest(new { error = $"Unsupported format: {format}. Supported formats: markdown, summary" });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[DbExplorer] Failed to export documentation for connection {ConnectionId}",
+                connectionId);
+            return StatusCode(500, new { error = "Failed to export documentation", details = ex.Message });
+        }
+    }
+
+
+    /// <summary>
+    /// Analyze naming conventions
+    /// </summary>
+    [HttpGet("{connectionId}/naming-analysis")]
+    public async Task<IActionResult> AnalyzeNamingConventions(string connectionId)
+    {
+        try
+        {
+            // Validate connection access
+            var (connection, errorResult) = await ValidateConnectionAccessAsync(connectionId);
+            if (errorResult != null) return errorResult;
+
+            _logger.LogInformation("[DbExplorer] Analyzing naming conventions for connection {ConnectionId}",
+                connectionId);
+
+            // Get cached schema
+            var schema = _cache.GetCachedSchema(connectionId);
+            if (schema == null)
+            {
+                return NotFound(new { error = "No schema data available. Please analyze database first." });
+            }
+
+            // Analyze naming conventions
+            var analyzer = new NamingConventionAnalyzer(
+                HttpContext.RequestServices.GetRequiredService<ILoggerFactory>()
+                    .CreateLogger<NamingConventionAnalyzer>());
+
+            var report = analyzer.AnalyzeSchema(schema);
+
+            // Build response
+            var response = new
+            {
+                analyzedAt = report.AnalyzedAt,
+                totalTables = report.TotalTables,
+                totalColumns = report.TotalColumns,
+                dominantTablePattern = report.DominantTablePattern.ToString(),
+                dominantColumnPattern = report.DominantColumnPattern.ToString(),
+                tablePatternStatistics = report.TablePatternStatistics,
+                columnPatternStatistics = report.ColumnPatternStatistics,
+                inconsistencies = report.Inconsistencies.Select(i => new
+                {
+                    type = i.Type.ToString().ToLower(),
+                    table = i.Table,
+                    column = i.Column,
+                    currentName = i.CurrentName,
+                    suggestedName = i.SuggestedName,
+                    currentPattern = i.CurrentPattern.ToString(),
+                    expectedPattern = i.ExpectedPattern.ToString(),
+                    severity = i.Severity.ToString().ToLower(),
+                    description = i.Description
+                }),
+                recommendations = report.Recommendations.Select(r => new
+                {
+                    title = r.Title,
+                    description = r.Description,
+                    priority = r.Priority.ToString().ToLower(),
+                    affectedTables = r.AffectedTables,
+                    sqlScript = r.SqlScript
+                })
+            };
+
+            _logger.LogInformation(
+                "[DbExplorer] ✅ Naming analysis complete: Dominant={Dominant}, Inconsistencies={Count}",
+                report.DominantTablePattern,
+                report.Inconsistencies.Count);
+
+            return Ok(response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[DbExplorer] Error analyzing naming conventions for {ConnectionId}",
+                connectionId);
+            return StatusCode(500, new { error = "Failed to analyze naming conventions", details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Get index recommendations
+    /// </summary>
+    [HttpGet("{connectionId}/index-recommendations")]
+    public async Task<IActionResult> GetIndexRecommendations(string connectionId)
+    {
+        try
+        {
+            // Validate connection access
+            var (connection, errorResult) = await ValidateConnectionAccessAsync(connectionId);
+            if (errorResult != null) return errorResult;
+
+            _logger.LogInformation("[DbExplorer] Getting index recommendations for connection {ConnectionId}",
+                connectionId);
+
+            // Get cached schema
+            var schema = _cache.GetCachedSchema(connectionId);
+            if (schema == null)
+            {
+                return NotFound(new { error = "No schema data available. Please analyze database first." });
+            }
+
+            // Analyze indexes
+            var engine = new IndexRecommendationEngine(
+                HttpContext.RequestServices.GetRequiredService<ILoggerFactory>()
+                    .CreateLogger<IndexRecommendationEngine>());
+
+            var report = engine.AnalyzeIndexes(schema);
+
+            // Build response
+            var response = new
+            {
+                analyzedAt = report.AnalyzedAt,
+                totalTables = report.TotalTables,
+                totalIndexes = report.TotalIndexes,
+                missingIndexCount = report.MissingIndexCount,
+                redundantIndexCount = report.RedundantIndexCount,
+                optimizationCount = report.OptimizationCount,
+                recommendations = report.Recommendations.Select(r => new
+                {
+                    type = r.Type.ToString().ToLower(),
+                    table = r.Table,
+                    columns = r.Columns,
+                    indexName = r.IndexName,
+                    reason = r.Reason,
+                    impact = r.Impact.ToString().ToLower(),
+                    estimatedImprovement = r.EstimatedImprovement,
+                    sqlScript = r.SqlScript
+                })
+            };
+
+            _logger.LogInformation(
+                "[DbExplorer] ✅ Index analysis complete: {Missing} missing, {Redundant} redundant, {Optimize} optimizations",
+                report.MissingIndexCount,
+                report.RedundantIndexCount,
+                report.OptimizationCount);
+
+            return Ok(response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[DbExplorer] Error getting index recommendations for {ConnectionId}",
+                connectionId);
+            return StatusCode(500, new { error = "Failed to get index recommendations", details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Search tables using semantic search (Qdrant)
+    /// </summary>
+    [HttpGet("{connectionId}/search")]
+    public async Task<IActionResult> SearchTables(
+        string connectionId,
+        [FromQuery] string query,
+        [FromQuery] int limit = 10,
+        [FromQuery] double scoreThreshold = 0.5)
+    {
+        try
+        {
+            var (connection, errorResult) = await ValidateConnectionAccessAsync(connectionId);
+            if (errorResult != null) return errorResult;
+
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                return BadRequest(new { error = "Query parameter is required" });
+            }
+
+            // Get cached schema
+            var schema = _cache.GetCachedSchema(connectionId);
+            if (schema == null)
+            {
+                return BadRequest(new
+                {
+                    error = "Schema not analyzed",
+                    message = "Please analyze the database first before searching"
+                });
+            }
+
+            // Get Qdrant indexer
+            var qdrantIndexer = HttpContext.RequestServices.GetService<DbExplorerQdrantIndexer>();
+            if (qdrantIndexer == null)
+            {
+                return StatusCode(500, new
+                {
+                    error = "Semantic search not available",
+                    message = "Qdrant indexer service is not configured"
+                });
+            }
+
+            // Set collection name
+            var connectionString = _encryptionService.DecryptPassword(connection!.ConnectionString, connection.Id);
+            var databaseName = ExtractDatabaseNameFromConnectionString(connectionString);
+
+            _logger.LogInformation(
+                "[DbExplorer] 🔍 SEARCH DEBUG - Database name extracted: '{DatabaseName}'",
+                databaseName);
+
+            var qdrantService = HttpContext.RequestServices.GetRequiredService<TextToSqlAgent.Infrastructure.VectorDB.QdrantService>();
+            qdrantService.SetCollectionName(databaseName);
+
+            _logger.LogInformation(
+                "[DbExplorer] 🔍 SEARCH DEBUG - Collection name set, now searching with query: '{Query}', limit: {Limit}, threshold: {Threshold}",
+                query, limit, scoreThreshold);
+
+            // Search tables
+            var finalScoreThreshold = Math.Clamp(scoreThreshold, 0.0, 1.0);
+            var results = await qdrantIndexer.SearchTablesAsync(
+                query,
+                limit,
+                finalScoreThreshold,
+                cancellationToken: HttpContext.RequestAborted);
+
+            // AUTO-RETRY with lower threshold if no results found and original was high
+            var usedThreshold = finalScoreThreshold;
+            if (results.Count == 0 && finalScoreThreshold > 0.45)
+            {
+                _logger.LogInformation("[DbExplorer] No results at {Threshold}, retrying with 0.4", finalScoreThreshold);
+                usedThreshold = 0.4;
+                results = await qdrantIndexer.SearchTablesAsync(
+                    query,
+                    limit,
+                    0.4,
+                    cancellationToken: HttpContext.RequestAborted);
+            }
+
+            // KEYWORD FALLBACK: if still 0 results, do a simple string search
+            if (results.Count == 0 && schema != null)
+            {
+                _logger.LogInformation("[DbExplorer] Vector search failed, falling back to keyword search for '{Query}'", query);
+                var lowerQuery = query.ToLower();
+                var keywordResults = schema.EnhancedTables
+                    .Where(t => t.TableName.ToLower().Contains(lowerQuery) || 
+                                (t.Module != null && t.Module.ToLower().Contains(lowerQuery)))
+                    .Take(limit)
+                    .Select(t => new TableSearchResult
+                    {
+                        TableName = t.TableName,
+                        Role = t.Role?.ToString() ?? "Unknown",
+                        Module = t.Module ?? "Unknown",
+                        Score = 0.5f, // Dummy score for keyword match
+                        IsSemanticMatch = false
+                    })
+                    .ToList();
+                
+                if (keywordResults.Any())
+                {
+                    results = keywordResults;
+                    usedThreshold = 0.0; // Indicate keyword match
+                }
+            }
+
+            _logger.LogInformation(
+                "[DbExplorer] 🔍 SEARCH DEBUG - Search completed. Query: '{Query}', Results: {Count}",
+                query,
+                results.Count);
+
+            return Ok(new
+            {
+                query,
+                resultCount = results.Count,
+                results = results.Select(r => new
+                {
+                    tableName = r.TableName,
+                    role = r.Role,
+                    module = r.Module,
+                    score = r.Score,
+                    isSemanticMatch = r.IsSemanticMatch ?? true
+                }),
+                usedThreshold
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[DbExplorer] Error searching tables for {ConnectionId} with query '{Query}'",
+                connectionId, query);
+            return StatusCode(500, new { error = "Failed to search tables", details = ex.Message });
         }
     }
 }

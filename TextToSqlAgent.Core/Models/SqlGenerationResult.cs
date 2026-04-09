@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace TextToSqlAgent.Core.Models;
 
 /// <summary>
@@ -8,15 +10,18 @@ public class SqlGenerationResult
     /// <summary>
     /// The generated SQL query
     /// </summary>
+    [JsonPropertyName("sql")]
     public string Sql { get; set; } = string.Empty;
 
     /// <summary>
     /// List of suggested natural language follow-up queries
     /// </summary>
+    [JsonPropertyName("suggested_queries")]
     public List<string> SuggestedQueries { get; set; } = new();
 
     /// <summary>
     /// Optional reasoning or explanation for debugging
     /// </summary>
+    [JsonPropertyName("reasoning")]
     public string? Reasoning { get; set; }
 }

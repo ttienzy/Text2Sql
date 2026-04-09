@@ -128,7 +128,11 @@ public class LlmSemanticTableResolver : ISemanticTableResolver
             // Cache successful results
             if (llmResult.Success && llmResult.Confidence >= ConfidenceThreshold)
             {
-                _cache.Set(cacheKey, llmResult, CacheDuration);
+                _cache.Set(cacheKey, llmResult, new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = CacheDuration,
+                    Size = 1 // Required when SizeLimit is set
+                });
             }
 
             return llmResult;

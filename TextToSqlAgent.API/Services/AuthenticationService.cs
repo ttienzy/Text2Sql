@@ -123,13 +123,22 @@ public class AuthenticationService : IAuthenticationService
         {
             await semaphore.WaitAsync();
 
+            _logger.LogInformation("Attempting to refresh token: {TokenPreview}...", refreshToken.Substring(0, Math.Min(10, refreshToken.Length)));
+
             var storedToken = await _context.RefreshTokens
                 .Include(rt => rt.User)
                 .FirstOrDefaultAsync(rt => rt.Token == refreshToken && !rt.IsRevoked);
 
-            if (storedToken == null || storedToken.ExpiresAt <= DateTime.UtcNow)
+            if (storedToken == null)
             {
-                _logger.LogWarning("Invalid or expired refresh token used");
+                _logger.LogWarning("Refresh token not found or already revoked");
+                return AuthResult.CreateFailure("Invalid or expired refresh token");
+            }
+
+            if (storedToken.ExpiresAt <= DateTime.UtcNow)
+            {
+                _logger.LogWarning("Refresh token expired. Token ID: {TokenId}, Expired at: {ExpiresAt}, Current time: {Now}",
+                    storedToken.Id, storedToken.ExpiresAt, DateTime.UtcNow);
                 return AuthResult.CreateFailure("Invalid or expired refresh token");
             }
 
@@ -201,16 +210,30 @@ public class AuthenticationService : IAuthenticationService
         try
         {
             var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]!);
+
+            // Try environment variable first, then configuration
+            var jwtKey = Environment.GetEnvironmentVariable("JWT_SECRET") ??
+                         _configuration["Jwt:Key"];
+            var jwtIssuer = Environment.GetEnvironmentVariable("JWT_ISSUER") ??
+                            _configuration["Jwt:Issuer"];
+            var jwtAudience = Environment.GetEnvironmentVariable("JWT_AUDIENCE") ??
+                              _configuration["Jwt:Audience"];
+
+            if (string.IsNullOrEmpty(jwtKey))
+            {
+                throw new InvalidOperationException("JWT Key is not configured.");
+            }
+
+            var key = Encoding.UTF8.GetBytes(jwtKey);
 
             var validationParameters = new TokenValidationParameters
             {
                 ValidateIssuerSigningKey = true,
                 IssuerSigningKey = new SymmetricSecurityKey(key),
                 ValidateIssuer = true,
-                ValidIssuer = _configuration["Jwt:Issuer"],
+                ValidIssuer = jwtIssuer,
                 ValidateAudience = true,
-                ValidAudience = _configuration["Jwt:Audience"],
+                ValidAudience = jwtAudience,
                 ValidateLifetime = true,
                 ClockSkew = TimeSpan.Zero
             };
@@ -430,18 +453,30 @@ public class AuthenticationService : IAuthenticationService
         {
             Token = refreshToken,
             UserId = user.Id,
-            ExpiresAt = DateTime.UtcNow.AddDays(_configuration.GetValue("Jwt:RefreshTokenExpiryDays", 7))
+            ExpiresAt = DateTime.UtcNow.AddDays(_configuration.GetValue("Jwt:RefreshTokenExpirationDays", 7))
         };
 
         _context.RefreshTokens.Add(refreshTokenEntity);
         await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Generated refresh token {TokenId} for user {UserId}, expires at {ExpiresAt}",
+            refreshTokenEntity.Id, user.Id, refreshTokenEntity.ExpiresAt);
 
         return (accessToken, refreshToken, refreshTokenEntity.Id);
     }
 
     private string GenerateAccessToken(ApplicationUser user)
     {
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]!));
+        // Try environment variable first, then configuration
+        var jwtKey = Environment.GetEnvironmentVariable("JWT_SECRET") ??
+                     _configuration["Jwt:Key"];
+
+        if (string.IsNullOrEmpty(jwtKey))
+        {
+            throw new InvalidOperationException("JWT Key is not configured. Set JWT_SECRET environment variable or Jwt:Key in configuration.");
+        }
+
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
         var claims = new[]
@@ -453,11 +488,18 @@ public class AuthenticationService : IAuthenticationService
             new Claim(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64)
         };
 
+        var jwtIssuer = Environment.GetEnvironmentVariable("JWT_ISSUER") ??
+                        _configuration["Jwt:Issuer"] ??
+                        "TextToSqlAgentAPI";
+        var jwtAudience = Environment.GetEnvironmentVariable("JWT_AUDIENCE") ??
+                          _configuration["Jwt:Audience"] ??
+                          "TextToSqlAgentClient";
+
         var token = new JwtSecurityToken(
-            issuer: _configuration["Jwt:Issuer"],
-            audience: _configuration["Jwt:Audience"],
+            issuer: jwtIssuer,
+            audience: jwtAudience,
             claims: claims,
-            expires: DateTime.UtcNow.AddMinutes(_configuration.GetValue("Jwt:AccessTokenExpiryMinutes", 180)),
+            expires: DateTime.UtcNow.AddMinutes(_configuration.GetValue("Jwt:AccessTokenExpirationMinutes", 180)),
             signingCredentials: credentials
         );
 

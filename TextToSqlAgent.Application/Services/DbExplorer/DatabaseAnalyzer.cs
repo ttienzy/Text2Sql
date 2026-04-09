@@ -13,18 +13,363 @@ public class DatabaseAnalyzer
 {
     private readonly ILLMClient _llmClient;
     private readonly ILogger<DatabaseAnalyzer> _logger;
+    private readonly RuleEngine _ruleEngine;
+    private readonly PromptTemplateService _promptService;
+    private readonly ImplicitRelationshipDetector _implicitFkDetector;
+    private readonly DbExplorerQdrantIndexer? _qdrantIndexer;
 
     public DatabaseAnalyzer(
         ILLMClient llmClient,
-        ILogger<DatabaseAnalyzer> logger)
+        ILogger<DatabaseAnalyzer> logger,
+        RuleEngine ruleEngine,
+        PromptTemplateService promptService,
+        ImplicitRelationshipDetector implicitFkDetector,
+        DbExplorerQdrantIndexer? qdrantIndexer = null)
     {
         _llmClient = llmClient;
         _logger = logger;
+        _ruleEngine = ruleEngine;
+        _promptService = promptService;
+        _implicitFkDetector = implicitFkDetector;
+        _qdrantIndexer = qdrantIndexer;
     }
 
     /// <summary>
-    /// Analyze database schema using AI
+    /// Analyze database schema - LIGHTWEIGHT overview only (table names → domain + modules)
     /// </summary>
+    public async Task<DatabaseAnalysis> AnalyzeOverviewAsync(
+        EnhancedDatabaseSchema schema,
+        string? systemContext = null,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("[DatabaseAnalyzer] Starting LIGHTWEIGHT overview analysis of {Tables} tables...",
+            schema.EnhancedTables.Count);
+
+        DatabaseAnalysis analysis;
+        try
+        {
+            // Load rules for health checks (metadata-only, fast)
+            await _ruleEngine.LoadRulesAsync();
+
+            // Build lightweight prompt (table names + relationships only)
+            var variables = new Dictionary<string, string>
+            {
+                ["systemContext"] = systemContext ?? "No specific context provided.",
+                ["domain"] = ExtractDomain(systemContext),
+                ["tableCount"] = schema.EnhancedTables.Count.ToString(),
+                ["tableNames"] = string.Join(", ", schema.EnhancedTables.Select(t => t.TableName)),
+                ["relationshipCount"] = schema.BaseSchema.Relationships.Count.ToString(),
+                ["relationships"] = string.Join("\n", schema.BaseSchema.Relationships
+                    .Take(20) // Limit to first 20 relationships
+                    .Select(r => $"{r.FromTable} → {r.ToTable}"))
+            };
+
+            // Get prompt with config
+            var (prompt, config) = await _promptService.GetPromptWithConfigAsync(
+                "schema-summary",
+                variables);
+
+            // Call LLM with lightweight prompt
+            var response = await _llmClient.CompleteAsync(
+                prompt,
+                cancellationToken: cancellationToken);
+
+            // Parse response
+            analysis = ParseOverviewResponse(response);
+            analysis.AnalyzedAt = DateTime.UtcNow;
+
+            // Run metadata-only health checks (fast, no LLM)
+            analysis.HealthIssues = _ruleEngine.ExecuteRules(schema);
+
+            // Apply basic role inference (heuristic, no LLM)
+            ApplyHeuristicRoles(schema, analysis);
+
+            _logger.LogInformation(
+                "[DatabaseAnalyzer] ✅ AI Overview complete: Domain={Domain}, Modules={Modules}, Issues={Issues}",
+                analysis.Domain,
+                analysis.Modules.Count,
+                analysis.HealthIssues.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[DatabaseAnalyzer] Failed to analyze AI overview, using fallback");
+            analysis = CreateFallbackAnalysis(schema);
+        }
+
+        // ALWAYS index schema with semantic tags into Qdrant (if available)
+        // This ensures search works even if AI analysis falls back to heuristics
+        if (_qdrantIndexer != null)
+        {
+            try
+            {
+                _logger.LogInformation("[DatabaseAnalyzer] Indexing schema with semantic tags into Qdrant...");
+                await _qdrantIndexer.IndexSchemaWithSemanticTagsAsync(
+                    schema,
+                    systemContext,
+                    cancellationToken);
+                _logger.LogInformation("[DatabaseAnalyzer] ✅ Qdrant indexing complete");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[DatabaseAnalyzer] Qdrant indexing failed (non-critical)");
+                // Don't fail the entire analysis if Qdrant indexing fails
+            }
+        }
+        else
+        {
+            _logger.LogDebug("[DatabaseAnalyzer] Qdrant indexer not available, skipping semantic tag indexing");
+        }
+
+        return analysis;
+    }
+
+    /// <summary>
+    /// Analyze single table in detail - ON-DEMAND (column interpretation + implicit FK)
+    /// </summary>
+    public async Task<TableDetailAnalysis> AnalyzeTableDetailAsync(
+        EnhancedTableInfo table,
+        EnhancedDatabaseSchema schema,
+        string? systemContext = null,
+        string? namingConventionNotes = null,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("[DatabaseAnalyzer] Analyzing table detail: {TableName}", table.TableName);
+
+        var result = new TableDetailAnalysis
+        {
+            TableName = table.TableName,
+            AnalyzedAt = DateTime.UtcNow
+        };
+
+        try
+        {
+            // 1. Column Interpretation (if has columns)
+            if (table.Columns.Any())
+            {
+                result.ColumnInterpretations = await InterpretColumnsAsync(
+                    table,
+                    systemContext,
+                    namingConventionNotes,
+                    cancellationToken);
+            }
+
+            // 2. Implicit FK Detection (metadata-only)
+            result.ImplicitRelationships = DetectImplicitForeignKeys(table, schema);
+
+            // 3. Table-specific health issues
+            result.HealthIssues = _ruleEngine.ExecuteRules(schema)
+                .Where(i => i.Table == table.TableName)
+                .ToList();
+
+            _logger.LogInformation(
+                "[DatabaseAnalyzer] ✅ Table detail complete: {Columns} columns interpreted, {ImplicitFKs} implicit FKs",
+                result.ColumnInterpretations.Count,
+                result.ImplicitRelationships.Count);
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[DatabaseAnalyzer] Failed to analyze table detail for {TableName}", table.TableName);
+            return result; // Return partial result
+        }
+    }
+
+    /// <summary>
+    /// Interpret column names using AI (with context)
+    /// </summary>
+    private async Task<Dictionary<string, ColumnMeaning>> InterpretColumnsAsync(
+        EnhancedTableInfo table,
+        string? systemContext,
+        string? namingConventionNotes,
+        CancellationToken cancellationToken)
+    {
+        var variables = new Dictionary<string, string>
+        {
+            ["systemContext"] = systemContext ?? "No specific context provided.",
+            ["domain"] = ExtractDomain(systemContext),
+            ["namingConventionNotes"] = namingConventionNotes ?? "No naming convention notes provided.",
+            ["tableName"] = table.TableName,
+            ["tableDescription"] = "", // TODO: Get from analysis if available
+            ["columns"] = string.Join("\n", table.Columns.Select(c =>
+                $"- {c.ColumnName} ({c.DataType}{(c.IsNullable ? " NULL" : " NOT NULL")}{(c.IsPrimaryKey ? " PK" : "")}{(c.IsForeignKey ? " FK" : "")}"))
+        };
+
+        var (prompt, config) = await _promptService.GetPromptWithConfigAsync(
+            "column-interpretation",
+            variables);
+
+        var response = await _llmClient.CompleteAsync(
+            prompt,
+            cancellationToken: cancellationToken);
+
+        return ParseColumnInterpretations(response);
+    }
+
+    /// <summary>
+    /// Detect implicit foreign keys (metadata-only, no data queries)
+    /// </summary>
+    private List<ImplicitRelationship> DetectImplicitForeignKeys(
+        EnhancedTableInfo table,
+        EnhancedDatabaseSchema schema)
+    {
+        return _implicitFkDetector.DetectImplicitForeignKeys(table, schema);
+    }
+
+    /// <summary>
+    /// Parse overview response (lightweight)
+    /// </summary>
+    private DatabaseAnalysis ParseOverviewResponse(string response)
+    {
+        try
+        {
+            var cleaned = CleanJsonResponse(response);
+            var options = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            };
+
+            var dto = JsonSerializer.Deserialize<OverviewAnalysisDto>(cleaned, options);
+
+            return new DatabaseAnalysis
+            {
+                Domain = dto?.Domain ?? "Unknown",
+                Summary = dto?.Summary ?? "",
+                KeyTables = dto?.KeyTables ?? new List<string>(),
+                DataFlowPattern = dto?.DataFlowPattern,
+                Modules = dto?.Modules?.Select(m => new DatabaseModule
+                {
+                    Name = m.Name ?? "",
+                    Description = m.Description ?? "",
+                    Tables = m.Tables ?? new List<string>()
+                }).ToList() ?? new List<DatabaseModule>(),
+                TechnicalDebt = dto?.TechnicalDebt ?? new List<string>(),
+                Confidence = dto?.Confidence ?? 0.5
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[DatabaseAnalyzer] Failed to parse overview response");
+            return new DatabaseAnalysis
+            {
+                Domain = "Unknown",
+                Summary = "Failed to parse AI response",
+                Confidence = 0.3
+            };
+        }
+    }
+
+    /// <summary>
+    /// Parse column interpretations
+    /// </summary>
+    private Dictionary<string, ColumnMeaning> ParseColumnInterpretations(string response)
+    {
+        try
+        {
+            var cleaned = CleanJsonResponse(response);
+            var options = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            };
+
+            var result = JsonSerializer.Deserialize<Dictionary<string, ColumnMeaningDto>>(cleaned, options);
+
+            return result?.ToDictionary(
+                kvp => kvp.Key,
+                kvp => new ColumnMeaning
+                {
+                    Vietnamese = kvp.Value.Meaning ?? "",
+                    English = kvp.Value.English ?? "",
+                    Description = kvp.Value.Description ?? "",
+                    Confidence = kvp.Value.Confidence
+                }) ?? new Dictionary<string, ColumnMeaning>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[DatabaseAnalyzer] Failed to parse column interpretations");
+            return new Dictionary<string, ColumnMeaning>();
+        }
+    }
+
+    /// <summary>
+    /// Clean JSON response (remove markdown, extract JSON)
+    /// </summary>
+    private string CleanJsonResponse(string response)
+    {
+        var cleaned = response.Trim();
+
+        // Remove markdown code blocks
+        if (cleaned.StartsWith("```"))
+        {
+            cleaned = cleaned.Replace("```json", "").Replace("```", "").Trim();
+        }
+
+        // Find JSON block
+        var jsonStart = cleaned.IndexOf('{');
+        var jsonEnd = cleaned.LastIndexOf('}');
+
+        if (jsonStart >= 0 && jsonEnd > jsonStart)
+        {
+            cleaned = cleaned.Substring(jsonStart, jsonEnd - jsonStart + 1);
+        }
+
+        return cleaned;
+    }
+
+    /// <summary>
+    /// Extract domain from system context
+    /// </summary>
+    private string ExtractDomain(string? systemContext)
+    {
+        if (string.IsNullOrEmpty(systemContext))
+            return "Unknown";
+
+        // Try to extract domain from context
+        var lower = systemContext.ToLower();
+        if (lower.Contains("e-commerce") || lower.Contains("bán lẻ"))
+            return "E-commerce";
+        if (lower.Contains("erp") || lower.Contains("doanh nghiệp"))
+            return "ERP";
+        if (lower.Contains("crm") || lower.Contains("khách hàng"))
+            return "CRM";
+        if (lower.Contains("healthcare") || lower.Contains("y tế"))
+            return "Healthcare";
+
+        return "Unknown";
+    }
+
+    /// <summary>
+    /// Apply heuristic roles (fast, no LLM)
+    /// </summary>
+    private void ApplyHeuristicRoles(EnhancedDatabaseSchema schema, DatabaseAnalysis analysis)
+    {
+        foreach (var table in schema.EnhancedTables)
+        {
+            var role = InferTableRole(table, schema);
+            analysis.TableRoles[table.TableName] = new TableRoleInfo
+            {
+                TableName = table.TableName,
+                Role = role,
+                Description = $"Inferred as {role} based on naming and structure",
+                Confidence = 0.6
+            };
+
+            table.Role = role;
+
+            // Assign to module
+            var module = analysis.Modules.FirstOrDefault(m => m.Tables.Contains(table.TableName));
+            if (module != null)
+            {
+                table.Module = module.Name;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Analyze database schema using AI - LEGACY METHOD (full analysis)
+    /// </summary>
+    [Obsolete("Use AnalyzeOverviewAsync for initial load, then AnalyzeTableDetailAsync for on-demand")]
     public async Task<DatabaseAnalysis> AnalyzeAsync(
         EnhancedDatabaseSchema schema,
         CancellationToken cancellationToken = default)
@@ -379,59 +724,9 @@ Return ONLY the JSON, no markdown formatting.";
 
     private List<HealthIssue> DetectBasicHealthIssues(EnhancedDatabaseSchema schema)
     {
-        var issues = new List<HealthIssue>();
-
-        foreach (var table in schema.EnhancedTables)
-        {
-            // Check for missing PK
-            if (!table.PrimaryKeys.Any())
-            {
-                issues.Add(new HealthIssue
-                {
-                    Severity = IssueSeverity.Critical,
-                    Type = IssueType.MissingPrimaryKey,
-                    Table = table.TableName,
-                    Description = $"Table '{table.TableName}' has no primary key",
-                    Recommendation = "Add a primary key to ensure data integrity"
-                });
-            }
-
-            // Check for FK without index
-            foreach (var fk in table.ForeignKeys)
-            {
-                var hasIndex = table.Indexes.Any(i => i.Columns.Contains(fk));
-                if (!hasIndex)
-                {
-                    issues.Add(new HealthIssue
-                    {
-                        Severity = IssueSeverity.Warning,
-                        Type = IssueType.MissingIndex,
-                        Table = table.TableName,
-                        Column = fk,
-                        Description = $"Foreign key column '{fk}' has no index",
-                        Recommendation = $"CREATE INDEX IX_{table.TableName}_{fk} ON [{table.TableName}]([{fk}])"
-                    });
-                }
-            }
-
-            // Check for orphan tables
-            var hasRelationships = schema.BaseSchema.Relationships.Any(r =>
-                r.FromTable == table.TableName || r.ToTable == table.TableName);
-
-            if (!hasRelationships && table.ForeignKeys.Count == 0)
-            {
-                issues.Add(new HealthIssue
-                {
-                    Severity = IssueSeverity.Info,
-                    Type = IssueType.OrphanTable,
-                    Table = table.TableName,
-                    Description = $"Table '{table.TableName}' has no relationships with other tables",
-                    Recommendation = "Verify if this table is still needed or should be connected to other tables"
-                });
-            }
-        }
-
-        return issues;
+        // Use RuleEngine instead of hard-coded logic
+        _logger.LogInformation("[DatabaseAnalyzer] Using RuleEngine for health checks");
+        return _ruleEngine.ExecuteRules(schema);
     }
 
     // DTOs for JSON deserialization
@@ -467,5 +762,25 @@ Return ONLY the JSON, no markdown formatting.";
         public string? Column { get; set; }
         public string? Description { get; set; }
         public string? Recommendation { get; set; }
+    }
+
+    // DTOs for new lazy loading methods
+    private class OverviewAnalysisDto
+    {
+        public string? Domain { get; set; }
+        public string? Summary { get; set; }
+        public List<string>? KeyTables { get; set; }
+        public string? DataFlowPattern { get; set; }
+        public List<ModuleDto>? Modules { get; set; }
+        public List<string>? TechnicalDebt { get; set; }
+        public double Confidence { get; set; }
+    }
+
+    private class ColumnMeaningDto
+    {
+        public string? Meaning { get; set; }
+        public string? English { get; set; }
+        public string? Description { get; set; }
+        public double Confidence { get; set; }
     }
 }

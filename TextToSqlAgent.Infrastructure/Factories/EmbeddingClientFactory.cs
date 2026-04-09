@@ -14,17 +14,20 @@ public class EmbeddingClientFactory
     private readonly IConfiguration _configuration;
     private readonly GeminiConfig _geminiConfig;
     private readonly OpenAIConfig _openAIConfig;
+    private readonly QdrantConfig _qdrantConfig;
     private readonly ILogger<EmbeddingClientFactory> _logger;
 
     public EmbeddingClientFactory(
         IConfiguration configuration,
         GeminiConfig geminiConfig,
         OpenAIConfig openAIConfig,
+        QdrantConfig qdrantConfig,
         ILogger<EmbeddingClientFactory> logger)
     {
         _configuration = configuration;
         _geminiConfig = geminiConfig;
         _openAIConfig = openAIConfig;
+        _qdrantConfig = qdrantConfig;
         _logger = logger;
     }
 
@@ -66,6 +69,6 @@ public class EmbeddingClientFactory
         var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
         var logger = loggerFactory.CreateLogger<LLM.OpenAIEmbeddingClient>();
         
-        return new LLM.OpenAIEmbeddingClient(_openAIConfig, logger);
+        return new LLM.OpenAIEmbeddingClient(_openAIConfig, _qdrantConfig, logger);
     }
 }

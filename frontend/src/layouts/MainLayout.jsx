@@ -34,15 +34,16 @@ const MainLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { user, logout } = useAuthStore();
+  const { user, logout, isAuthenticated, accessToken } = useAuthStore();
   const { activeConnection, fetchConnections } = useConnectionStore();
   const { sidebarVisible, infoPanelVisible, toggleSidebar, toggleInfoPanel } = useLayout();
 
   useEffect(() => {
-    // Fetch connections on mount - only once
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    fetchConnections();
-  }, []); // Empty dependency array - fetch only once on mount
+    // Only fetch connections when authenticated and have valid token
+    if (isAuthenticated && accessToken) {
+      fetchConnections();
+    }
+  }, [isAuthenticated, accessToken, fetchConnections]);
 
   const toggleTheme = () => {
     setTheme(theme === 'light' ? 'dark' : 'light');

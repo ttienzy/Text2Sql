@@ -99,4 +99,19 @@ public class Connection
     /// Navigation property to cached schema information
     /// </summary>
     public virtual ICollection<DatabaseSchema> Schemas { get; set; } = new List<DatabaseSchema>();
+
+    /// <summary>
+    /// System domain for AI context (E-commerce, ERP, CRM, Healthcare, etc.)
+    /// </summary>
+    public string? SystemDomain { get; set; }
+
+    /// <summary>
+    /// Naming convention notes for AI interpretation
+    /// </summary>
+    public string? NamingConventionNotes { get; set; }
+
+    /// <summary>
+    /// Business context description for better AI understanding
+    /// </summary>
+    public string? BusinessContext { get; set; }
 }

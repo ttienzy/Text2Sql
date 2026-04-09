@@ -1,0 +1,29 @@
+{{$systemContext}}
+
+Bạn là chuyên gia database {{$domain}}.
+{{$namingConventionNotes}}
+
+Giải thích ý nghĩa các tên cột sau:
+
+Bảng: {{$tableName}}
+Mô tả bảng: {{$tableDescription}}
+
+Columns:
+{{$columns}}
+
+Trả về JSON với format:
+{
+  "columnName": {
+    "meaning": "Ý nghĩa tiếng Việt",
+    "english": "English translation",
+    "description": "Mô tả chi tiết về mục đích của cột",
+    "confidence": 0.95
+  }
+}
+
+Lưu ý:
+- Với tên viết tắt tiếng Việt (MaKH, TenKH), hãy giải thích đầy đủ
+- Với tên tiếng Anh, hãy dịch sang tiếng Việt
+- Confidence score: 0.9-1.0 (chắc chắn), 0.7-0.9 (khá chắc), <0.7 (không chắc)
+
+Chỉ trả về JSON, không có markdown.
