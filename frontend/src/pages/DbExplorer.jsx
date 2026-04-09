@@ -453,13 +453,14 @@ const DbExplorer = () => {
                         theme="light"
                         style={{
                             borderRight: '1px solid #f0f0f0',
-                            overflow: 'hidden',
-                            display: 'flex',
-                            flexDirection: 'column',
+                            overflow: 'auto',
                         }}
                     >
                         {/* Semantic Search */}
-                        <div style={{ padding: 16, borderBottom: '1px solid #f0f0f0' }}>
+                        <div style={{
+                            padding: 16,
+                            borderBottom: '1px solid #f0f0f0'
+                        }}>
                             <SemanticSearch
                                 connectionId={activeConnection?.id}
                                 onTableSelect={handleTableSelect}
@@ -467,7 +468,7 @@ const DbExplorer = () => {
                         </div>
 
                         {/* Table List */}
-                        <div style={{ flex: 1, overflow: 'hidden' }}>
+                        <div>
                             <TableList
                                 tables={tablesData?.tables}
                                 loading={tablesLoading}

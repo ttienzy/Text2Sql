@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Input, List, Tag, Space, Empty, Spin, Alert, Card } from 'antd';
-import { SearchOutlined, TableOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { Card, Input, Button, List, Tag, Space, Empty, Spin, Alert } from 'antd';
+import { SearchOutlined, TableOutlined, ThunderboltOutlined, BulbOutlined } from '@ant-design/icons';
 import { useSemanticSearchQuery } from '../../api/dbExplorer/queries';
 
 const { Search } = Input;
@@ -12,6 +12,13 @@ const ROLE_COLORS = {
     Configuration: '#722ed1',
     LogAudit: '#8c8c8c',
 };
+
+const EXAMPLE_QUERIES = [
+    { text: 'tìm bảng khách hàng', label: 'Vietnamese' },
+    { text: 'find order tables', label: 'English' },
+    { text: 'KH', label: 'Abbreviation' },
+    { text: 'product inventory', label: 'Concept' },
+];
 
 const SemanticSearch = ({ connectionId, onTableSelect, style }) => {
     const [searchQuery, setSearchQuery] = useState('');
@@ -28,6 +35,11 @@ const SemanticSearch = ({ connectionId, onTableSelect, style }) => {
         if (trimmed.length >= 2) {
             setActiveQuery(trimmed);
         }
+    };
+
+    const handleExampleClick = (query) => {
+        setSearchQuery(query);
+        handleSearch(query);
     };
 
     const handleTableClick = (result) => {
@@ -51,8 +63,9 @@ const SemanticSearch = ({ connectionId, onTableSelect, style }) => {
             size="small"
             style={style}
         >
+            {/* Search Input */}
             <Search
-                placeholder="🔍 Tìm kiếm bảng (Vietnamese/English/Abbreviation)..."
+                placeholder="🔍 Tìm kiếm bảng (Vietnamese, English, abbreviation)..."
                 enterButton={<SearchOutlined />}
                 size="large"
                 value={searchQuery}
@@ -63,52 +76,23 @@ const SemanticSearch = ({ connectionId, onTableSelect, style }) => {
                 style={{ marginBottom: 16 }}
             />
 
-            {/* Examples */}
-            {!activeQuery && (
-                <div style={{ marginBottom: 16, padding: 12, backgroundColor: '#f5f5f5', borderRadius: 4 }}>
-                    <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
-                        💡 Ví dụ tìm kiếm:
-                    </div>
-                    <Space wrap>
-                        <Tag
-                            style={{ cursor: 'pointer' }}
-                            onClick={() => {
-                                setSearchQuery('tìm bảng khách hàng');
-                                setActiveQuery('tìm bảng khách hàng');
-                            }}
-                        >
-                            tìm bảng khách hàng
-                        </Tag>
-                        <Tag
-                            style={{ cursor: 'pointer' }}
-                            onClick={() => {
-                                setSearchQuery('find order tables');
-                                setActiveQuery('find order tables');
-                            }}
-                        >
-                            find order tables
-                        </Tag>
-                        <Tag
-                            style={{ cursor: 'pointer' }}
-                            onClick={() => {
-                                setSearchQuery('KH');
-                                setActiveQuery('KH');
-                            }}
-                        >
-                            KH (abbreviation)
-                        </Tag>
-                        <Tag
-                            style={{ cursor: 'pointer' }}
-                            onClick={() => {
-                                setSearchQuery('product inventory');
-                                setActiveQuery('product inventory');
-                            }}
-                        >
-                            product inventory
-                        </Tag>
-                    </Space>
+            {/* Example Queries */}
+            <div style={{ marginBottom: 16 }}>
+                <div style={{ marginBottom: 8, fontSize: 12, color: '#999' }}>
+                    <BulbOutlined /> Ví dụ tìm kiếm:
                 </div>
-            )}
+                <Space wrap size={[8, 8]}>
+                    {EXAMPLE_QUERIES.map((example, index) => (
+                        <Button
+                            key={index}
+                            size="small"
+                            onClick={() => handleExampleClick(example.text)}
+                        >
+                            {example.text}
+                        </Button>
+                    ))}
+                </Space>
+            </div>
 
             {/* Loading */}
             {isLoading && (
@@ -126,13 +110,14 @@ const SemanticSearch = ({ connectionId, onTableSelect, style }) => {
                     type="error"
                     showIcon
                     style={{ marginBottom: 16 }}
+                    closable
                 />
             )}
 
             {/* Results */}
             {searchResults && !isLoading && (
                 <>
-                    <div style={{ marginBottom: 8, fontSize: 12, color: '#999' }}>
+                    <div style={{ marginBottom: 12, fontWeight: 500 }}>
                         Found {searchResults.resultCount} result{searchResults.resultCount !== 1 ? 's' : ''} for "{searchResults.query}"
                     </div>
 
@@ -140,51 +125,43 @@ const SemanticSearch = ({ connectionId, onTableSelect, style }) => {
                         <Empty
                             description="No tables found"
                             image={Empty.PRESENTED_IMAGE_SIMPLE}
-                            style={{ padding: '20px 0' }}
                         />
                     ) : (
                         <List
+                            size="small"
                             dataSource={searchResults.results}
                             renderItem={(result) => (
                                 <List.Item
-                                    style={{ cursor: 'pointer', padding: '12px 0' }}
+                                    style={{ cursor: 'pointer' }}
                                     onClick={() => handleTableClick(result)}
-                                    extra={
-                                        <Tag color="green">
-                                            {(result.score * 100).toFixed(0)}%
-                                        </Tag>
-                                    }
                                 >
                                     <List.Item.Meta
                                         avatar={<TableOutlined style={{ fontSize: 20, color: '#1890ff' }} />}
                                         title={
                                             <Space>
-                                                <span style={{ fontWeight: 500 }}>{result.tableName}</span>
-                                                <Tag color={ROLE_COLORS[result.role]} style={{ fontSize: 11 }}>
-                                                    {result.role}
+                                                <span>{result.tableName}</span>
+                                                <Tag color="green">
+                                                    {(result.score * 100).toFixed(0)}%
                                                 </Tag>
-                                                {result.module && (
-                                                    <Tag color="purple" style={{ fontSize: 11 }}>
-                                                        📦 {result.module}
-                                                    </Tag>
-                                                )}
                                             </Space>
                                         }
                                         description={
-                                            result.semanticTags && result.semanticTags.length > 0 && (
-                                                <Space wrap style={{ marginTop: 4 }}>
-                                                    {result.semanticTags.slice(0, 8).map((tag, idx) => (
-                                                        <Tag key={idx} style={{ fontSize: 11, margin: '2px 0' }}>
-                                                            {tag}
-                                                        </Tag>
-                                                    ))}
-                                                    {result.semanticTags.length > 8 && (
-                                                        <Tag style={{ fontSize: 11 }}>
-                                                            +{result.semanticTags.length - 8} more
-                                                        </Tag>
+                                            <div>
+                                                <Space size={4} style={{ marginBottom: 4 }}>
+                                                    <Tag color={ROLE_COLORS[result.role]}>
+                                                        {result.role}
+                                                    </Tag>
+                                                    {result.module && (
+                                                        <Tag color="purple">{result.module}</Tag>
                                                     )}
                                                 </Space>
-                                            )
+                                                {result.semanticTags && result.semanticTags.length > 0 && (
+                                                    <div style={{ fontSize: 11, color: '#999' }}>
+                                                        Tags: {result.semanticTags.slice(0, 8).join(', ')}
+                                                        {result.semanticTags.length > 8 && ` +${result.semanticTags.length - 8} more`}
+                                                    </div>
+                                                )}
+                                            </div>
                                         }
                                     />
                                 </List.Item>
@@ -194,17 +171,17 @@ const SemanticSearch = ({ connectionId, onTableSelect, style }) => {
                 </>
             )}
 
-            {/* Help text */}
+            {/* Help Text */}
             {!activeQuery && !isLoading && (
-                <div style={{ marginTop: 16, padding: 12, backgroundColor: '#e6f7ff', borderRadius: 4, fontSize: 12 }}>
-                    <div style={{ fontWeight: 500, marginBottom: 4, color: '#1890ff' }}>
-                        💡 Semantic Search Features:
+                <div style={{ marginTop: 16, padding: 12, background: '#f5f5f5', borderRadius: 4 }}>
+                    <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
+                        <BulbOutlined /> Semantic Search Features:
                     </div>
-                    <ul style={{ margin: 0, paddingLeft: 20, color: '#666' }}>
-                        <li>Search in Vietnamese: "tìm bảng đơn hàng"</li>
+                    <ul style={{ margin: 0, paddingLeft: 20, fontSize: 12, color: '#666' }}>
+                        <li>Search in Vietnamese: "tìm bảng khách hàng"</li>
                         <li>Search in English: "find customer tables"</li>
                         <li>Search by abbreviation: "KH", "NV", "SP"</li>
-                        <li>Search by concept: "sales", "inventory", "user management"</li>
+                        <li>Search by concept: "sales", "inventory", "CRM"</li>
                     </ul>
                 </div>
             )}

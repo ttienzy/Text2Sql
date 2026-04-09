@@ -145,6 +145,12 @@ const TableList = ({ tables, loading, selectedTable, onTableSelect, pinnedTables
                 ) : (
                     <List
                         dataSource={filteredTables}
+                        pagination={{
+                            pageSize: 10,
+                            size: 'small',
+                            align: 'center',
+                            hideOnSinglePage: true
+                        }}
                         renderItem={(table) => {
                             const isPinned = pinnedTables.includes(table.tableName);
                             return (
