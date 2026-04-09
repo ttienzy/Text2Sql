@@ -21,6 +21,7 @@ import {
     HealthReport,
     ERDiagramView,
     SchemaChangesModal,
+    SemanticSearch,
 } from '../components/db-explorer';
 
 const { Sider, Content } = Layout;
@@ -427,16 +428,29 @@ const DbExplorer = () => {
                         style={{
                             borderRight: '1px solid #f0f0f0',
                             overflow: 'hidden',
+                            display: 'flex',
+                            flexDirection: 'column',
                         }}
                     >
-                        <TableList
-                            tables={tablesData?.tables}
-                            loading={tablesLoading}
-                            selectedTable={selectedTable}
-                            onTableSelect={handleTableSelect}
-                            pinnedTables={pinnedTables}
-                            moduleFilter={selectedModule}
-                        />
+                        {/* Semantic Search - Fixed height */}
+                        <div style={{ padding: 16, borderBottom: '1px solid #f0f0f0' }}>
+                            <SemanticSearch
+                                connectionId={activeConnection?.id}
+                                onTableSelect={handleTableSelect}
+                            />
+                        </div>
+
+                        {/* Table List - Scrollable */}
+                        <div style={{ flex: 1, overflow: 'auto' }}>
+                            <TableList
+                                tables={tablesData?.tables}
+                                loading={tablesLoading}
+                                selectedTable={selectedTable}
+                                onTableSelect={handleTableSelect}
+                                pinnedTables={pinnedTables}
+                                moduleFilter={selectedModule}
+                            />
+                        </div>
                     </Sider>
 
                     {/* Table Detail - Main Panel */}

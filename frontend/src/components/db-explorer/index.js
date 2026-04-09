@@ -8,3 +8,4 @@ export { default as HealthReport } from './HealthReport';
 export { default as QuerySuggestions } from './QuerySuggestions';
 export { default as SchemaChangesModal } from './SchemaChangesModal';
 export { ERDiagramView } from './ERDiagram';
+export { default as SemanticSearch } from './SemanticSearch';
