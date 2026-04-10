@@ -45,10 +45,10 @@ const useConnectionStore = create(
         set({ activeConnection: connection });
       },
 
-      fetchConnections: async () => {
+      fetchConnections: async (force = false) => {
         const state = get();
         // Prevent duplicate fetches - only fetch once
-        if (state.isInitialized && state.connections.length > 0) {
+        if (!force && state.isInitialized && state.connections.length > 0) {
           return state.connections;
         }
 

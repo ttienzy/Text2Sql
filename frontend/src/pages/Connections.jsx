@@ -31,13 +31,22 @@ import useConnectionStore from '../store/connectionStore';
 
 const { Title } = Typography;
 const { Option } = Select;
-const { Step } = Steps;
 
 const ConnectionsPage = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState(null);
   const [connectingId, setConnectingId] = useState(null);
-  const [connectionProgress, setConnectionProgress] = useState({});
+  const [connectDialog, setConnectDialog] = useState({
+    open: false,
+    record: null,
+    status: 'idle',
+    message: '',
+    result: null,
+    indexStatus: null,
+    startedAt: null,
+    elapsedSeconds: 0,
+    polling: false,
+  });
   const [form] = Form.useForm();
   const navigate = useNavigate();
 
@@ -54,6 +63,85 @@ const ConnectionsPage = () => {
   useEffect(() => {
     fetchConnections();
   }, [fetchConnections]);
+
+  useEffect(() => {
+    if (!connectDialog.open || !connectDialog.startedAt) {
+      return undefined;
+    }
+
+    const timer = setInterval(() => {
+      setConnectDialog((prev) => {
+        if (!prev.open || !prev.startedAt) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          elapsedSeconds: Math.max(0, Math.floor((Date.now() - prev.startedAt) / 1000)),
+        };
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [connectDialog.open, connectDialog.startedAt]);
+
+  useEffect(() => {
+    if (!connectDialog.polling || !connectDialog.record?.id) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const connectionId = connectDialog.record.id;
+    const connectionName = connectDialog.record.name;
+
+    const pollStatus = async () => {
+      try {
+        const response = await axiosInstance.get(`/api/connections/${connectionId}/indexing-status`);
+        if (cancelled) {
+          return;
+        }
+
+        const status = response.data;
+
+        setConnectDialog((prev) => {
+          if (prev.record?.id !== connectionId) {
+            return prev;
+          }
+
+          return {
+            ...prev,
+            indexStatus: status,
+            message: status.message || prev.message,
+            polling: ['queued', 'indexing'].includes(status.status),
+          };
+        });
+
+        if (status.status === 'completed') {
+          await fetchConnections(true);
+          message.success(`Semantic index for ${connectionName} is ready.`);
+        } else if (status.status === 'failed') {
+          await fetchConnections(true);
+          message.warning(`Semantic index for ${connectionName} failed. Chat will continue with cached schema.`);
+        }
+      } catch {
+        if (!cancelled) {
+          setConnectDialog((prev) => (
+            prev.record?.id === connectionId
+              ? { ...prev, polling: false }
+              : prev
+          ));
+        }
+      }
+    };
+
+    pollStatus();
+    const interval = setInterval(pollStatus, 3000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [connectDialog.polling, connectDialog.record?.id, connectDialog.record?.name, fetchConnections]);
 
   const handleSubmit = async (values) => {
     try {
@@ -89,89 +177,91 @@ const ConnectionsPage = () => {
 
   const handleConnect = async (record) => {
     setConnectingId(record.id);
-    setConnectionProgress({
-      step: 0,
-      status: 'process',
-      message: 'Testing database connection...'
+    setConnectDialog({
+      open: true,
+      record,
+      status: 'processing',
+      message: 'Verifying database connection and loading schema...',
+      result: null,
+      indexStatus: null,
+      startedAt: Date.now(),
+      elapsedSeconds: 0,
+      polling: false,
     });
 
     try {
-      // Use enhanced test endpoint with progress tracking
       const response = await axiosInstance.post(`/api/connections/${record.id}/test-enhanced`);
       const result = response.data;
+      const schemaIndexing = result.schemaIndexing || {};
+      const isBackgroundIndexing = ['queued', 'indexing'].includes(schemaIndexing.status);
+      const canUseChat = !!result.readyForChat;
 
       if (!result.success) {
-        setConnectionProgress({
-          step: 0,
-          status: 'error',
-          message: result.databaseConnection?.errorMessage || 'Database connection failed'
-        });
+        setConnectDialog((prev) => ({
+          ...prev,
+          status: 'failed',
+          message: result.databaseConnection?.errorMessage || 'Database connection failed',
+          result,
+        }));
         message.error(`Connection failed: ${result.databaseConnection?.errorMessage || 'Unknown error'}`);
         return;
       }
 
-      // Step 1: Database connection successful
-      setConnectionProgress({
-        step: 1,
-        status: 'process',
-        message: `Database connected (${result.databaseConnection.responseTime})`
-      });
-
-      // Step 2: Check schema indexing
-      if (result.schemaIndexing?.autoIndexed) {
-        setConnectionProgress({
-          step: 2,
-          status: 'process',
-          message: `Schema indexed automatically (${result.schemaIndexing.indexingTime})`
-        });
-      } else if (result.schemaIndexing?.collectionExists) {
-        setConnectionProgress({
-          step: 2,
-          status: 'finish',
-          message: `Schema already indexed (${result.schemaIndexing.schemasIndexed} schemas)`
+      if (canUseChat) {
+        setActiveConnection({
+          ...record,
+          isConnected: true,
         });
       }
 
-      // Final step: Ready for chat
-      if (result.readyForChat) {
-        setConnectionProgress({
-          step: 3,
-          status: 'finish',
-          message: 'Ready for chat!'
-        });
+      setConnectDialog((prev) => ({
+        ...prev,
+        status: canUseChat ? 'completed' : 'failed',
+        message: schemaIndexing.statusMessage || (canUseChat
+          ? 'Connection is ready for chat.'
+          : 'Connection succeeded but schema is not ready yet.'),
+        result,
+        indexStatus: isBackgroundIndexing ? schemaIndexing : null,
+        polling: isBackgroundIndexing,
+      }));
 
-        // Set as active and navigate to chat
-        setActiveConnection(record);
+      await fetchConnections(true);
+
+      if (canUseChat && isBackgroundIndexing) {
+        message.success(`Connected to ${record.name}. You can start chatting while semantic indexing continues in the background.`);
+      } else if (canUseChat) {
         message.success(`Connected to ${record.name} - Ready for chat!`);
-
-        // Small delay to show success state
-        setTimeout(() => {
-          navigate('/chat');
-        }, 1000);
       } else {
-        setConnectionProgress({
-          step: 2,
-          status: 'error',
-          message: result.schemaIndexing?.errorMessage || 'Schema indexing failed'
-        });
-        message.warning(`Connected to database but schema indexing failed. You may experience limited functionality.`);
+        message.warning('Database connected, but chat is waiting for schema to finish loading.');
       }
-
     } catch (error) {
       console.error('Connection test error:', error);
-      setConnectionProgress({
-        step: 0,
-        status: 'error',
-        message: error.response?.data?.message || error.message || 'Connection failed'
-      });
+      setConnectDialog((prev) => ({
+        ...prev,
+        status: 'failed',
+        message: error.response?.data?.message || error.message || 'Connection failed',
+      }));
       message.error(error.response?.data?.message || error.response?.data?.errorMessage || 'Failed to connect to database');
     } finally {
-      // Clear progress after 3 seconds
-      setTimeout(() => {
-        setConnectingId(null);
-        setConnectionProgress({});
-      }, 3000);
+      setConnectingId(null);
     }
+  };
+
+  const handleCloseConnectDialog = () => {
+    setConnectDialog((prev) => ({
+      ...prev,
+      open: false,
+      polling: false,
+    }));
+  };
+
+  const handleOpenChat = () => {
+    setConnectDialog((prev) => ({
+      ...prev,
+      open: false,
+      polling: false,
+    }));
+    navigate('/chat');
   };
 
   const columns = [
@@ -281,47 +371,39 @@ const ConnectionsPage = () => {
                 </Button>
               </Popconfirm>
             </Space>
-
-            {/* Connection Progress Indicator */}
-            {isConnecting && connectionProgress.message && (
-              <div style={{ minWidth: 200 }}>
-                <Steps
-                  size="small"
-                  current={connectionProgress.step}
-                  status={connectionProgress.status}
-                  items={[
-                    {
-                      title: 'Database',
-                      icon: connectionProgress.step === 0 && connectionProgress.status === 'process' ? <LoadingOutlined /> : undefined,
-                    },
-                    {
-                      title: 'Schema',
-                      icon: connectionProgress.step === 1 && connectionProgress.status === 'process' ? <LoadingOutlined /> : undefined,
-                    },
-                    {
-                      title: 'Ready',
-                      icon: connectionProgress.step === 2 && connectionProgress.status === 'process' ? <LoadingOutlined /> : undefined,
-                    },
-                  ]}
-                />
-                <div style={{
-                  fontSize: '12px',
-                  color: connectionProgress.status === 'error' ? '#ff4d4f' : '#666',
-                  marginTop: 4,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4
-                }}>
-                  {connectionProgress.status === 'error' && <ExclamationCircleOutlined />}
-                  {connectionProgress.message}
-                </div>
-              </div>
-            )}
           </Space>
         );
       },
     },
   ];
+
+  const currentIndexStatus = connectDialog.indexStatus || connectDialog.result?.schemaIndexing || {};
+  const canOpenChat = !!connectDialog.result?.readyForChat;
+  const isSemanticIndexingActive = ['queued', 'indexing'].includes(currentIndexStatus.status);
+  const modalStep = !connectDialog.result
+    ? 0
+    : isSemanticIndexingActive
+      ? 2
+      : canOpenChat
+        ? 3
+        : 1;
+  const modalStepStatus = connectDialog.status === 'failed' && !canOpenChat
+    ? 'error'
+    : isSemanticIndexingActive
+      ? 'process'
+      : canOpenChat
+        ? 'finish'
+        : 'error';
+  const modalProgress = !connectDialog.result
+    ? 20
+    : currentIndexStatus.progressPercent || (canOpenChat ? 100 : 60);
+  const modalAlertType = connectDialog.status === 'failed' && !canOpenChat
+    ? 'error'
+    : currentIndexStatus.status === 'failed'
+      ? 'warning'
+      : isSemanticIndexingActive
+        ? 'info'
+        : 'success';
 
   return (
     <div>
@@ -350,6 +432,96 @@ const ConnectionsPage = () => {
         rowKey="id"
         pagination={{ pageSize: 10 }}
       />
+
+      <Modal
+        title={connectDialog.record ? `Connecting to ${connectDialog.record.name}` : 'Connecting'}
+        open={connectDialog.open}
+        onCancel={handleCloseConnectDialog}
+        maskClosable={!connectingId}
+        closable={!connectingId}
+        footer={[
+          <Button key="close" onClick={handleCloseConnectDialog} disabled={!!connectingId}>
+            {canOpenChat ? 'Stay Here' : 'Close'}
+          </Button>,
+          canOpenChat && (
+            <Button key="chat" type="primary" onClick={handleOpenChat}>
+              Go to Chat
+            </Button>
+          ),
+        ].filter(Boolean)}
+      >
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Steps
+            size="small"
+            current={modalStep}
+            status={modalStepStatus}
+            items={[
+              { title: 'Database' },
+              { title: 'Schema Cache' },
+              { title: 'Semantic Index' },
+              { title: 'Chat Ready' },
+            ]}
+          />
+
+          <Alert
+            type={modalAlertType}
+            showIcon
+            message={connectDialog.message || 'Preparing your connection...'}
+            description={
+              isSemanticIndexingActive
+                ? 'You can open Chat now. Qdrant indexing continues in the background, so the first semantic lookups may be slower.'
+                : canOpenChat
+                  ? 'The schema is already cached for the agent, so you can start querying right away.'
+                  : 'The connection is still being prepared. Please review the details below.'
+            }
+          />
+
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 12, color: '#666' }}>Elapsed time</span>
+              <span style={{ fontSize: 12, color: '#666' }}>{connectDialog.elapsedSeconds}s</span>
+            </div>
+            <Progress
+              percent={modalProgress}
+              status={!connectDialog.result
+                ? 'active'
+                : currentIndexStatus.status === 'failed' && !canOpenChat
+                  ? 'exception'
+                  : isSemanticIndexingActive
+                    ? 'active'
+                    : 'success'}
+              showInfo
+            />
+          </div>
+
+          <div style={{ display: 'grid', gap: 8 }}>
+            <div style={{ fontSize: 13 }}>
+              <strong>Database:</strong>{' '}
+              {connectDialog.result?.databaseConnection?.success
+                ? `Connected in ${connectDialog.result.databaseConnection.responseTime}`
+                : 'Pending'}
+            </div>
+            <div style={{ fontSize: 13 }}>
+              <strong>Version:</strong>{' '}
+              {connectDialog.result?.databaseConnection?.databaseVersion || 'Pending'}
+            </div>
+            <div style={{ fontSize: 13 }}>
+              <strong>Schema:</strong>{' '}
+              {currentIndexStatus.tableCount || 0} tables, {currentIndexStatus.columnCount || 0} columns, {currentIndexStatus.relationshipCount || 0} relationships
+            </div>
+            <div style={{ fontSize: 13 }}>
+              <strong>Qdrant coverage:</strong>{' '}
+              {(currentIndexStatus.indexedPointCount ?? currentIndexStatus.schemasIndexed ?? 0)}/{currentIndexStatus.expectedPointCount || 0} points
+              {currentIndexStatus.fingerprintMatched ? ' (current fingerprint match)' : ''}
+            </div>
+            {currentIndexStatus.errorMessage && (
+              <div style={{ fontSize: 13, color: '#ff4d4f' }}>
+                <strong>Index issue:</strong> {currentIndexStatus.errorMessage}
+              </div>
+            )}
+          </div>
+        </Space>
+      </Modal>
 
       <Modal
         title={editingConnection ? 'Edit Connection' : 'New Connection'}

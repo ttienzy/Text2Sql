@@ -139,13 +139,30 @@ public class SimpleQueryPipeline : ISimpleQueryPipeline
                 _logger.LogWarning("[SimpleQueryPipeline] Query returned 0 rows, escalating to Medium");
             }
 
-            // Check if SQL has JOIN when query didn't expect it
-            if (sql.Contains("JOIN", StringComparison.OrdinalIgnoreCase) &&
-                !ContainsComplexKeywords(request.Query))
+            // ✅ IMPROVED: Check if SQL has JOIN - always escalate instead of continuing
+            if (sql.Contains("JOIN", StringComparison.OrdinalIgnoreCase))
             {
                 result.WasEscalated = true;
-                result.EscalationReason = "Generated SQL contains JOIN but query didn't indicate it";
-                _logger.LogWarning("[SimpleQueryPipeline] Unexpected JOIN in SQL, escalating");
+                result.EscalationReason = "Query requires JOIN - escalating to Medium pipeline for better handling";
+                result.Success = false;
+                _logger.LogWarning("[SimpleQueryPipeline] JOIN detected in SQL, escalating to Medium");
+
+                stopwatch.Stop();
+                result.ExecutionTimeMs = stopwatch.ElapsedMilliseconds;
+                return result;
+            }
+
+            // Check for aggregation functions
+            if (ContainsAggregation(sql))
+            {
+                result.WasEscalated = true;
+                result.EscalationReason = "Query contains aggregation - escalating to Medium pipeline";
+                result.Success = false;
+                _logger.LogWarning("[SimpleQueryPipeline] Aggregation detected, escalating to Medium");
+
+                stopwatch.Stop();
+                result.ExecutionTimeMs = stopwatch.ElapsedMilliseconds;
+                return result;
             }
 
             // Step 5: Format Result - 1 LLM call (small) or template-based
@@ -239,7 +256,8 @@ public class SimpleQueryPipeline : ISimpleQueryPipeline
     {
         var sb = new StringBuilder();
 
-        foreach (var table in schema.Tables.Take(10)) // Limit to first 10 tables
+        // Include all relevant tables (no 10-table limit)
+        foreach (var table in schema.Tables)
         {
             sb.AppendLine($"{table.TableName}: {string.Join(", ", table.Columns.Select(c => c.ColumnName))}");
         }
@@ -298,19 +316,8 @@ public class SimpleQueryPipeline : ISimpleQueryPipeline
             return (false, "Only SELECT queries are allowed");
         }
 
-        // Check for multiple JOINs
-        var joinCount = upperSql.Split("JOIN").Length - 1;
-        if (joinCount > 1)
-        {
-            return (false, "Multiple JOINs not allowed in simple mode");
-        }
-
-        // Check for subqueries
-        if (upperSql.Contains("SELECT") && upperSql.Contains("WHERE") && upperSql.Contains("("))
-        {
-            // Simple heuristic for subquery detection
-            return (false, "Subqueries not allowed in simple mode");
-        }
+        // ✅ REMOVED: Don't reject JOINs/subqueries here - let escalation logic handle it
+        // These checks are now done BEFORE execution to trigger escalation
 
         return (true, null);
     }
@@ -329,6 +336,13 @@ public class SimpleQueryPipeline : ISimpleQueryPipeline
     {
         var lowerQuery = query.ToLowerInvariant();
         return ComplexKeywords.Any(k => lowerQuery.Contains(k.ToLowerInvariant()));
+    }
+
+    private bool ContainsAggregation(string sql)
+    {
+        var upperSql = sql.ToUpperInvariant();
+        var aggregationKeywords = new[] { "SUM(", "AVG(", "COUNT(", "MAX(", "MIN(", "GROUP BY" };
+        return aggregationKeywords.Any(k => upperSql.Contains(k));
     }
 
     private async Task<string> FormatWithLlmAsync(string query, SqlExecutionResult executionResult, CancellationToken ct)

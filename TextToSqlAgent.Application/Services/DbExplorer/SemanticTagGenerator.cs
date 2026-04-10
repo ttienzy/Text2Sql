@@ -298,6 +298,21 @@ public class SemanticTagGenerator
             cleaned = cleaned.Substring(jsonStart, jsonEnd - jsonStart + 1);
         }
 
+        // ✅ FIX: Remove trailing commas before closing braces/brackets
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @",\s*([}\]])", "$1");
+
+        // ✅ FIX: If multiple JSON objects detected, take only the first one
+        var objectMatches = System.Text.RegularExpressions.Regex.Matches(cleaned, @"}\s*{");
+        if (objectMatches.Count > 0)
+        {
+            _logger.LogWarning("[SemanticTags] Multiple JSON objects detected, taking first one only");
+            var firstObjectEnd = cleaned.IndexOf('}');
+            if (firstObjectEnd > 0)
+            {
+                cleaned = cleaned.Substring(0, firstObjectEnd + 1);
+            }
+        }
+
         return cleaned;
     }
 

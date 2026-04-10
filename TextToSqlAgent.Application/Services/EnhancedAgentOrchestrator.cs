@@ -1,3 +1,6 @@
+using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using TextToSqlAgent.Core.Exceptions;
@@ -44,6 +47,8 @@ public class EnhancedAgentOrchestrator
     // ✅ CRIT-1 FIX: SemaphoreSlim to prevent race condition on _cachedSchema
     // Made static to work with global schema cache
     private static readonly SemaphoreSlim _globalSchemaScanLock = new(1, 1);
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> _schemaScanLocksByConnection = new();
+    private static readonly ConcurrentDictionary<string, string> _indexedSchemaHashesByConnection = new();
 
     // Pagination settings
     private const int DefaultPageSize = 50;  // First page size
@@ -130,6 +135,29 @@ public class EnhancedAgentOrchestrator
         Action<string>? sqlTokenCallback = null,
         IntentClassificationResult? preClassified = null, // ✅ TASK 1.2: NEW parameter to avoid double classification
         CancellationToken cancellationToken = default)
+    {
+        return await ProcessQueryInternalAsync(
+            userQuestion,
+            connectionId: null,
+            conversationId,
+            conversationHistory,
+            persistedContext: null,
+            progress,
+            sqlTokenCallback,
+            preClassified,
+            cancellationToken);
+    }
+
+    private async Task<AgentResponse> ProcessQueryInternalAsync(
+        string userQuestion,
+        string? connectionId,
+        string? conversationId,
+        List<TextToSqlAgent.Infrastructure.Entities.Message>? conversationHistory,
+        SerializableConversationContext? persistedContext,
+        IProgress<AgentStageEvent>? progress,
+        Action<string>? sqlTokenCallback,
+        IntentClassificationResult? preClassified,
+        CancellationToken cancellationToken)
     {
         var response = new AgentResponse();
         var steps = new List<string>();
@@ -263,6 +291,8 @@ public class EnhancedAgentOrchestrator
                 throw new InvalidOperationException($"Failed to create conversation context: {ex.Message}", ex);
             }
 
+            ApplyPersistedContext(context, persistedContext);
+
             // ====================================
             // STEP 0.5: Enrich question with conversation context (BEFORE validation)
             // ====================================
@@ -321,9 +351,21 @@ public class EnhancedAgentOrchestrator
             try
             {
                 // ✅ Use enriched question for validation
+                var availableTablesForValidation = new List<string>();
+                if (!string.IsNullOrWhiteSpace(connectionId) && _schemaCache != null)
+                {
+                    var cachedValidationSchema = await _schemaCache.GetAsync(connectionId, cancellationToken);
+                    if (cachedValidationSchema != null)
+                    {
+                        availableTablesForValidation = cachedValidationSchema.Tables
+                            .Select(t => t.TableName)
+                            .ToList();
+                    }
+                }
+
                 validation = await queryValidator.ValidateQueryAsync(
-                    enrichedQuestion,  // Use enriched instead of raw userQuestion
-                    new List<string>(), // Empty list - validator will use heuristics only
+                    enrichedQuestion,
+                    availableTablesForValidation,
                     cancellationToken);
             }
             catch (Exception ex)
@@ -388,9 +430,12 @@ public class EnhancedAgentOrchestrator
                 Progress = 0.20
             });
 
+            DatabaseSchema? loadedSchema;
             try
             {
-                await EnsureSchemaLoadedAsync(steps, cancellationToken);
+                loadedSchema = !string.IsNullOrWhiteSpace(connectionId)
+                    ? await EnsureSchemaLoadedForConnectionAsync(connectionId, steps, cancellationToken)
+                    : await EnsureLegacySchemaLoadedAsync(steps, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -398,7 +443,7 @@ public class EnhancedAgentOrchestrator
                 throw new InvalidOperationException($"Failed to load database schema: {ex.Message}", ex);
             }
 
-            var tableNames = _globalCachedSchema?.Tables.Select(t => t.TableName).ToList() ?? new List<string>();
+            var tableNames = loadedSchema?.Tables.Select(t => t.TableName).ToList() ?? new List<string>();
 
             // ====================================
             // STEP 2: Context-Aware Normalization
@@ -436,7 +481,8 @@ public class EnhancedAgentOrchestrator
             var schemaRetriever = _serviceFactory.GetSchemaRetriever();
             var relevantSchema = await schemaRetriever.RetrieveAsync(
                 normalized.NormalizedText,
-                _globalCachedSchema!,
+                loadedSchema!,
+                connectionId,
                 cancellationToken);
 
             _logger.LogDebug(
@@ -457,7 +503,7 @@ public class EnhancedAgentOrchestrator
                     tableNames,
                     cancellationToken);
 
-                relevantSchema = BuildFallbackSchema(intent.Target, _globalCachedSchema);
+                relevantSchema = BuildFallbackSchema(intent.Target, loadedSchema!);
             }
             else
             {
@@ -508,6 +554,7 @@ public class EnhancedAgentOrchestrator
             });
 
             var sqlGenerator = _serviceFactory.GetSqlGenerator();
+            var structuredPromptContext = GetStructuredPromptContext(persistedContext);
 
             // ✅ Use streaming API if callback provided, otherwise use regular API
             SqlGenerationResult sqlResult;
@@ -519,6 +566,7 @@ public class EnhancedAgentOrchestrator
                     normalized.NormalizedText,
                     conversationHistory,
                     sqlTokenCallback,  // ← Stream tokens to callback
+                    structuredPromptContext,
                     cancellationToken);
             }
             else
@@ -528,6 +576,7 @@ public class EnhancedAgentOrchestrator
                     relevantSchema,
                     normalized.NormalizedText,
                     conversationHistory,
+                    structuredPromptContext,
                     cancellationToken);
             }
 
@@ -789,14 +838,14 @@ public class EnhancedAgentOrchestrator
         };
     }
 
-    private async Task EnsureSchemaLoadedAsync(List<string> steps, CancellationToken cancellationToken)
+    private async Task<DatabaseSchema> EnsureLegacySchemaLoadedAsync(List<string> steps, CancellationToken cancellationToken)
     {
         // ✅ CRIT-1 FIX: Double-check locking pattern to prevent race condition
         // ✅ NEW-2 FIX: Use global static cache to persist across requests
         if (_globalCachedSchema != null)
         {
             steps.Add("Step 1.1: Use global cached schema");
-            return;
+            return _globalCachedSchema;
         }
 
         await _globalSchemaScanLock.WaitAsync(cancellationToken);
@@ -806,7 +855,7 @@ public class EnhancedAgentOrchestrator
             if (_globalCachedSchema != null)
             {
                 steps.Add("Step 1.1: Use global cached schema (acquired after lock)");
-                return;
+                return _globalCachedSchema;
             }
 
             steps.Add("Step 1.1: Scan database schema");
@@ -851,10 +900,60 @@ public class EnhancedAgentOrchestrator
                 _globalSchemaIndexed = true;
                 _logger.LogInformation("[EnhancedAgent] ✅ Schema indexed globally (will persist across requests)");
             }
+            return _globalCachedSchema!;
         }
         finally
         {
             _globalSchemaScanLock.Release();
+        }
+    }
+
+    private async Task<DatabaseSchema> EnsureSchemaLoadedForConnectionAsync(
+        string connectionId,
+        List<string> steps,
+        CancellationToken cancellationToken)
+    {
+        if (_schemaCache == null)
+        {
+            _logger.LogWarning("[Schema] Connection-scoped schema cache unavailable, using legacy load path");
+            return await EnsureLegacySchemaLoadedAsync(steps, cancellationToken);
+        }
+
+        var cachedSchema = await _schemaCache.GetAsync(connectionId, cancellationToken);
+        if (cachedSchema != null)
+        {
+            steps.Add("Step 1.1: Use connection-scoped schema cache");
+            await TryEnsureSchemaIndexedAsync(cachedSchema, connectionId, cancellationToken);
+            return cachedSchema;
+        }
+
+        var schemaLock = _schemaScanLocksByConnection.GetOrAdd(
+            connectionId,
+            _ => new SemaphoreSlim(1, 1));
+
+        await schemaLock.WaitAsync(cancellationToken);
+        try
+        {
+            cachedSchema = await _schemaCache.GetAsync(connectionId, cancellationToken);
+            if (cachedSchema != null)
+            {
+                steps.Add("Step 1.1: Use connection-scoped schema cache (acquired after lock)");
+                await TryEnsureSchemaIndexedAsync(cachedSchema, connectionId, cancellationToken);
+                return cachedSchema;
+            }
+
+            steps.Add("Step 1.1: Scan database schema for the active connection");
+
+            var schemaScanner = _serviceFactory.GetSchemaScanner();
+            var schema = await schemaScanner.ScanAsync(cancellationToken);
+            await _schemaCache.SetAsync(connectionId, schema, cancellationToken);
+
+            await TryEnsureSchemaIndexedAsync(schema, connectionId, cancellationToken);
+            return schema;
+        }
+        finally
+        {
+            schemaLock.Release();
         }
     }
 
@@ -1330,12 +1429,19 @@ public class EnhancedAgentOrchestrator
     {
         _globalCachedSchema = null;
         _globalSchemaIndexed = false;
+        _indexedSchemaHashesByConnection.Clear();
         _logger.LogInformation("[EnhancedAgent] Global schema cache cleared");
     }
 
-    private async Task<bool> TryEnsureSchemaIndexedAsync(
+    private Task<bool> TryEnsureSchemaIndexedAsync(
         DatabaseSchema schema,
         CancellationToken cancellationToken)
+        => TryEnsureSchemaIndexedAsync(schema, null, cancellationToken);
+
+    private async Task<bool> TryEnsureSchemaIndexedAsync(
+        DatabaseSchema schema,
+        string? connectionId = null,
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -1343,6 +1449,14 @@ public class EnhancedAgentOrchestrator
 
             var qdrantService = _serviceFactory.GetQdrantService();
             var schemaIndexer = _serviceFactory.GetSchemaIndexer();
+            var fingerprint = CreateSimpleFingerprint(schema);
+            var fingerprintCacheKey = connectionId ?? "__legacy__";
+
+            if (_indexedSchemaHashesByConnection.TryGetValue(fingerprintCacheKey, out var cachedHash) &&
+                string.Equals(cachedHash, fingerprint.Hash, StringComparison.Ordinal))
+            {
+                return true;
+            }
 
             // ✅ FIX #1: Increase timeout - 163 docs need several minutes
             // Use original cancellationToken, don't set hard timeout here
@@ -1353,15 +1467,16 @@ public class EnhancedAgentOrchestrator
             try
             {
                 await qdrantService.EnsureCollectionAsync(cts.Token);
-                var pointCount = await qdrantService.GetPointCountAsync(cts.Token);
+                var schemaAlreadyIndexed = await schemaIndexer.IsSchemaIndexedAsync(fingerprint, cts.Token);
 
-                if (pointCount == 0)
+                if (!schemaAlreadyIndexed)
                 {
                     _logger.LogInformation("[EnhancedAgent] Indexing schema to Qdrant...");
-                    var fingerprint = CreateSimpleFingerprint(schema);
 
                     // ✅ FIX #2: Check return value
-                    var result = await schemaIndexer.IndexSchemaAsync(schema, fingerprint, cts.Token);
+                    var result = connectionId != null
+                        ? await schemaIndexer.IndexSchemaAsync(schema, fingerprint, connectionId, cts.Token)
+                        : await schemaIndexer.IndexSchemaAsync(schema, fingerprint, cts.Token);
 
                     if (!result.Success)
                     {
@@ -1394,9 +1509,33 @@ public class EnhancedAgentOrchestrator
 
     private static SchemaFingerprint CreateSimpleFingerprint(DatabaseSchema schema)
     {
+        var normalizedTables = schema.Tables
+            .OrderBy(t => t.Schema)
+            .ThenBy(t => t.TableName)
+            .Select(table =>
+                $"{table.Schema}.{table.TableName}:" +
+                string.Join(
+                    ",",
+                    table.Columns
+                        .OrderBy(c => c.ColumnName)
+                        .Select(column =>
+                            $"{column.ColumnName}:{column.DataType}:{column.IsPrimaryKey}:{column.IsForeignKey}")))
+            .ToList();
+
+        var normalizedRelationships = schema.Relationships
+            .OrderBy(r => r.FromTable)
+            .ThenBy(r => r.FromColumn)
+            .ThenBy(r => r.ToTable)
+            .ThenBy(r => r.ToColumn)
+            .Select(r => $"{r.FromTable}.{r.FromColumn}>{r.ToTable}.{r.ToColumn}")
+            .ToList();
+
+        var normalizedSchema = string.Join("|", normalizedTables) + "||" + string.Join("|", normalizedRelationships);
+        var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(normalizedSchema));
+
         return new SchemaFingerprint
         {
-            Hash = Guid.NewGuid().ToString(), // Simple placeholder hash
+            Hash = Convert.ToHexString(hashBytes),
             ComputedAt = DateTime.UtcNow,
             TableCount = schema.Tables.Count,
             ColumnCount = schema.Tables.Sum(t => t.Columns.Count),
@@ -1430,6 +1569,27 @@ public class EnhancedAgentOrchestrator
         Action<string>? sqlTokenCallback = null,
         CancellationToken cancellationToken = default)
     {
+        return await ProcessMessageWithIntentRoutingAsync(
+            userQuestion,
+            connectionId,
+            conversationId,
+            conversationHistory,
+            persistedContext: null,
+            progress,
+            sqlTokenCallback,
+            cancellationToken);
+    }
+
+    public async Task<UnifiedPipelineResponse> ProcessMessageWithIntentRoutingAsync(
+        string userQuestion,
+        string connectionId,
+        string? conversationId,
+        List<Message>? conversationHistory,
+        SerializableConversationContext? persistedContext,
+        IProgress<AgentStageEvent>? progress,
+        Action<string>? sqlTokenCallback,
+        CancellationToken cancellationToken = default)
+    {
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         _logger.LogInformation("[EnhancedAgent] Processing with intent-based routing");
 
@@ -1437,7 +1597,16 @@ public class EnhancedAgentOrchestrator
         if (_intentClassifier == null)
         {
             _logger.LogWarning("[EnhancedAgent] Intent classifier not available, falling back to QUERY pipeline");
-            var queryResponse = await ProcessQueryAsync(userQuestion, conversationId, conversationHistory, progress, sqlTokenCallback, null, cancellationToken);
+            var queryResponse = await ProcessQueryInternalAsync(
+                userQuestion,
+                connectionId,
+                conversationId,
+                conversationHistory,
+                persistedContext,
+                progress,
+                sqlTokenCallback,
+                null,
+                cancellationToken);
             return _responseBuilder.BuildQueryResponse(queryResponse, null, stopwatch);
         }
 
@@ -1455,7 +1624,7 @@ public class EnhancedAgentOrchestrator
             // Step 1: Classify intent
             _logger.LogInformation("[EnhancedAgent] Step 1: Classifying intent");
 
-            var conversationContext = BuildConversationContext(conversationHistory);
+            var conversationContext = BuildConversationContext(conversationHistory, persistedContext);
             var databaseContext = await BuildDatabaseContextAsync(connectionId, cancellationToken);
 
             var intentResult = await _intentClassifier.ClassifyAsync(
@@ -1484,7 +1653,7 @@ public class EnhancedAgentOrchestrator
             return intentResult.Route switch
             {
                 PipelineRoute.Query => await RouteToQueryPipelineAsync(
-                    userQuestion, conversationId, conversationHistory, intentResult, stopwatch, progress, sqlTokenCallback, cancellationToken),
+                    userQuestion, connectionId, conversationId, conversationHistory, persistedContext, intentResult, stopwatch, progress, sqlTokenCallback, cancellationToken),
 
                 PipelineRoute.Write => await RouteToWritePipelineAsync(
                     userQuestion, connectionId, conversationId, intentResult, stopwatch, progress, cancellationToken),
@@ -1508,19 +1677,82 @@ public class EnhancedAgentOrchestrator
     }
 
     private string BuildConversationContext(List<Message>? conversationHistory)
+        => BuildConversationContext(conversationHistory, null);
+
+    private string BuildConversationContext(
+        List<Message>? conversationHistory,
+        SerializableConversationContext? persistedContext)
     {
-        if (conversationHistory == null || !conversationHistory.Any())
-            return string.Empty;
+        var context = new StringBuilder();
 
-        var context = new System.Text.StringBuilder();
-        context.AppendLine("Recent conversation:");
-
-        foreach (var msg in conversationHistory.TakeLast(5))
+        var structuredContext = GetStructuredPromptContext(persistedContext);
+        if (!string.IsNullOrWhiteSpace(structuredContext))
         {
-            context.AppendLine($"{msg.Role}: {msg.Content}");
+            context.AppendLine("Structured conversation memory:");
+            context.AppendLine(structuredContext);
+            context.AppendLine();
         }
 
-        return context.ToString();
+        if (conversationHistory?.Any() == true)
+        {
+            context.AppendLine("Recent conversation:");
+
+            foreach (var msg in conversationHistory.TakeLast(6))
+            {
+                context.AppendLine($"{msg.Role}: {msg.Content}");
+
+                if (msg.Role == "assistant" && !string.IsNullOrWhiteSpace(msg.SqlQuery))
+                {
+                    context.AppendLine($"assistant_sql: {msg.SqlQuery}");
+                }
+
+            }
+        }
+
+        return context.ToString().Trim();
+    }
+
+    private static string? GetStructuredPromptContext(SerializableConversationContext? persistedContext)
+    {
+        if (persistedContext == null)
+        {
+            return null;
+        }
+
+        var structuredContext = persistedContext.ToSystemPromptContext();
+        return string.Equals(structuredContext, "No previous conversation.", StringComparison.Ordinal)
+            ? null
+            : structuredContext;
+    }
+
+    private void ApplyPersistedContext(
+        ConversationContext context,
+        SerializableConversationContext? persistedContext)
+    {
+        if (persistedContext == null)
+        {
+            return;
+        }
+
+        foreach (var table in persistedContext.MentionedTables)
+        {
+            if (!context.RecentTables.Contains(table))
+            {
+                context.RecentTables.Add(table);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(persistedContext.LastSql) &&
+            string.IsNullOrWhiteSpace(context.LastSqlQuery))
+        {
+            context.LastSqlQuery = persistedContext.LastSql;
+        }
+
+        if (!string.IsNullOrWhiteSpace(persistedContext.LastResultSummary) &&
+            string.IsNullOrWhiteSpace(context.LastResultSummary))
+        {
+            context.LastResultSummary = persistedContext.LastResultSummary;
+        }
     }
 
     /// <summary>
@@ -1615,8 +1847,10 @@ public class EnhancedAgentOrchestrator
 
     private async Task<UnifiedPipelineResponse> RouteToQueryPipelineAsync(
         string userQuestion,
+        string connectionId,
         string? conversationId,
         List<Message>? conversationHistory,
+        SerializableConversationContext? persistedContext,
         IntentClassificationResult intentResult,
         System.Diagnostics.Stopwatch stopwatch,
         IProgress<AgentStageEvent>? progress,
@@ -1635,10 +1869,12 @@ public class EnhancedAgentOrchestrator
         });
 
         // ✅ TASK 1.2: Pass intentResult to avoid double classification
-        var queryResponse = await ProcessQueryAsync(
+        var queryResponse = await ProcessQueryInternalAsync(
             userQuestion,
+            connectionId,
             conversationId,
             conversationHistory,
+            persistedContext,
             progress,
             sqlTokenCallback,
             intentResult, // ← Pass pre-classified intent

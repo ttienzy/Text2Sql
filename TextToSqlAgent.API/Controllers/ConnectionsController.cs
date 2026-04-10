@@ -14,6 +14,7 @@ using TextToSqlAgent.Core.Models;
 using TextToSqlAgent.Infrastructure.Configuration;
 using TextToSqlAgent.Infrastructure.Database;
 using TextToSqlAgent.Infrastructure.RAG;
+using TextToSqlAgent.Infrastructure.VectorDB;
 
 namespace TextToSqlAgent.API.Controllers;
 
@@ -27,18 +28,24 @@ public class ConnectionsController : BaseController
     private readonly IConnectionService _connectionService;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IConnectionEncryptionService _encryptionService;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly ConnectionIndexingTracker _indexingTracker;
     private readonly EnhancedAgentOrchestrator? _orchestrator;
 
     public ConnectionsController(
         IConnectionService connectionService,
         IUnitOfWork unitOfWork,
         IConnectionEncryptionService encryptionService,
+        IServiceScopeFactory serviceScopeFactory,
+        ConnectionIndexingTracker indexingTracker,
         ILogger<ConnectionsController> logger,
         EnhancedAgentOrchestrator? orchestrator = null) : base(logger)
     {
         _connectionService = connectionService;
         _unitOfWork = unitOfWork;
         _encryptionService = encryptionService;
+        _serviceScopeFactory = serviceScopeFactory;
+        _indexingTracker = indexingTracker;
         _orchestrator = orchestrator;
     }
 
@@ -285,11 +292,81 @@ public class ConnectionsController : BaseController
     }
 
     /// <summary>
+    /// Get background semantic-indexing status for a connection.
+    /// </summary>
+    [HttpGet("{id}/indexing-status")]
+    public async Task<ActionResult<ConnectionIndexingStatusSnapshot>> GetIndexingStatus(string id)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(id) || !Guid.TryParse(id, out _))
+            {
+                return BadRequest(new { Message = "Invalid connection ID format" });
+            }
+
+            var userId = GetRequiredUserId();
+            var connection = await _unitOfWork.Connections.GetByIdAndUserIdAsync(id, userId);
+            if (connection == null)
+            {
+                return NotFound(new { Message = "Connection not found" });
+            }
+
+            var trackedStatus = _indexingTracker.Get(id);
+            if (trackedStatus != null)
+            {
+                return Ok(trackedStatus);
+            }
+
+            var connectionString = _encryptionService.GetConnectionString(connection);
+            var databaseName = ResolveDatabaseName(connection, connectionString);
+            var indexedPointCount = 0;
+            var collectionExists = false;
+
+            if (!string.IsNullOrWhiteSpace(databaseName))
+            {
+                var qdrantService = HttpContext.RequestServices.GetRequiredService<QdrantService>();
+                qdrantService.SetCollectionName(databaseName);
+                collectionExists = await qdrantService.CollectionExistsAsync();
+
+                if (collectionExists)
+                {
+                    var collectionInfo = await qdrantService.GetCollectionInfoAsync();
+                    indexedPointCount = (int)(collectionInfo?.PointsCount ?? 0);
+                }
+            }
+
+            var schemaCache = HttpContext.RequestServices.GetRequiredService<ISchemaCache>();
+            var schema = await schemaCache.GetAsync(id);
+
+            return Ok(new ConnectionIndexingStatusSnapshot
+            {
+                ConnectionId = id,
+                Status = collectionExists && indexedPointCount > 0 ? "completed" : "idle",
+                Stage = collectionExists && indexedPointCount > 0 ? "completed" : "idle",
+                Message = collectionExists && indexedPointCount > 0
+                    ? "Semantic index is ready."
+                    : "No indexing job is currently running.",
+                ProgressPercent = collectionExists && indexedPointCount > 0 ? 100 : 0,
+                SchemaCached = schema != null,
+                ChatReady = schema != null,
+                IndexedPointCount = indexedPointCount,
+                CompletedAt = collectionExists && indexedPointCount > 0 ? connection.SchemaSyncedAt : null
+            });
+        }
+        catch (Exception ex)
+        {
+            return HandleException(ex, $"getting indexing status for connection {id}");
+        }
+    }
+
+    /// <summary>
     /// Enhanced connection test with schema indexing check and auto indexing
     /// </summary>
     [HttpPost("{id}/test-enhanced")]
     public async Task<ActionResult<EnhancedTestConnectionResult>> TestConnectionEnhanced(string id)
     {
+        return await TestConnectionEnhancedInternal(id);
+
         try
         {
             if (string.IsNullOrWhiteSpace(id) || !Guid.TryParse(id, out _))
@@ -472,6 +549,199 @@ public class ConnectionsController : BaseController
         }
     }
 
+    private async Task<ActionResult<EnhancedTestConnectionResult>> TestConnectionEnhancedInternal(string id)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(id) || !Guid.TryParse(id, out _))
+            {
+                return BadRequest(new { Message = "Invalid connection ID format" });
+            }
+
+            var userId = GetRequiredUserId();
+            var connection = await _unitOfWork.Connections.GetByIdAndUserIdAsync(id, userId);
+            if (connection == null)
+            {
+                return NotFound(new { Message = "Connection not found" });
+            }
+
+            var basicResult = await _connectionService.TestConnectionAsync(id, userId);
+
+            var result = new EnhancedTestConnectionResult
+            {
+                Success = basicResult.Success,
+                DatabaseConnection = new DatabaseConnectionResult
+                {
+                    Success = basicResult.Success,
+                    ResponseTime = basicResult.ResponseTime.TotalMilliseconds.ToString("F0") + "ms",
+                    DatabaseVersion = basicResult.DatabaseVersion ?? "Unknown",
+                    ErrorMessage = basicResult.ErrorMessage
+                },
+                ReadyForChat = false
+            };
+
+            if (!basicResult.Success)
+            {
+                return Ok(result);
+            }
+
+            try
+            {
+                var connectionString = _encryptionService.GetConnectionString(connection);
+                var databaseName = ResolveDatabaseName(connection, connectionString);
+
+                if (string.IsNullOrWhiteSpace(databaseName))
+                {
+                    result.SchemaIndexing = new SchemaIndexingResult
+                    {
+                        CollectionExists = false,
+                        Status = "failed",
+                        Stage = "database",
+                        StatusMessage = "Could not determine the database name for semantic indexing.",
+                        ErrorMessage = "Could not extract database name from connection string"
+                    };
+                    return Ok(result);
+                }
+
+                DatabaseSchema schema;
+                using (DatabaseConfigContext.SetConnectionString(connectionString))
+                {
+                    var schemaScanner = HttpContext.RequestServices.GetRequiredService<SchemaScanner>();
+                    schema = await schemaScanner.ScanAsync();
+
+                    var schemaCache = HttpContext.RequestServices.GetRequiredService<ISchemaCache>();
+                    await schemaCache.SetAsync(id, schema);
+                }
+
+                if (schema.Tables.Count == 0)
+                {
+                    result.SchemaIndexing = new SchemaIndexingResult
+                    {
+                        Status = "failed",
+                        Stage = "schema_cached",
+                        SchemaCached = false,
+                        StatusMessage = "Schema scan returned no tables.",
+                        ErrorMessage = "No tables were discovered during schema scan."
+                    };
+                    return Ok(result);
+                }
+
+                var fingerprint = BuildSchemaFingerprint(schema);
+                var expectedPointCount = GetExpectedPointCount(schema);
+
+                result.ReadyForChat = true;
+                result.SchemaIndexing = new SchemaIndexingResult
+                {
+                    SchemaCached = true,
+                    CanUseChatWhileIndexing = true,
+                    TableCount = schema.Tables.Count,
+                    ColumnCount = schema.Tables.Sum(t => t.Columns.Count),
+                    RelationshipCount = schema.Relationships.Count,
+                    ExpectedPointCount = expectedPointCount,
+                    Status = "checking",
+                    Stage = "schema_cached",
+                    ProgressPercent = 35,
+                    StatusMessage = $"Schema cached successfully ({schema.Tables.Count} tables)."
+                };
+
+                var collectionName = CollectionNameHelper.NormalizeCollectionName(databaseName);
+                _logger.LogInformation(
+                    "Checking semantic index for database '{DatabaseName}' with collection '{CollectionName}'",
+                    databaseName,
+                    collectionName);
+
+                var qdrantService = HttpContext.RequestServices.GetRequiredService<QdrantService>();
+                var schemaIndexer = HttpContext.RequestServices.GetRequiredService<SchemaIndexer>();
+
+                qdrantService.SetCollectionName(databaseName);
+
+                var collectionExists = await qdrantService.CollectionExistsAsync();
+                var indexedPointCount = 0;
+                if (collectionExists)
+                {
+                    var collectionInfo = await qdrantService.GetCollectionInfoAsync();
+                    indexedPointCount = (int)(collectionInfo?.PointsCount ?? 0);
+                }
+
+                var fingerprintMatched = collectionExists &&
+                    await schemaIndexer.IsSchemaIndexedAsync(fingerprint);
+
+                result.SchemaIndexing.CollectionExists = collectionExists;
+                result.SchemaIndexing.IndexedPointCount = indexedPointCount;
+                result.SchemaIndexing.SchemasIndexed = indexedPointCount;
+                result.SchemaIndexing.FingerprintMatched = fingerprintMatched;
+
+                if (fingerprintMatched && indexedPointCount >= expectedPointCount)
+                {
+                    result.SchemaIndexing.Status = "completed";
+                    result.SchemaIndexing.Stage = "completed";
+                    result.SchemaIndexing.ProgressPercent = 100;
+                    result.SchemaIndexing.StatusMessage =
+                        $"Semantic index is current ({indexedPointCount}/{expectedPointCount} points).";
+
+                    await _unitOfWork.Connections.UpdateSchemaSyncedAsync(id);
+                    await _unitOfWork.SaveChangesAsync();
+
+                    return Ok(result);
+                }
+
+                var trackingSnapshot = _indexingTracker.StartOrGetExisting(
+                    id,
+                    state =>
+                    {
+                        state.Status = "queued";
+                        state.Stage = "schema_cached";
+                        state.Message = "Schema is ready. Semantic indexing is queued in the background.";
+                        state.ProgressPercent = 40;
+                        state.SchemaCached = true;
+                        state.ChatReady = true;
+                        state.FingerprintMatched = fingerprintMatched;
+                        state.TableCount = schema.Tables.Count;
+                        state.ColumnCount = schema.Tables.Sum(t => t.Columns.Count);
+                        state.RelationshipCount = schema.Relationships.Count;
+                        state.ExpectedPointCount = expectedPointCount;
+                        state.IndexedPointCount = indexedPointCount;
+                        state.StartedAt = DateTime.UtcNow;
+                    },
+                    out var backgroundStarted);
+
+                if (backgroundStarted)
+                {
+                    _ = Task.Run(() => RunBackgroundSchemaIndexingAsync(
+                        id,
+                        databaseName,
+                        schema,
+                        fingerprint,
+                        expectedPointCount));
+                }
+
+                ApplyTrackingSnapshot(result.SchemaIndexing, trackingSnapshot);
+                result.SchemaIndexing.AutoIndexed = true;
+                result.SchemaIndexing.BackgroundIndexingStarted = backgroundStarted;
+                result.SchemaIndexing.StatusMessage = trackingSnapshot.Message;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking schema indexing for connection {ConnectionId}", id);
+                result.SchemaIndexing = new SchemaIndexingResult
+                {
+                    CollectionExists = false,
+                    Status = "failed",
+                    Stage = "schema_cached",
+                    SchemaCached = false,
+                    StatusMessage = "Schema indexing setup failed.",
+                    ErrorMessage = $"Schema indexing check failed: {ex.Message}"
+                };
+            }
+
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            return HandleException(ex, $"testing enhanced connection {id}");
+        }
+    }
+
     /// <summary>
     /// Extract database name from connection string
     /// </summary>
@@ -479,14 +749,149 @@ public class ConnectionsController : BaseController
     {
         try
         {
-            // Parse SQL Server connection string
-            var builder = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(connectionString);
+            var builder = new SqlConnectionStringBuilder(connectionString);
             return builder.InitialCatalog;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to parse connection string to extract database name");
             return string.Empty;
+        }
+    }
+
+    private string ResolveDatabaseName(TextToSqlAgent.Infrastructure.Entities.Connection connection, string connectionString)
+    {
+        if (!string.IsNullOrWhiteSpace(connection.Database))
+        {
+            return connection.Database;
+        }
+
+        return ExtractDatabaseNameFromConnectionString(connectionString);
+    }
+
+    private static SchemaFingerprint BuildSchemaFingerprint(DatabaseSchema schema)
+    {
+        var hash = SHA256.HashData(
+            Encoding.UTF8.GetBytes(
+                string.Join(",",
+                    schema.Tables
+                        .OrderBy(t => t.TableName)
+                        .Select(t => $"{t.TableName}:{string.Join(",", t.Columns.OrderBy(c => c.ColumnName).Select(c => c.ColumnName))}"))));
+
+        return new SchemaFingerprint
+        {
+            Hash = Convert.ToHexString(hash),
+            ComputedAt = DateTime.UtcNow,
+            TableCount = schema.Tables.Count,
+            ColumnCount = schema.Tables.Sum(t => t.Columns.Count),
+            RelationshipCount = schema.Relationships.Count,
+            TableNames = schema.Tables.Select(t => t.TableName).OrderBy(n => n).ToList()
+        };
+    }
+
+    private static int GetExpectedPointCount(DatabaseSchema schema)
+    {
+        return schema.Tables.Count + schema.Tables.Sum(t => t.Columns.Count) + schema.Relationships.Count + 1;
+    }
+
+    private static void ApplyTrackingSnapshot(
+        SchemaIndexingResult result,
+        ConnectionIndexingStatusSnapshot snapshot)
+    {
+        result.Status = snapshot.Status;
+        result.Stage = snapshot.Stage;
+        result.ProgressPercent = snapshot.ProgressPercent;
+        result.StatusMessage = snapshot.Message;
+        result.SchemaCached = snapshot.SchemaCached;
+        result.CanUseChatWhileIndexing = snapshot.ChatReady;
+        result.FingerprintMatched = snapshot.FingerprintMatched;
+        result.TableCount = snapshot.TableCount;
+        result.ColumnCount = snapshot.ColumnCount;
+        result.RelationshipCount = snapshot.RelationshipCount;
+        result.ExpectedPointCount = snapshot.ExpectedPointCount;
+        result.IndexedPointCount = snapshot.IndexedPointCount;
+        result.SchemasIndexed = snapshot.IndexedPointCount;
+        result.ErrorMessage = snapshot.ErrorMessage;
+    }
+
+    private async Task RunBackgroundSchemaIndexingAsync(
+        string connectionId,
+        string databaseName,
+        DatabaseSchema schema,
+        SchemaFingerprint fingerprint,
+        int expectedPointCount)
+    {
+        try
+        {
+            _indexingTracker.Update(connectionId, state =>
+            {
+                state.Status = "indexing";
+                state.Stage = "collection_preparation";
+                state.Message = "Preparing semantic index in Qdrant...";
+                state.ProgressPercent = 55;
+            });
+
+            using var scope = _serviceScopeFactory.CreateScope();
+            var qdrantService = scope.ServiceProvider.GetRequiredService<QdrantService>();
+            var schemaIndexer = scope.ServiceProvider.GetRequiredService<SchemaIndexer>();
+            var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+
+            qdrantService.SetCollectionName(databaseName);
+
+            _indexingTracker.Update(connectionId, state =>
+            {
+                state.Stage = "embedding";
+                state.Message = "Generating embeddings and uploading schema to Qdrant...";
+                state.ProgressPercent = 75;
+            });
+
+            var indexingStartedAt = DateTime.UtcNow;
+            var indexResult = await schemaIndexer.IndexSchemaAsync(schema, fingerprint, connectionId);
+
+            if (!indexResult.Success)
+            {
+                _indexingTracker.Update(connectionId, state =>
+                {
+                    state.Status = "failed";
+                    state.Stage = "indexing";
+                    state.Message = "Semantic indexing failed, but chat can still use cached schema.";
+                    state.ProgressPercent = 100;
+                    state.ErrorMessage = indexResult.ErrorMessage ?? "Unknown semantic-indexing failure.";
+                    state.CompletedAt = DateTime.UtcNow;
+                });
+                return;
+            }
+
+            var collectionInfo = await qdrantService.GetCollectionInfoAsync();
+            var indexedPointCount = (int)(collectionInfo?.PointsCount ?? (indexResult.PointsIndexed + 1));
+
+            await unitOfWork.Connections.UpdateSchemaSyncedAsync(connectionId);
+            await unitOfWork.SaveChangesAsync();
+
+            var indexingDuration = DateTime.UtcNow - indexingStartedAt;
+            _indexingTracker.Update(connectionId, state =>
+            {
+                state.Status = "completed";
+                state.Stage = "completed";
+                state.Message = $"Semantic index ready ({indexedPointCount}/{expectedPointCount} points in {indexingDuration.TotalSeconds:F1}s).";
+                state.ProgressPercent = 100;
+                state.FingerprintMatched = true;
+                state.IndexedPointCount = indexedPointCount;
+                state.CompletedAt = DateTime.UtcNow;
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Background semantic indexing failed for connection {ConnectionId}", connectionId);
+            _indexingTracker.Update(connectionId, state =>
+            {
+                state.Status = "failed";
+                state.Stage = "indexing";
+                state.Message = "Semantic indexing failed, but chat can still use cached schema.";
+                state.ProgressPercent = 100;
+                state.ErrorMessage = ex.Message;
+                state.CompletedAt = DateTime.UtcNow;
+            });
         }
     }
 
@@ -744,7 +1149,20 @@ public class SchemaIndexingResult
 {
     public bool CollectionExists { get; set; }
     public int SchemasIndexed { get; set; }
+    public int IndexedPointCount { get; set; }
+    public int ExpectedPointCount { get; set; }
+    public int TableCount { get; set; }
+    public int ColumnCount { get; set; }
+    public int RelationshipCount { get; set; }
     public bool AutoIndexed { get; set; }
+    public bool BackgroundIndexingStarted { get; set; }
+    public bool FingerprintMatched { get; set; }
+    public bool SchemaCached { get; set; }
+    public bool CanUseChatWhileIndexing { get; set; }
+    public string Status { get; set; } = "idle";
+    public string Stage { get; set; } = "idle";
+    public string StatusMessage { get; set; } = string.Empty;
+    public int ProgressPercent { get; set; }
     public string? IndexingTime { get; set; }
     public string? ErrorMessage { get; set; }
 }

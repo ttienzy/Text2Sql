@@ -778,34 +778,51 @@ const optimizeQuery = async (sql) => {
 
 **Backend:**
 - [x] Install `Microsoft.SqlServer.TransactSql.ScriptDom` NuGet package
-- [ ] Implement `QueryNormalizer` using ScriptDom
+- [x] Implement `QueryNormalizer` using ScriptDom
   - Parse SQL to AST
   - Generate normalized SQL
   - Hash for cache key
-- [ ] Implement `QueryMetadataVisitor` (TSqlFragmentVisitor)
+- [x] Implement `QueryMetadataVisitor` (TSqlFragmentVisitor)
   - Extract tables, columns, joins
   - Count complexity metrics
   - Detect anti-patterns during traversal
-- [ ] Implement `SchemaEnricher` with direct Redis lookup
+- [x] Implement `StaticAnalyzer` (orchestrator for AST parsing)
+  - Parse query using TSql160Parser
+  - Apply QueryMetadataVisitor
+  - Return metadata and detected issues
+- [x] Implement `SchemaEnricher` with direct Redis lookup
   - O(1) cache lookup by table name
   - Fallback to INFORMATION_SCHEMA
-- [ ] Create `QueryOptimizerController` với `/analyze` endpoint
-- [ ] Add focused prompts cho GPT-4o-mini
+- [x] Implement `ComplexityDetector` for auto model selection
+  - Calculate complexity score from metadata
+  - Select appropriate LLM model (GPT-4o-mini/GPT-4o/o3-mini)
+- [x] Implement `QueryOptimizerService` (main orchestrator)
+  - 4-layer pipeline integration
+  - Normalization → Static Analysis → Schema Enrichment → LLM Optimization
+- [x] Create data models (QueryMetadata.cs, SchemaContext.cs, AntiPattern.cs)
+- [x] Create `QueryOptimizerController` with `/analyze` endpoint
+- [x] Create DTOs (OptimizeQueryRequest.cs, OptimizeQueryResponse.cs)
+- [x] Add focused prompts for GPT-4o-mini (optimize-query.skprompt.txt)
+- [x] Register services in Program.cs with DI extension
 
 **Frontend:**
-- [ ] Create `QueryLab.jsx` page với split editor
-- [ ] Implement `SqlEditor` component (Monaco Editor)
-- [ ] Implement `OptimizedSqlViewer` component
-- [ ] Implement `AntiPatternList` component
-- [ ] Add navigation link to sidebar
+- [x] Create `QueryLab.jsx` page with split editor
+- [x] Implement `SqlEditor` component (Monaco Editor)
+- [x] Implement `OptimizedSqlViewer` component
+- [x] Implement `AntiPatternList` component
+- [x] Add navigation link to sidebar
+- [x] Install @monaco-editor/react package
+- [x] Create API hooks (queries.js, mutations.js)
+- [x] Add route to App.jsx
+- [x] Export QueryLabPage from pages/index.js
 
 **Testing:**
-- [ ] Unit tests cho QueryNormalizer (same query, different formatting)
-- [ ] Unit tests cho QueryMetadataVisitor (extract tables/joins)
-- [ ] Integration test cho /analyze endpoint
-- [ ] Manual UI testing
+- [x] Unit tests for QueryNormalizer (same query, different formatting)
+- [x] Unit tests for QueryMetadataVisitor (extract tables/joins, detect anti-patterns)
+- [x] Integration test for /analyze endpoint
+- [x] Manual UI testing
 
-**Deliverable:** Basic Query Lab với AST parsing + static analysis + GPT-4o optimization
+**Deliverable:** Basic Query Lab with AST parsing + static analysis + GPT-4o optimization
 
 **NO Regex, NO Qdrant, NO Query Execution** ✅
 
@@ -814,26 +831,26 @@ const optimizeQuery = async (sql) => {
 ### Sprint 2 — Execution Plan & Data Skew (1 tuần)
 
 **Backend:**
-- [ ] Implement `ExecutionPlanService`
+- [x] Implement `ExecutionPlanService`
   - `GetEstimatedPlanAsync()` using SHOWPLAN_XML
   - Parse XML to extract cost, operators, warnings
   - `ComparePlansAsync()` for before/after
-- [ ] Implement `ColumnStatisticsService`
+- [x] Implement `ColumnStatisticsService`
   - Query statistics from sys.dm_db_stats_properties
   - Calculate data skew factor
   - Cache statistics (24h TTL)
-- [ ] Enhance LLM prompts với data skew context
-- [ ] Implement caching cho optimization results (Redis)
+- [x] Enhance LLM prompts với data skew context
+- [x] Implement caching cho optimization results (Redis)
 - [ ] Add o3-mini model support
 
 **Frontend:**
-- [ ] Implement `ExecutionPlanVisualizer` component
+- [x] Implement `ExecutionPlanVisualizer` component
   - Tree view of operators
   - Color-coded by cost (red/orange/green)
   - Side-by-side comparison
-- [ ] Implement `DataSkewIndicator` component
-- [ ] Add connection selector dropdown
-- [ ] Add loading states và progress indicators
+- [x] Implement `DataSkewIndicator` component
+- [x] Add connection selector dropdown
+- [x] Add loading states và progress indicators
 
 **Testing:**
 - [ ] Test execution plan parsing với real queries
@@ -847,19 +864,19 @@ const optimizeQuery = async (sql) => {
 ### Sprint 3 — Streaming & Polish (1 tuần)
 
 **Backend:**
-- [ ] Implement SSE streaming endpoint
+- [ ] Implement SSE streaming endpoint (deferred - o3-mini not available yet)
   - Phase-by-phase progress updates
   - Real-time status messages
-- [ ] Add iterative refinement cho complex queries (2-pass)
-- [ ] Implement audit logging cho optimizations
-- [ ] Add rate limiting cho LLM calls
+- [ ] Add iterative refinement cho complex queries (2-pass) (deferred)
+- [ ] Implement audit logging cho optimizations (deferred)
+- [ ] Add rate limiting cho LLM calls (deferred)
 
 **Frontend:**
-- [ ] Implement SSE client với EventSource
-- [ ] Add progress bar với phase indicators
-- [ ] Add "Apply to Chat" integration
-- [ ] Add "Copy DDL" buttons cho index suggestions
-- [ ] Polish UI/UX (animations, tooltips)
+- [ ] Implement SSE client với EventSource (deferred)
+- [ ] Add progress bar với phase indicators (deferred)
+- [x] Add "Apply to Chat" integration
+- [x] Add "Copy DDL" buttons cho index suggestions
+- [x] Polish UI/UX (animations, tooltips)
 
 **Testing:**
 - [ ] End-to-end testing với real queries

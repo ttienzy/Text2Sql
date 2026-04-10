@@ -4,6 +4,9 @@ using TextToSqlAgent.Application.Pipelines.Forbidden;
 using TextToSqlAgent.Application.Pipelines.Write;
 using TextToSqlAgent.Application.Routing;
 using TextToSqlAgent.Application.Services;
+using TextToSqlAgent.Application.Services.Advanced;
+using TextToSqlAgent.Application.Services.Correction;
+using TextToSqlAgent.Application.Services.Validation;
 using TextToSqlAgent.Core.Interfaces;
 
 namespace TextToSqlAgent.Application.DependencyInjection;
@@ -20,6 +23,27 @@ public static class IntentPipelineServiceExtensions
     {
         // Intent Classification
         services.AddScoped<IIntentClassifier, IntentClassifier>();
+
+        // Query Complexity Analyzer (NEW - Phase 1)
+        services.AddScoped<QueryComplexityAnalyzer>();
+
+        // Smart Query Router (NEW - Phase 1)
+        services.AddScoped<SmartQueryRouter>();
+
+        // Conversation Context Extractor (NEW - Phase 2)
+        services.AddScoped<ConversationContextExtractor>();
+
+        // Semantic SQL Validator (NEW - Phase 3)
+        services.AddScoped<SemanticSqlValidator>();
+
+        // Multi-Agent Correction System (NEW - Phase 3)
+        services.AddScoped<MultiAgentCorrectionSystem>();
+
+        // Query Decomposer (NEW - Phase 4)
+        services.AddScoped<QueryDecomposer>();
+
+        // Confidence Estimator (NEW - Phase 4)
+        services.AddScoped<ConfidenceEstimator>();
 
         // Semantic Table Resolution (NEW!)
         services.AddScoped<ISemanticTableResolver, LlmSemanticTableResolver>();

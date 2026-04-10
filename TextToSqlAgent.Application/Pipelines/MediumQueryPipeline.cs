@@ -491,31 +491,60 @@ SQL đã sửa:";
 
     private bool ShouldEscalate(string sql, SqlExecutionResult executionResult, double ambiguityScore)
     {
-        // Check for nested subqueries
+        // ✅ IMPROVED: Smarter escalation rules - less aggressive
         var upperSql = sql.ToUpperInvariant();
         var subqueryCount = CountSubqueries(upperSql);
 
-        if (subqueryCount > MaxAllowedSubqueries)
+        // ✅ CHANGED: Allow up to 2 subqueries (was 1)
+        if (subqueryCount > 2)
         {
-            _logger.LogWarning("[MediumQueryPipeline] Detected {Count} subqueries, escalating to Complex", subqueryCount);
+            _logger.LogWarning("[MediumQueryPipeline] Detected {Count} subqueries (>2), escalating to Complex", subqueryCount);
             return true;
         }
 
-        // Check for high ambiguity score
-        if (ambiguityScore > HighAmbiguityThreshold)
+        // ✅ CHANGED: Higher ambiguity threshold (0.8 instead of 0.7)
+        if (ambiguityScore > 0.8)
         {
-            _logger.LogWarning("[MediumQueryPipeline] High ambiguity score {Score}, escalating to Complex", ambiguityScore);
+            _logger.LogWarning("[MediumQueryPipeline] High ambiguity score {Score} (>0.8), escalating to Complex", ambiguityScore);
             return true;
         }
 
-        // Check for 0 rows after execution
+        // ✅ IMPROVED: Only escalate 0 rows if query has complex filters
         if (executionResult.Rows == null || executionResult.Rows.Count == 0)
         {
-            _logger.LogWarning("[MediumQueryPipeline] 0 rows returned, escalating to Complex");
-            return true;
+            // Check if SQL has complex filters that might need different approach
+            if (HasComplexFilters(upperSql))
+            {
+                _logger.LogWarning("[MediumQueryPipeline] 0 rows with complex filters, escalating to Complex");
+                return true;
+            }
+            else
+            {
+                // 0 rows but simple query - probably just no matching data, don't escalate
+                _logger.LogInformation("[MediumQueryPipeline] 0 rows but simple filters - likely no matching data");
+                return false;
+            }
         }
 
         return false;
+    }
+
+    private bool HasComplexFilters(string upperSql)
+    {
+        // Check for complex filter patterns
+        var complexPatterns = new[]
+        {
+            "CASE WHEN",
+            "COALESCE",
+            "CAST(",
+            "CONVERT(",
+            "DATEADD",
+            "DATEDIFF",
+            "SUBSTRING",
+            "CHARINDEX"
+        };
+
+        return complexPatterns.Any(p => upperSql.Contains(p));
     }
 
     private int CountSubqueries(string sql)

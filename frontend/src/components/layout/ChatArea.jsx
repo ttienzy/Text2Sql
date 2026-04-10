@@ -85,6 +85,20 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
   const { currentConversation, messages, setMessages, updateConversationInList } = useConversationStore();
   const { activeConnection } = useConnectionStore();
   const queryClient = useQueryClient();
+  const currentConversationRef = useRef(currentConversation);
+  const currentQuestionRef = useRef(currentQuestion);
+
+  const updateMessages = useCallback((updater) => {
+    setMessages(updater);
+  }, [setMessages]);
+
+  useEffect(() => {
+    currentConversationRef.current = currentConversation;
+  }, [currentConversation]);
+
+  useEffect(() => {
+    currentQuestionRef.current = currentQuestion;
+  }, [currentQuestion]);
 
   // React Query - fetch messages
   const {
@@ -129,7 +143,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
         isOptimistic: true,
       };
 
-      setMessages([...messages, userMessage]);
+      updateMessages((prev) => [...prev, userMessage]);
 
       return { userMessage };
     },
@@ -138,12 +152,10 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
       setCurrentQuestion('');
 
       // Remove optimistic messages and add real ones
-      const filteredMessages = messages.filter(m => !m.isOptimistic && !m.isPending);
-
       // Create user message
       const userMessage = {
         id: getUniqueId('user'),
-        conversationId: currentConversation?.id,
+        conversationId: currentConversationRef.current?.id,
         role: 'user',
         content: variables.question,
         createdAt: new Date().toISOString(),
@@ -172,7 +184,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
       // Create assistant message with rich content
       const assistantMessage = {
         id: getUniqueId('assistant'),
-        conversationId: currentConversation?.id,
+        conversationId: currentConversationRef.current?.id,
         role: 'assistant',
         content: answer,
         sqlQuery: sqlQuery,
@@ -192,7 +204,10 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
         requiresConfirmation: unifiedResponse.requiresConfirmation,
       };
 
-      setMessages([...filteredMessages, userMessage, assistantMessage]);
+      updateMessages((prev) => {
+        const filteredMessages = prev.filter((message) => !message.isOptimistic && !message.isPending);
+        return [...filteredMessages, userMessage, assistantMessage];
+      });
 
       // ✅ FIX: Dispatch approval event when requiresConfirmation=true (for NotificationBell)
       if (unifiedResponse.requiresConfirmation) {
@@ -227,8 +242,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
       setCurrentQuestion('');
 
       // Remove optimistic messages on error
-      const filteredMessages = messages.filter(m => !m.isOptimistic && !m.isPending);
-      setMessages(filteredMessages);
+      updateMessages((prev) => prev.filter((message) => !message.isOptimistic && !message.isPending));
 
       // ✅ P1: Handle SCHEMA_NOT_LOADED error with actionable UI
       if (error.response?.data?.error === 'SCHEMA_NOT_LOADED') {
@@ -273,7 +287,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
       const errorMsg = error.response?.data?.message || error.message || 'Failed to process message';
 
       // ✅ FIX: Build suggestedQueries from error context for ErrorRecovery UI
-      const lastQuery = variables?.question || currentQuestion;
+      const lastQuery = variables?.question || currentQuestionRef.current;
       const suggestions = lastQuery ? [
         `Show all tables in the database`,
         `${lastQuery} (simplified)`,
@@ -281,7 +295,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
 
       const errorAssistant = {
         id: getUniqueId('error'),
-        conversationId: currentConversation?.id,
+        conversationId: currentConversationRef.current?.id,
         role: 'assistant',
         content: errorMsg,
         success: false,
@@ -290,8 +304,10 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
         suggestedQueries: suggestions,
         createdAt: new Date().toISOString(),
       };
-      const cleanMessages = messages.filter(m => !m.isOptimistic && !m.isPending);
-      setMessages([...cleanMessages, errorAssistant]);
+      updateMessages((prev) => {
+        const cleanMessages = prev.filter((message) => !message.isOptimistic && !message.isPending);
+        return [...cleanMessages, errorAssistant];
+      });
 
       message.error(errorMsg);
     },
@@ -410,7 +426,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
         createdAt: new Date().toISOString(),
         isOptimistic: true,
       };
-      setMessages([...messages, userMessage]);
+      updateMessages((prev) => [...prev, userMessage]);
 
       // ✅ SSE STREAMING: Fire the real-time stream
       // Result handling is done via useEffect watchers below
@@ -492,8 +508,10 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
         createdAt: new Date().toISOString(),
       };
 
-      const currentMessages = messages.filter(m => !m.isPending);
-      setMessages([...currentMessages, successMessage]);
+      updateMessages((prev) => {
+        const currentMessages = prev.filter((message) => !message.isPending);
+        return [...currentMessages, successMessage];
+      });
 
       setShowWriteModal(false);
       setWritePreview(null);
@@ -520,8 +538,10 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
         createdAt: new Date().toISOString(),
       };
 
-      const currentMessages = messages.filter(m => !m.isPending);
-      setMessages([...currentMessages, errorMessage]);
+      updateMessages((prev) => {
+        const currentMessages = prev.filter((message) => !message.isPending);
+        return [...currentMessages, errorMessage];
+      });
 
       message.error(errorMsg);
     } finally {
@@ -554,8 +574,10 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
         createdAt: new Date().toISOString(),
       };
 
-      const currentMessages = messages.filter(m => !m.isPending);
-      setMessages([...currentMessages, rejectionMessage]);
+      updateMessages((prev) => {
+        const currentMessages = prev.filter((message) => !message.isPending);
+        return [...currentMessages, rejectionMessage];
+      });
     }
 
     setForbiddenResult(null);
@@ -565,6 +587,9 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
   // ✅ SSE RESULT WATCHER — convert SSE result into assistant message
   useEffect(() => {
     if (!sseResult) return;
+
+    const pendingQuestion = currentQuestionRef.current;
+    const activeConversation = currentConversationRef.current;
 
     // Check pipeline type to route to appropriate handler
     const pipelineType = sseResult.pipeline || sseResult.Pipeline;
@@ -577,15 +602,17 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
         setShowForbiddenAlert(true);
 
         // Add user message to chat
-        const filteredMessages = messages.filter(m => !m.isOptimistic && !m.isPending);
         const userMessage = {
           id: getUniqueId('user'),
-          conversationId: currentConversation?.id,
+          conversationId: activeConversation?.id,
           role: 'user',
-          content: currentQuestion,
+          content: pendingQuestion,
           createdAt: new Date().toISOString(),
         };
-        setMessages([...filteredMessages, userMessage]);
+        updateMessages((prev) => {
+          const filteredMessages = prev.filter((message) => !message.isOptimistic && !message.isPending);
+          return [...filteredMessages, userMessage];
+        });
 
         resetStream();
         return; // Don't add assistant message - alert will handle display
@@ -597,19 +624,21 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
       const preview = sseResult.data?.preview;
       if (preview && sseResult.requiresConfirmation) {
         setWritePreview(preview);
-        setPendingQuestion(currentQuestion);
+        setPendingQuestion(pendingQuestion);
         setShowWriteModal(true);
 
         // Add user message to chat
-        const filteredMessages = messages.filter(m => !m.isOptimistic && !m.isPending);
         const userMessage = {
           id: getUniqueId('user'),
-          conversationId: currentConversation?.id,
+          conversationId: activeConversation?.id,
           role: 'user',
-          content: currentQuestion,
+          content: pendingQuestion,
           createdAt: new Date().toISOString(),
         };
-        setMessages([...filteredMessages, userMessage]);
+        updateMessages((prev) => {
+          const filteredMessages = prev.filter((message) => !message.isOptimistic && !message.isPending);
+          return [...filteredMessages, userMessage];
+        });
 
         resetStream();
         return; // Don't add assistant message yet - wait for confirmation
@@ -623,14 +652,12 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
     }
 
     // Default: QUERY operation or other types
-    const filteredMessages = messages.filter(m => !m.isOptimistic && !m.isPending);
-
     // Build user message from the current question
     const userMessage = {
       id: getUniqueId('user'),
-      conversationId: currentConversation?.id,
+      conversationId: activeConversation?.id,
       role: 'user',
-      content: currentQuestion,
+      content: pendingQuestion,
       createdAt: new Date().toISOString(),
     };
 
@@ -680,7 +707,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
     // Build assistant message from SSE result
     const assistantMessage = {
       id: getUniqueId('assistant'),
-      conversationId: currentConversation?.id,
+      conversationId: activeConversation?.id,
       role: 'assistant',
       content: answer || sseResult.errorMessage || 'Query processed.',
       sqlQuery: sqlQuery,
@@ -694,7 +721,10 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
       correlationId: sseResult.correlationId,
     };
 
-    setMessages([...filteredMessages, userMessage, assistantMessage]);
+    updateMessages((prev) => {
+      const filteredMessages = prev.filter((message) => !message.isOptimistic && !message.isPending);
+      return [...filteredMessages, userMessage, assistantMessage];
+    });
     setCurrentQuestion('');
 
     // Dispatch approval event if needed (for non-WRITE operations)
@@ -702,7 +732,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
       window.dispatchEvent(new CustomEvent('agent:approval-needed', {
         detail: {
           sessionId: sseResult.correlationId,
-          question: currentQuestion,
+          question: pendingQuestion,
           sqlPreview: sseResult.sql,
           clarificationType: 'dml_confirmation',
         }
@@ -710,11 +740,11 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
     }
 
     // Auto-generate title 
-    if (currentConversation?.title === 'New Conversation' && !isFirstMessageRef.current) {
+    if (activeConversation?.title === 'New Conversation' && !isFirstMessageRef.current) {
       isFirstMessageRef.current = true;
-      const firstWords = currentQuestion.split(' ').slice(0, 5).join(' ');
-      const newTitle = firstWords + (currentQuestion.split(' ').length > 5 ? '...' : '');
-      updateTitleMutation.mutate({ id: currentConversation.id, title: newTitle });
+      const firstWords = pendingQuestion.split(' ').slice(0, 5).join(' ');
+      const newTitle = firstWords + (pendingQuestion.split(' ').length > 5 ? '...' : '');
+      updateTitleMutation.mutate({ id: activeConversation.id, title: newTitle });
     }
 
     queryClient.invalidateQueries({ queryKey: conversationKeys.lists() });
@@ -722,13 +752,13 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
     if (isSuccess) message.success('Query executed successfully');
 
     resetStream();
-  }, [sseResult]);
+  }, [sseResult, queryClient, resetStream, updateMessages, updateTitleMutation]);
 
   // ✅ SSE ERROR WATCHER — convert SSE error into error message
   useEffect(() => {
     if (!sseError) return;
-
-    const filteredMessages = messages.filter(m => !m.isOptimistic && !m.isPending);
+    const pendingQuestion = currentQuestionRef.current;
+    const activeConversation = currentConversationRef.current;
 
     // ✅ P0: Enhanced error handling for SCHEMA_NOT_LOADED
     let errorMsg = sseError.message || sseError.Message || 'Streaming error occurred';
@@ -754,26 +784,29 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
 
     const errorAssistant = {
       id: getUniqueId('error'),
-      conversationId: currentConversation?.id,
+      conversationId: activeConversation?.id,
       role: 'assistant',
       content: errorMsg,
       success: false,
       errorMessage: errorMsg,
       errorCode: sseError.code,
       actionButton: actionButton,
-      originalQuestion: currentQuestion,
+      originalQuestion: pendingQuestion,
       suggestedQueries: [
         'Show all tables in the database',
-        `${currentQuestion} (simplified)`,
+        `${pendingQuestion} (simplified)`,
       ],
       createdAt: new Date().toISOString(),
     };
 
-    setMessages([...filteredMessages, errorAssistant]);
+    updateMessages((prev) => {
+      const filteredMessages = prev.filter((message) => !message.isOptimistic && !message.isPending);
+      return [...filteredMessages, errorAssistant];
+    });
     setCurrentQuestion('');
     message.error(errorMsg);
     resetStream();
-  }, [sseError]);
+  }, [resetStream, sseError, updateMessages]);
 
   // Welcome screen when no conversation is selected
   if (!currentConversation) {

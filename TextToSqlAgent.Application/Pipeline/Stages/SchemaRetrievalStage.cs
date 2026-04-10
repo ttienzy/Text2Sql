@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.Extensions.Logging;
 using TextToSqlAgent.Application.Services;
 using TextToSqlAgent.Core.Interfaces;
@@ -176,9 +178,33 @@ public class SchemaRetrievalStage : IPipelineStage
 
     private static SchemaFingerprint CreateSimpleFingerprint(DatabaseSchema schema)
     {
+        var normalizedTables = schema.Tables
+            .OrderBy(t => t.Schema)
+            .ThenBy(t => t.TableName)
+            .Select(table =>
+                $"{table.Schema}.{table.TableName}:" +
+                string.Join(
+                    ",",
+                    table.Columns
+                        .OrderBy(c => c.ColumnName)
+                        .Select(column =>
+                            $"{column.ColumnName}:{column.DataType}:{column.IsPrimaryKey}:{column.IsForeignKey}")))
+            .ToList();
+
+        var normalizedRelationships = schema.Relationships
+            .OrderBy(r => r.FromTable)
+            .ThenBy(r => r.FromColumn)
+            .ThenBy(r => r.ToTable)
+            .ThenBy(r => r.ToColumn)
+            .Select(r => $"{r.FromTable}.{r.FromColumn}>{r.ToTable}.{r.ToColumn}")
+            .ToList();
+
+        var normalizedSchema = string.Join("|", normalizedTables) + "||" + string.Join("|", normalizedRelationships);
+        var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(normalizedSchema));
+
         return new SchemaFingerprint
         {
-            Hash = Guid.NewGuid().ToString(), // Simple placeholder hash
+            Hash = Convert.ToHexString(hashBytes),
             ComputedAt = DateTime.UtcNow,
             TableCount = schema.Tables.Count,
             ColumnCount = schema.Tables.Sum(t => t.Columns.Count),

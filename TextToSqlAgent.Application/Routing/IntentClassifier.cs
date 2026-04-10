@@ -18,6 +18,7 @@ public class IntentClassifier : IIntentClassifier
     private readonly ILLMClient _llmClient;
     private readonly ILogger<IntentClassifier> _logger;
     private readonly IIntentCacheService? _cacheService;
+    private readonly QueryComplexityAnalyzer? _complexityAnalyzer;
 
     // Confidence threshold - below this, use LLM fallback
     // ✅ REFACTORED: Keep at 0.75 - with new weighted scoring, this is more accurate
@@ -210,15 +211,22 @@ public class IntentClassifier : IIntentClassifier
     public IntentClassifier(
         ILLMClient llmClient,
         ILogger<IntentClassifier> logger,
-        IIntentCacheService? cacheService = null)
+        IIntentCacheService? cacheService = null,
+        QueryComplexityAnalyzer? complexityAnalyzer = null)
     {
         _llmClient = llmClient;
         _logger = logger;
         _cacheService = cacheService;
+        _complexityAnalyzer = complexityAnalyzer;
 
         if (_cacheService != null)
         {
             _logger.LogInformation("[IntentClassifier] Intent caching ENABLED");
+        }
+
+        if (_complexityAnalyzer != null)
+        {
+            _logger.LogInformation("[IntentClassifier] Complexity analyzer ENABLED");
         }
     }
 
@@ -298,6 +306,39 @@ public class IntentClassifier : IIntentClassifier
                 "[IntentClassifier] LLM classification: {Intent} (confidence: {Confidence})",
                 llmResult.Intent, llmResult.Confidence);
 
+            // ✅ NEW: Add complexity analysis if analyzer available
+            if (_complexityAnalyzer != null && llmResult.Intent == IntentCategory.Query)
+            {
+                try
+                {
+                    // Parse database context to schema (simplified)
+                    var schema = ParseDatabaseContext(databaseContext);
+                    if (schema != null)
+                    {
+                        var complexityScore = await _complexityAnalyzer.AnalyzeAsync(
+                            question, schema, null, ct);
+
+                        llmResult.ComplexityScore = complexityScore.Level switch
+                        {
+                            ComplexityLevel.Simple => 0.3,
+                            ComplexityLevel.Medium => 0.6,
+                            ComplexityLevel.Complex => 0.9,
+                            _ => 0.5
+                        };
+
+                        llmResult.ComplexityReasoning = complexityScore.Reasoning;
+
+                        _logger.LogInformation(
+                            "[IntentClassifier] Complexity analysis: {Level} (score: {Score})",
+                            complexityScore.Level, llmResult.ComplexityScore);
+                    }
+                }
+                catch (Exception complexityEx)
+                {
+                    _logger.LogWarning(complexityEx, "[IntentClassifier] Complexity analysis failed, continuing without it");
+                }
+            }
+
             // ✅ Cache LLM result if high confidence with context-aware key
             if (_cacheService != null && llmResult.Confidence >= 0.75)
             {
@@ -311,6 +352,44 @@ public class IntentClassifier : IIntentClassifier
         {
             _logger.LogWarning(ex, "[IntentClassifier] LLM classification failed, using rule-based result");
             return ruleResult;
+        }
+    }
+
+    /// <summary>
+    /// Parse database context string to DatabaseSchema (simplified)
+    /// </summary>
+    private DatabaseSchema? ParseDatabaseContext(string? databaseContext)
+    {
+        if (string.IsNullOrEmpty(databaseContext))
+            return null;
+
+        try
+        {
+            // Simple parsing - just extract table names
+            var tableNames = databaseContext
+                .Split(new[] { ',', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(t => t.Trim())
+                .Where(t => !string.IsNullOrEmpty(t))
+                .ToList();
+
+            if (tableNames.Count == 0)
+                return null;
+
+            var schema = new DatabaseSchema
+            {
+                Tables = tableNames.Select(name => new TableInfo
+                {
+                    TableName = name,
+                    Columns = new List<ColumnInfo>()
+                }).ToList(),
+                Relationships = new List<RelationshipInfo>()
+            };
+
+            return schema;
+        }
+        catch
+        {
+            return null;
         }
     }
 
@@ -438,14 +517,12 @@ public class IntentClassifier : IIntentClassifier
         // Find highest scoring intent
         if (scores.Count == 0)
         {
-            // ✅ FIX 1: Higher default confidence (0.70) when no patterns match
-            // This ensures ambiguous queries get processed as QUERY instead of triggering LLM
             return new IntentClassificationResult
             {
                 Intent = IntentCategory.Query,
                 Route = PipelineRoute.Query,
-                Confidence = 0.70, // ✅ CHANGED from 0.50 to 0.70
-                Reasoning = "No specific patterns matched, defaulting to QUERY intent",
+                Confidence = 0.30,
+                Reasoning = "No rule-based patterns matched; require LLM classification before routing",
                 NormalizedQuery = question,
                 Method = ClassificationMethod.RuleBased
             };

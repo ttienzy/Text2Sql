@@ -5,5 +5,7 @@ namespace TextToSqlAgent.Core.Enums;
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum DatabaseProvider
 {
-    SqlServer
+    SqlServer,
+    MySql,
+    PostgreSql
 }

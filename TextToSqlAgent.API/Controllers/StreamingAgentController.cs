@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 using TextToSqlAgent.API.Extensions;
 using TextToSqlAgent.API.Repositories;
+using TextToSqlAgent.Application.Services;
+using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Models;
 
 namespace TextToSqlAgent.API.Controllers;
@@ -19,7 +21,8 @@ public class StreamingAgentController : ControllerBase
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<StreamingAgentController> _logger;
-    private readonly IServiceProvider _serviceProvider;
+    private readonly ConversationTurnOrchestrator _turnOrchestrator;
+    private readonly ISchemaCache _schemaCache;
     private readonly TextToSqlAgent.Infrastructure.Services.ITokenQuotaService _tokenQuotaService;
     private readonly TextToSqlAgent.API.Services.IConnectionEncryptionService _encryptionService;
 
@@ -29,13 +32,15 @@ public class StreamingAgentController : ControllerBase
     public StreamingAgentController(
         IUnitOfWork unitOfWork,
         ILogger<StreamingAgentController> logger,
-        IServiceProvider serviceProvider,
+        ConversationTurnOrchestrator turnOrchestrator,
+        ISchemaCache schemaCache,
         TextToSqlAgent.Infrastructure.Services.ITokenQuotaService tokenQuotaService,
         TextToSqlAgent.API.Services.IConnectionEncryptionService encryptionService)
     {
         _unitOfWork = unitOfWork;
         _logger = logger;
-        _serviceProvider = serviceProvider;
+        _turnOrchestrator = turnOrchestrator;
+        _schemaCache = schemaCache;
         _tokenQuotaService = tokenQuotaService;
         _encryptionService = encryptionService;
     }
@@ -99,6 +104,25 @@ public class StreamingAgentController : ControllerBase
                 return;
             }
 
+            if (string.IsNullOrWhiteSpace(request.Question))
+            {
+                await WriteSseEventAsync("error", new
+                {
+                    code = "BAD_REQUEST",
+                    message = "Question is required",
+                    correlationId
+                }, ct);
+                return;
+            }
+
+            await WriteSseEventAsync("turn_started", new
+            {
+                correlationId,
+                request.ConnectionId,
+                request.ConversationId,
+                timestamp = DateTime.UtcNow
+            }, ct);
+
             // ✅ Validate question doesn't contain image input (not supported by current model)
             if (!string.IsNullOrEmpty(request.Question))
             {
@@ -129,8 +153,7 @@ public class StreamingAgentController : ControllerBase
             }
 
             // ✅ Validate schema is loaded
-            var schemaCache = _serviceProvider.GetRequiredService<TextToSqlAgent.Core.Interfaces.ISchemaCache>();
-            var schema = await schemaCache.GetAsync(request.ConnectionId);
+            var schema = await _schemaCache.GetAsync(request.ConnectionId);
             if (schema == null)
             {
                 _logger.LogWarning("[StreamingAgent] Schema not loaded for connection {ConnectionId}, user {UserId}",
@@ -220,20 +243,44 @@ public class StreamingAgentController : ControllerBase
                 // Load conversation history if provided
                 List<TextToSqlAgent.Infrastructure.Entities.Message>? conversationHistory = null;
                 TextToSqlAgent.Infrastructure.Entities.Conversation? dbConversation = null;
+                TextToSqlAgent.Core.Models.SerializableConversationContext? persistedContext = null;
                 if (!string.IsNullOrEmpty(request.ConversationId))
                 {
                     try
                     {
-                        var messages = await _unitOfWork.Messages.GetByConversationIdAsync(request.ConversationId);
-                        conversationHistory = messages?.OrderBy(m => m.CreatedAt).ToList();
+                        dbConversation = await _unitOfWork.Conversations.GetByIdAndUserIdAsync(request.ConversationId, userId);
+                        if (dbConversation == null)
+                        {
+                            await WriteSseEventAsync("error", new
+                            {
+                                code = "CONVERSATION_NOT_FOUND",
+                                message = "Conversation not found or access denied",
+                                correlationId
+                            }, ct);
+                            return;
+                        }
+
+                        if (!string.Equals(dbConversation.ConnectionId, request.ConnectionId, StringComparison.Ordinal))
+                        {
+                            await WriteSseEventAsync("error", new
+                            {
+                                code = "CONVERSATION_CONNECTION_MISMATCH",
+                                message = "Conversation does not belong to the provided connection.",
+                                correlationId
+                            }, ct);
+                            return;
+                        }
+
+                        conversationHistory = dbConversation.Messages
+                            .OrderBy(m => m.CreatedAt)
+                            .ToList();
 
                         // ✅ Phase 3: Load persisted conversation context from DB
-                        dbConversation = await _unitOfWork.Conversations.GetByIdAsync(request.ConversationId);
-                        if (dbConversation?.ContextJson != null)
+                        if (dbConversation.ContextJson != null)
                         {
                             try
                             {
-                                var persistedContext = JsonSerializer.Deserialize<TextToSqlAgent.Core.Models.SerializableConversationContext>(
+                                persistedContext = JsonSerializer.Deserialize<TextToSqlAgent.Core.Models.SerializableConversationContext>(
                                     dbConversation.ContextJson);
                                 if (persistedContext != null)
                                 {
@@ -255,23 +302,25 @@ public class StreamingAgentController : ControllerBase
                     }
                 }
 
-                // ✅ PHASE-1 TASK 1.1: Use EnhancedAgentOrchestrator with Intent Routing
-                // Agent will automatically use the async-local connection string override
-                var agent = _serviceProvider.GetRequiredService<TextToSqlAgent.Application.Services.EnhancedAgentOrchestrator>();
-
                 // Call ProcessMessageWithIntentRoutingAsync for unified pipeline routing
                 // Pass progress and sqlTokenCallback for real-time SSE stage updates
-                var unifiedResponse = await agent.ProcessMessageWithIntentRoutingAsync(
-                    request.Question,
-                    request.ConnectionId,
-                    request.ConversationId,
-                    conversationHistory,
-                    progress,
-                    sqlTokenCallback,
+                var turnResult = await _turnOrchestrator.ExecuteAsync(
+                    new ConversationTurnRequest
+                    {
+                        UserQuestion = request.Question,
+                        ConnectionId = request.ConnectionId,
+                        ConversationId = request.ConversationId,
+                        ConversationHistory = conversationHistory,
+                        PersistedContext = persistedContext,
+                        Progress = progress,
+                        SqlTokenCallback = sqlTokenCallback
+                    },
                     ct);
 
+                var unifiedResponse = turnResult.Response;
+
                 // ✅ PHASE-1 TASK 1.1: Save messages with UnifiedPipelineResponse data
-                var conversationId = request.ConversationId ?? Guid.NewGuid().ToString();
+                var conversationId = turnResult.ConversationId;
 
                 if (!string.IsNullOrEmpty(userId))
                 {
@@ -348,48 +397,32 @@ public class StreamingAgentController : ControllerBase
                     {
                         if (dbConversation == null)
                         {
-                            dbConversation = await _unitOfWork.Conversations.GetByIdAsync(conversationId);
+                            dbConversation = new TextToSqlAgent.Infrastructure.Entities.Conversation
+                            {
+                                Id = conversationId,
+                                UserId = userId,
+                                ConnectionId = request.ConnectionId,
+                                Title = BuildConversationTitle(request.Question),
+                                ContextJson = JsonSerializer.Serialize(turnResult.UpdatedContext),
+                                CreatedAt = DateTime.UtcNow,
+                                UpdatedAt = DateTime.UtcNow,
+                                LastActiveAt = DateTime.UtcNow,
+                                IsArchived = false
+                            };
+
+                            await _unitOfWork.Conversations.AddAsync(dbConversation);
                         }
 
-                        if (dbConversation != null)
+                        else
                         {
-                            // Build structured memory snapshot from this interaction
-                            var existingContext = new TextToSqlAgent.Core.Models.SerializableConversationContext();
-                            if (!string.IsNullOrEmpty(dbConversation.ContextJson))
-                            {
-                                try
-                                {
-                                    existingContext = JsonSerializer.Deserialize<TextToSqlAgent.Core.Models.SerializableConversationContext>(
-                                        dbConversation.ContextJson) ?? existingContext;
-                                }
-                                catch { /* start fresh if corrupted */ }
-                            }
-
-                            // Enrich context with this turn's data
-                            if (!string.IsNullOrEmpty(unifiedResponse.SqlGenerated))
-                            {
-                                existingContext.UpdateLastSql(unifiedResponse.SqlGenerated,
-                                    unifiedResponse.Message?.Length > 200 ? unifiedResponse.Message[..200] : unifiedResponse.Message);
-                            }
-
-                            // Extract tables from SQL and add to mentioned tables
-                            if (!string.IsNullOrEmpty(unifiedResponse.SqlGenerated))
-                            {
-                                var (tables, _, _, _) = TextToSqlAgent.Core.Helpers.SqlContextExtractor.ExtractFullContext(unifiedResponse.SqlGenerated);
-                                foreach (var table in tables)
-                                {
-                                    existingContext.AddMentionedTable(table);
-                                }
-                            }
-
-                            dbConversation.ContextJson = JsonSerializer.Serialize(existingContext);
+                            dbConversation.ContextJson = JsonSerializer.Serialize(turnResult.UpdatedContext);
                             dbConversation.LastActiveAt = DateTime.UtcNow;
                             dbConversation.UpdatedAt = DateTime.UtcNow;
                             await _unitOfWork.Conversations.UpdateAsync(dbConversation);
 
                             _logger.LogDebug(
                                 "[StreamingAgent] ✅ Persisted context — Tables: [{Tables}]",
-                                string.Join(", ", existingContext.MentionedTables));
+                                string.Join(", ", turnResult.UpdatedContext.MentionedTables));
                         }
                     }
                     catch (Exception ex)
@@ -412,6 +445,14 @@ public class StreamingAgentController : ControllerBase
 
                 // ✅ PHASE-1 TASK 1.3: Emit UnifiedPipelineResponse directly (correct format for frontend)
                 await WriteSseEventAsync("result", unifiedResponse, ct);
+                await WriteSseEventAsync("turn_completed", new
+                {
+                    correlationId,
+                    conversationId = turnResult.ConversationId,
+                    pipeline = unifiedResponse.Pipeline,
+                    success = unifiedResponse.Success,
+                    timestamp = DateTime.UtcNow
+                }, ct);
 
                 // ✅ CRIT-4 FIX: Close channel and wait for token writer to finish
                 sqlTokenChannel.Writer.Complete();
@@ -433,6 +474,12 @@ public class StreamingAgentController : ControllerBase
                     code = "PROCESSING_ERROR",
                     message = ex.Message,
                     correlationId
+                }, ct);
+                await WriteSseEventAsync("turn_failed", new
+                {
+                    correlationId,
+                    message = ex.Message,
+                    timestamp = DateTime.UtcNow
                 }, ct);
             }
             catch
@@ -511,6 +558,17 @@ public class StreamingAgentController : ControllerBase
     {
         public bool IsValid { get; set; }
         public string? ErrorMessage { get; set; }
+    }
+
+    private static string BuildConversationTitle(string question)
+    {
+        var normalized = question.Trim();
+        if (normalized.Length <= 80)
+        {
+            return normalized;
+        }
+
+        return normalized[..77] + "...";
     }
 
     /// Writes a Server-Sent Event to the response stream.

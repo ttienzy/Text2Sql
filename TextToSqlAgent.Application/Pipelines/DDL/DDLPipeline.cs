@@ -406,7 +406,8 @@ Generate the DDL script:";
         var sb = new StringBuilder();
 
         sb.AppendLine("Database Schema:");
-        foreach (var table in schema.Tables.Take(10)) // Limit to avoid token overflow
+        // Include all tables for comprehensive DDL context
+        foreach (var table in schema.Tables)
         {
             sb.AppendLine($"  {table.TableName} ({table.Columns.Count} columns)");
         }

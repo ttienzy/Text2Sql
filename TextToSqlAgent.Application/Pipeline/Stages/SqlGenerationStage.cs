@@ -47,7 +47,8 @@ public class SqlGenerationStage : IPipelineStage
                 queryText,
                 context.ConversationHistory,
                 context.SqlTokenCallback,
-                ct);
+                structuredConversationContext: null,
+                cancellationToken: ct);
         }
         else
         {
@@ -56,7 +57,8 @@ public class SqlGenerationStage : IPipelineStage
                 context.SchemaContext!,
                 queryText,
                 context.ConversationHistory,
-                ct);
+                structuredConversationContext: null,
+                cancellationToken: ct);
         }
 
         context.SqlGenerationResult = sqlResult;

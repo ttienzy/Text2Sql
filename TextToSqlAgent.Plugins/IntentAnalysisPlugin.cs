@@ -44,11 +44,32 @@ public class IntentAnalysisPlugin
         PropertyNameCaseInsensitive = true
       };
 
-      var intentAnalysis = JsonSerializer.Deserialize<IntentAnalysis>(cleanedResponse, options);
-
-      if (intentAnalysis == null)
+      IntentAnalysis intentAnalysis;
+      try
       {
-        throw new InvalidOperationException("Failed to deserialize intent analysis response");
+        // ✅ FIX: Normalize intent value before deserialization
+        var normalizedResponse = NormalizeIntentInJson(cleanedResponse);
+
+        intentAnalysis = JsonSerializer.Deserialize<IntentAnalysis>(normalizedResponse, options)
+            ?? throw new InvalidOperationException("Failed to deserialize intent analysis response");
+      }
+      catch (JsonException ex)
+      {
+        _logger.LogWarning(ex,
+            "[IntentAnalysis] Failed to deserialize LLM response, using fallback. Response preview: {Preview}",
+            cleanedResponse.Substring(0, Math.Min(200, cleanedResponse.Length)));
+
+        // ✅ FALLBACK: Return safe defaults for complex/ambiguous queries
+        intentAnalysis = new IntentAnalysis
+        {
+          Intent = QueryIntent.MULTI_AGGREGATE, // Generic fallback for complex queries
+          Complexity = "Complex",
+          Target = string.Empty,
+          NeedsClarification = true,
+          ClarificationQuestion = "I understand you want to analyze data, but could you rephrase your question to be more specific? For example, specify which tables, time periods, or calculations you need."
+        };
+
+        _logger.LogInformation("[IntentAnalysis] Using fallback intent: {Intent}", intentAnalysis.Intent);
       }
 
       _logger.LogInformation("Intent analysis completed for query: {Query}", userQuery);
@@ -113,20 +134,23 @@ Return ONLY valid JSON without any markdown formatting or explanations:
 
 # INTENT TYPES (Hierarchical)
 
-## SIMPLE INTENTS
+## CRITICAL: Use ONLY these exact values for ""intent"" field (case-sensitive):
+
+### SIMPLE INTENTS
 - **COUNT**: Count records
 - **LIST**: List records with optional pagination
 - **DETAIL**: Get specific record
 - **SCHEMA**: Database structure query
 
-## AGGREGATE INTENTS
+### AGGREGATE INTENTS
 - **SUM**: Total amounts
 - **AVG**: Average values
 - **MIN_MAX**: Extreme values
 - **TOP_N**: Top/bottom N
 - **GROUP_BY**: Aggregation by group
+- **AGGREGATE**: Generic aggregation (use when unsure)
 
-## ANALYTICAL INTENTS (Advanced)
+### ANALYTICAL INTENTS (Advanced)
 - **TREND**: Time-series analysis
 - **COMPARISON**: YoY, MoM, QoQ
 - **RANKING**: Position ranking
@@ -135,11 +159,24 @@ Return ONLY valid JSON without any markdown formatting or explanations:
 - **MOVING_AVERAGE**: Rolling average
 - **TOP_PER_GROUP**: Best in each category
 
-## COMPLEX INTENTS (Very Advanced)
+### COMPLEX INTENTS (Very Advanced)
 - **MULTI_AGGREGATE**: Multiple calculations in one query
 - **NESTED_ANALYSIS**: Subqueries with aggregates
 - **PIVOT**: Cross-tabulation
 - **COHORT**: Cohort analysis
+
+## INTENT SELECTION RULES
+
+✅ DO:
+- Use MULTI_AGGREGATE for complex calculations, predictions, or multiple metrics
+- Use AGGREGATE when unsure between specific aggregate types
+- Use TREND for time-series or forecasting queries
+- Use COMPARISON for period-over-period analysis
+
+❌ DO NOT:
+- Invent new intent types (e.g., ""PREDICTION"", ""FORECAST"", ""CALCULATION"")
+- Use descriptive names (e.g., ""CUSTOMER_LIFETIME_VALUE"")
+- Use generic terms (e.g., ""AGGREGATION"" - use ""AGGREGATE"" instead)
 
 # COMPLEXITY SCORING
 
@@ -178,7 +215,7 @@ Map Vietnamese business terms to SQL:
 
 # INSTRUCTIONS
 
-1. Read question carefully and identify intent type
+1. Read question carefully and identify intent type from the list above
 2. Extract entities, metrics, filters with correct valueType
 3. For date filters: ALWAYS use ""expression"" valueType with predefined expressions
 4. For literal values (strings, numbers): use ""literal"" valueType
@@ -193,11 +230,114 @@ Map Vietnamese business terms to SQL:
 ✅ For IN operator: comma-separated values with literal type
 ✅ TimeRange must have consistent structure
 ✅ Return valid JSON only
+✅ Use ONLY the intent types listed above (no custom types)
 
 ❌ Never mix SQL expressions in literal values
 ❌ Never use undefined relativeType values
 ❌ Never return incomplete JSON
-❌ Never add markdown or explanations";
+❌ Never add markdown or explanations
+❌ Never invent new intent types";
+  }
+
+  /// <summary>
+  /// Normalize common LLM intent mistakes to valid enum values
+  /// </summary>
+  private string NormalizeIntentInJson(string jsonResponse)
+  {
+    try
+    {
+      // Parse JSON to extract intent value
+      using var doc = JsonDocument.Parse(jsonResponse);
+      if (doc.RootElement.TryGetProperty("intent", out var intentElement))
+      {
+        var rawIntent = intentElement.GetString();
+        if (!string.IsNullOrEmpty(rawIntent))
+        {
+          var normalizedIntent = NormalizeIntentValue(rawIntent);
+          if (normalizedIntent != rawIntent)
+          {
+            // Replace the intent value in JSON
+            jsonResponse = jsonResponse.Replace(
+                $"\"intent\": \"{rawIntent}\"",
+                $"\"intent\": \"{normalizedIntent}\"");
+
+            _logger.LogInformation(
+                "[IntentAnalysis] Normalized intent '{Raw}' → '{Normalized}'",
+                rawIntent, normalizedIntent);
+          }
+        }
+      }
+    }
+    catch (Exception ex)
+    {
+      _logger.LogWarning(ex, "[IntentAnalysis] Failed to normalize intent in JSON, using original");
+    }
+
+    return jsonResponse;
+  }
+
+  /// <summary>
+  /// Map common LLM mistakes to valid QueryIntent enum values
+  /// </summary>
+  private string NormalizeIntentValue(string rawIntent)
+  {
+    // Map common LLM mistakes to valid enum values
+    var mappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+      // Generic terms
+      { "AGGREGATION", "AGGREGATE" },
+      { "CALCULATION", "AGGREGATE" },
+      { "STATISTICS", "AGGREGATE" },
+      { "REPORT", "MULTI_AGGREGATE" },
+      { "ANALYSIS", "MULTI_AGGREGATE" },
+      
+      // Prediction/Forecasting
+      { "PREDICTION", "MULTI_AGGREGATE" },
+      { "FORECAST", "TREND" },
+      { "FORECASTING", "TREND" },
+      
+      // Business metrics
+      { "CUSTOMER_LIFETIME_VALUE", "MULTI_AGGREGATE" },
+      { "CLV", "MULTI_AGGREGATE" },
+      { "LIFETIME_VALUE", "MULTI_AGGREGATE" },
+      { "REVENUE_ANALYSIS", "MULTI_AGGREGATE" },
+      { "PROFITABILITY", "MULTI_AGGREGATE" },
+      
+      // Time-based
+      { "TIME_SERIES", "TREND" },
+      { "TEMPORAL", "TREND" },
+      
+      // Grouping
+      { "GROUPING", "GROUP_BY" },
+      { "CATEGORIZATION", "GROUP_BY" },
+      
+      // Ranking
+      { "TOP", "TOP_N" },
+      { "BOTTOM", "TOP_N" },
+      
+      // Comparison
+      { "COMPARE", "COMPARISON" },
+      { "VERSUS", "COMPARISON" },
+      
+      // Unknown/Unclear
+      { "UNCLEAR", "Unknown" },
+      { "AMBIGUOUS", "Unknown" }
+    };
+
+    if (mappings.TryGetValue(rawIntent, out var normalized))
+    {
+      return normalized;
+    }
+
+    // If not in mapping, check if it's a valid enum value
+    if (Enum.TryParse<QueryIntent>(rawIntent, ignoreCase: true, out _))
+    {
+      return rawIntent;
+    }
+
+    // Default fallback
+    _logger.LogWarning("[IntentAnalysis] Unknown intent '{Intent}', defaulting to Unknown", rawIntent);
+    return "Unknown";
   }
 
   private static string BuildUserPrompt(string userQuery, string schemaContext)

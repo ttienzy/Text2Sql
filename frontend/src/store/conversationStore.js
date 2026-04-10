@@ -42,7 +42,13 @@ const useConversationStore = create(
         set({ currentConversation: conversation });
       },
 
-      setMessages: (messages) => set({ messages }),
+      setMessages: (messagesOrUpdater) =>
+        set((state) => ({
+          messages:
+            typeof messagesOrUpdater === 'function'
+              ? messagesOrUpdater(state.messages)
+              : messagesOrUpdater,
+        })),
 
       appendMessage: (message) => {
         set((state) => ({

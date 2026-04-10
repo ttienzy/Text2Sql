@@ -1,0 +1,20 @@
+### Test Query Optimizer Analyze Endpoint - Fixed ConnectionId Type
+POST https://localhost:7189/api/query-optimizer/analyze
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "sql": "SELECT * FROM Users WHERE Id = 1",
+  "connectionId": "your-connection-guid-here",
+  "includeExecutionPlan": false
+}
+
+### Test Query Optimizer Analyze With Plan Endpoint
+POST https://localhost:7189/api/query-optimizer/analyze-with-plan
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "sql": "SELECT * FROM Users WHERE Id = 1",
+  "connectionId": "your-connection-guid-here"
+}

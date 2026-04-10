@@ -91,6 +91,9 @@ public class IntentClassificationResult
     /// <summary>Complexity score of the query (0.0 - 1.0) to determine routing to AgentLoop</summary>
     public double ComplexityScore { get; set; } = 0.0;
 
+    /// <summary>Reasoning for complexity classification</summary>
+    public string ComplexityReasoning { get; set; } = string.Empty;
+
     /// <summary>Reasoning for classification decision</summary>
     public string Reasoning { get; set; } = string.Empty;
 

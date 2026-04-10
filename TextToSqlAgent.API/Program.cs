@@ -14,6 +14,7 @@ using TextToSqlAgent.API.Repositories;
 using TextToSqlAgent.API.Services;
 using TextToSqlAgent.Application.Services;
 using TextToSqlAgent.Application.Services.DbExplorer;
+using TextToSqlAgent.Application.Extensions;
 using TextToSqlAgent.Application.Adapters;
 using TextToSqlAgent.Infrastructure.Agent;
 using TextToSqlAgent.Core.Interfaces;
@@ -273,6 +274,7 @@ try
 
     builder.Services.AddScoped<SchemaIndexer>(); // Changed to Scoped - has state
     builder.Services.AddScoped<SchemaRetriever>(); // Changed to Scoped - has state
+    builder.Services.AddScoped<EnhancedSchemaContextBuilder>(); // Phase 2 - Enhanced schema context
 
     // ⚠️ SMALL-6: Schema Auto-Sync Background Service (DISABLED due to design limitation)
     // Issue: SchemaScanner requires a specific connection ID, but background service doesn't know which connection to scan
@@ -321,6 +323,7 @@ try
 
     // ✅ NEW: Enhanced Agentic AI Orchestrator (changed to Scoped to work with Scoped services)
     builder.Services.AddScoped<EnhancedAgentOrchestrator>();
+    builder.Services.AddScoped<ConversationTurnOrchestrator>();
 
     // ✅ NEW: Modular Pipeline Architecture (Phase 1 Refactor)
     builder.Services.AddScoped<TextToSqlAgent.Application.Pipeline.PipelineOrchestrator>();
@@ -389,6 +392,12 @@ try
     builder.Services.AddSingleton<DbExplorerCacheService>();
 
     // ============================================
+    // QUERY OPTIMIZER SERVICES (Sprint 1)
+    // ============================================
+    builder.Services.AddQueryOptimizer();
+    logger.Information("✅ Query Optimizer services registered (ScriptDom AST-based)");
+
+    // ============================================
     // REACT AGENT SYSTEM (Phase 7)
     // ============================================
 
@@ -449,6 +458,7 @@ try
 
     // Connection Management Services
     // Note: IConnectionEncryptionService already registered as Singleton above (line 294)
+    builder.Services.AddSingleton<ConnectionIndexingTracker>();
     builder.Services.AddScoped<IConnectionService, ConnectionService>();
 
     // Conversation Management Services

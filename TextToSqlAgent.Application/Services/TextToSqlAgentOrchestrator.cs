@@ -221,7 +221,8 @@ public class TextToSqlAgentOrchestrator
                 relevantSchema,
                 normalized.NormalizedText,  // Pass original question to LLM
                 null,  // No conversation history for legacy orchestrator
-                cancellationToken);
+                structuredConversationContext: null,
+                cancellationToken: cancellationToken);
 
             var sql = sqlResult.Sql;
 
@@ -242,11 +243,13 @@ public class TextToSqlAgentOrchestrator
             // STEP 7: Execute SQL with Self-Correction
             // ====================================
             steps.Add("Step 7: Execute SQL with self-correction");
-            var (executionResult, corrections) = await ExecuteWithSelfCorrectionAsync(
+            var correctionResult = await ExecuteWithSelfCorrectionAsync(
                 sql,
                 relevantSchema,
                 intent,
                 cancellationToken);
+            var executionResult = correctionResult.Result;
+            var corrections = correctionResult.Corrections;
 
             response.CorrectionHistory = corrections;
             response.WasCorrected = corrections.Any();
@@ -457,7 +460,8 @@ public class TextToSqlAgentOrchestrator
                 relevantSchema,
                 normalized.NormalizedText,  // Pass original question to LLM
                 null,  // No conversation history for legacy orchestrator
-                cancellationToken);
+                structuredConversationContext: null,
+                cancellationToken: cancellationToken);
 
             var sql = sqlResult.Sql;
 
@@ -478,11 +482,13 @@ public class TextToSqlAgentOrchestrator
             // STEP 7: Execute SQL with Self-Correction
             // ====================================
             steps.Add("Step 7: Execute SQL with self-correction");
-            var (executionResult, corrections) = await ExecuteWithSelfCorrectionAsync(
+            var correctionResult = await ExecuteWithSelfCorrectionAsync(
                 sql,
                 relevantSchema,
                 intent,
                 cancellationToken);
+            var executionResult = correctionResult.Result;
+            var corrections = correctionResult.Corrections;
 
             response.CorrectionHistory = corrections;
             response.WasCorrected = corrections.Any();

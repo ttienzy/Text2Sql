@@ -89,6 +89,9 @@ public class TimeRangeFilter
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum QueryIntent
 {
+    // FALLBACK - Used when LLM returns invalid intent value
+    Unknown,   // Fallback for deserialization errors or ambiguous queries
+
     // SIMPLE INTENTS
     LIST,      // "Liệt kê...", "Cho tôi danh sách..."
     COUNT,     // "Có bao nhiêu...", "Đếm..."

@@ -5,7 +5,7 @@ import { ConfigProvider, App as AntApp } from 'antd';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { PrivateRoute, ConnectionGuard, ErrorBoundary } from './components';
 import { MainLayout, AuthLayout } from './layouts';
-import { LoginPage, RegisterPage, ForgotPasswordPage, ChatPage, ConnectionsPage, SettingsPage, DbExplorerPage } from './pages';
+import { LoginPage, RegisterPage, ForgotPasswordPage, ChatPage, ConnectionsPage, SettingsPage, DbExplorerPage, QueryLabPage } from './pages';
 import { LayoutProvider } from './contexts/LayoutContext';
 import useAuthStore from './store/authStore';
 import { migrateStorage } from './utils/migrateStorage';
@@ -59,6 +59,7 @@ function App() {
                     <Route element={<PrivateRoute><MainLayout /></PrivateRoute>}>
                       <Route path="/chat" element={<ConnectionGuard><ChatPage /></ConnectionGuard>} />
                       <Route path="/explorer" element={<ConnectionGuard><DbExplorerPage /></ConnectionGuard>} />
+                      <Route path="/query-lab" element={<ConnectionGuard><QueryLabPage /></ConnectionGuard>} />
                       <Route path="/connections" element={<ConnectionsPage />} />
                       <Route path="/connections/new" element={<ConnectionsPage />} />
                       <Route path="/settings" element={<SettingsPage />} />

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using System.Text.Json;
 using TextToSqlAgent.API.Extensions;
 using TextToSqlAgent.API.Repositories;
 using TextToSqlAgent.API.Services;
@@ -25,20 +26,23 @@ namespace TextToSqlAgent.API.Controllers;
 public class ConversationAwareAgentController : BaseController
 {
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IServiceProvider _serviceProvider;
+    private readonly ConversationTurnOrchestrator _turnOrchestrator;
+    private readonly ISchemaCache _schemaCache;
     private readonly ITokenQuotaService _tokenQuotaService;
     private readonly IConnectionEncryptionService _encryptionService;
     private readonly new ILogger<ConversationAwareAgentController> _logger;
 
     public ConversationAwareAgentController(
         IUnitOfWork unitOfWork,
-        IServiceProvider serviceProvider,
+        ConversationTurnOrchestrator turnOrchestrator,
+        ISchemaCache schemaCache,
         ITokenQuotaService tokenQuotaService,
         IConnectionEncryptionService encryptionService,
         ILogger<ConversationAwareAgentController> logger) : base(logger)
     {
         _unitOfWork = unitOfWork;
-        _serviceProvider = serviceProvider;
+        _turnOrchestrator = turnOrchestrator;
+        _schemaCache = schemaCache;
         _tokenQuotaService = tokenQuotaService;
         _encryptionService = encryptionService;
         _logger = logger;
@@ -79,8 +83,7 @@ public class ConversationAwareAgentController : BaseController
             }
 
             // ✅ P0: Validate schema is loaded
-            var schemaCache = _serviceProvider.GetRequiredService<ISchemaCache>();
-            var schema = await schemaCache.GetAsync(request.ConnectionId);
+            var schema = await _schemaCache.GetAsync(request.ConnectionId);
 
             if (schema == null)
             {
@@ -96,40 +99,79 @@ public class ConversationAwareAgentController : BaseController
                 });
             }
 
-            // Get conversation history if conversation ID is provided
+            Conversation? dbConversation = null;
             List<Message> conversationHistory = new();
+            SerializableConversationContext? persistedContext = null;
             if (!string.IsNullOrEmpty(request.ConversationId))
             {
-                conversationHistory = (await _unitOfWork.Messages.GetByConversationIdAsync(request.ConversationId))
+                dbConversation = await _unitOfWork.Conversations.GetByIdAndUserIdAsync(request.ConversationId, userId);
+                if (dbConversation == null)
+                {
+                    return NotFound(new { error = "Conversation not found" });
+                }
+
+                if (!string.Equals(dbConversation.ConnectionId, request.ConnectionId, StringComparison.Ordinal))
+                {
+                    return BadRequest(new
+                    {
+                        error = "CONVERSATION_CONNECTION_MISMATCH",
+                        message = "Conversation does not belong to the provided connection."
+                    });
+                }
+
+                conversationHistory = dbConversation.Messages
                     .OrderBy(m => m.CreatedAt)
                     .ToList();
+                persistedContext = DeserializeConversationContext(dbConversation.ContextJson);
 
                 _logger.LogInformation("Loaded {Count} messages from conversation history", conversationHistory.Count);
             }
-
-            // Create a scoped service provider with overridden database configuration
-            using var scope = _serviceProvider.CreateScope();
-            var scopedServices = scope.ServiceProvider;
 
             // ✅ CRIT-2 FIX: Use DatabaseConfigContext.SetConnectionString() instead of mutating Singleton
             var connectionString = BuildConnectionString(connection);
             using (DatabaseConfigContext.SetConnectionString(connectionString))
             {
                 // Get the orchestrator with intent routing
-                var orchestrator = scopedServices.GetRequiredService<EnhancedAgentOrchestrator>();
+                var turnResult = await _turnOrchestrator.ExecuteAsync(
+                    new ConversationTurnRequest
+                    {
+                        UserQuestion = request.Question,
+                        ConnectionId = request.ConnectionId,
+                        ConversationId = request.ConversationId,
+                        ConversationHistory = conversationHistory,
+                        PersistedContext = persistedContext
+                    },
+                    HttpContext.RequestAborted);
 
                 // ✅ USE NEW INTENT ROUTING - Returns UnifiedPipelineResponse
-                var unifiedResponse = await orchestrator.ProcessMessageWithIntentRoutingAsync(
-                    request.Question,
-                    request.ConnectionId,
-                    request.ConversationId,
-                    conversationHistory,
-                    progress: null,  // No SSE streaming for this endpoint
-                    sqlTokenCallback: null,
-                    CancellationToken.None);
+                var unifiedResponse = turnResult.Response;
 
                 // Ensure conversation ID is set
-                var conversationId = request.ConversationId ?? Guid.NewGuid().ToString();
+                var conversationId = turnResult.ConversationId;
+                if (dbConversation == null)
+                {
+                    dbConversation = new Conversation
+                    {
+                        Id = conversationId,
+                        UserId = userId,
+                        ConnectionId = request.ConnectionId,
+                        Title = BuildConversationTitle(request.Question),
+                        ContextJson = JsonSerializer.Serialize(turnResult.UpdatedContext),
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow,
+                        LastActiveAt = DateTime.UtcNow,
+                        IsArchived = false
+                    };
+
+                    await _unitOfWork.Conversations.AddAsync(dbConversation);
+                }
+                else
+                {
+                    dbConversation.ContextJson = JsonSerializer.Serialize(turnResult.UpdatedContext);
+                    dbConversation.LastActiveAt = DateTime.UtcNow;
+                    dbConversation.UpdatedAt = DateTime.UtcNow;
+                    await _unitOfWork.Conversations.UpdateAsync(dbConversation);
+                }
 
                 // Save user message to database
                 var userMessage = new Message
@@ -284,6 +326,35 @@ public class ConversationAwareAgentController : BaseController
     {
         // Get connection string with backward compatibility
         return _encryptionService.GetConnectionString(connection);
+    }
+
+    private SerializableConversationContext? DeserializeConversationContext(string? contextJson)
+    {
+        if (string.IsNullOrWhiteSpace(contextJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<SerializableConversationContext>(contextJson);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "[ConversationAwareAgentController] Failed to deserialize persisted conversation context");
+            return null;
+        }
+    }
+
+    private static string BuildConversationTitle(string question)
+    {
+        var normalized = question.Trim();
+        if (normalized.Length <= 80)
+        {
+            return normalized;
+        }
+
+        return normalized[..77] + "...";
     }
 
     private static int EstimateTokens(string text)

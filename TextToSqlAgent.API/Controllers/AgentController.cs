@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using System.Text.Json;
 using TextToSqlAgent.API.Extensions;
 using TextToSqlAgent.API.Repositories;
 using TextToSqlAgent.API.Services;
@@ -24,20 +25,23 @@ namespace TextToSqlAgent.API.Controllers;
 public class AgentController : ControllerBase
 {
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IServiceProvider _serviceProvider;
+    private readonly ConversationTurnOrchestrator _turnOrchestrator;
+    private readonly ISchemaCache _schemaCache;
     private readonly IConnectionEncryptionService _encryptionService;
     private readonly ILogger<AgentController> _logger;
     private readonly TextToSqlAgent.Infrastructure.Services.ITokenQuotaService _tokenQuotaService;
 
     public AgentController(
         IUnitOfWork unitOfWork,
-        IServiceProvider serviceProvider,
+        ConversationTurnOrchestrator turnOrchestrator,
+        ISchemaCache schemaCache,
         IConnectionEncryptionService encryptionService,
         ILogger<AgentController> logger,
         TextToSqlAgent.Infrastructure.Services.ITokenQuotaService tokenQuotaService)
     {
         _unitOfWork = unitOfWork;
-        _serviceProvider = serviceProvider;
+        _turnOrchestrator = turnOrchestrator;
+        _schemaCache = schemaCache;
         _encryptionService = encryptionService;
         _logger = logger;
         _tokenQuotaService = tokenQuotaService;
@@ -85,8 +89,7 @@ public class AgentController : ControllerBase
             }
 
             // ✅ P0: Validate schema is loaded
-            var schemaCache = _serviceProvider.GetRequiredService<ISchemaCache>();
-            var schema = await schemaCache.GetAsync(request.ConnectionId);
+            var schema = await _schemaCache.GetAsync(request.ConnectionId);
 
             if (schema == null)
             {
@@ -103,42 +106,84 @@ public class AgentController : ControllerBase
             }
 
             // Create a scoped service provider with overridden database configuration
-            using var scope = _serviceProvider.CreateScope();
-            var scopedServices = scope.ServiceProvider;
 
             // ✅ TASK 2.3: Load conversation history if conversationId is provided
+            Conversation? dbConversation = null;
             List<Message>? conversationHistory = null;
+            SerializableConversationContext? persistedContext = null;
             if (!string.IsNullOrEmpty(request.ConversationId))
             {
-                var messages = await _unitOfWork.Messages.GetByConversationIdAsync(request.ConversationId);
-                if (messages != null && messages.Any())
+                dbConversation = await _unitOfWork.Conversations.GetByIdAndUserIdAsync(request.ConversationId, userId);
+                if (dbConversation == null)
                 {
-                    conversationHistory = messages.OrderBy(m => m.CreatedAt).ToList();
-                    _logger.LogInformation(
-                        "[AgentController] Loaded {Count} messages from conversation {ConversationId}",
-                        conversationHistory.Count, request.ConversationId);
+                    return NotFound(new { error = "Conversation not found" });
                 }
+
+                if (!string.Equals(dbConversation.ConnectionId, request.ConnectionId, StringComparison.Ordinal))
+                {
+                    return BadRequest(new
+                    {
+                        error = "CONVERSATION_CONNECTION_MISMATCH",
+                        message = "Conversation does not belong to the provided connection."
+                    });
+                }
+
+                conversationHistory = dbConversation.Messages
+                    .OrderBy(m => m.CreatedAt)
+                    .ToList();
+                persistedContext = DeserializeConversationContext(dbConversation.ContextJson);
+
+                _logger.LogInformation(
+                    "[AgentController] Loaded {Count} messages from conversation {ConversationId}",
+                    conversationHistory.Count, request.ConversationId);
             }
 
             // ✅ CRIT-2 FIX: Use DatabaseConfigContext.SetConnectionString() instead of mutating Singleton
             var connectionString = BuildConnectionString(connection);
             using (DatabaseConfigContext.SetConnectionString(connectionString))
             {
-                // Get the enhanced agent orchestrator from scoped DI
-                var agent = scopedServices.GetRequiredService<EnhancedAgentOrchestrator>();
+                // Execute the unified conversation turn flow
+                var turnResult = await _turnOrchestrator.ExecuteAsync(
+                    new ConversationTurnRequest
+                    {
+                        UserQuestion = request.Question,
+                        ConnectionId = request.ConnectionId,
+                        ConversationId = request.ConversationId,
+                        ConversationHistory = conversationHistory,
+                        PersistedContext = persistedContext
+                    },
+                    HttpContext.RequestAborted);
 
                 // ✅ USE INTENT ROUTING - Returns UnifiedPipelineResponse
-                var unifiedResponse = await agent.ProcessMessageWithIntentRoutingAsync(
-                    request.Question,
-                    request.ConnectionId,
-                    request.ConversationId,
-                    conversationHistory, // ✅ TASK 2.3: Pass loaded conversation history
-                    progress: null,  // No SSE streaming for this endpoint
-                    sqlTokenCallback: null,
-                    CancellationToken.None);
+                var unifiedResponse = turnResult.Response;
 
                 // Save user message to database
-                var conversationId = request.ConversationId ?? Guid.NewGuid().ToString();
+                var conversationId = turnResult.ConversationId;
+                if (dbConversation == null)
+                {
+                    dbConversation = new Conversation
+                    {
+                        Id = conversationId,
+                        UserId = userId,
+                        ConnectionId = request.ConnectionId,
+                        Title = BuildConversationTitle(request.Question),
+                        ContextJson = JsonSerializer.Serialize(turnResult.UpdatedContext),
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow,
+                        LastActiveAt = DateTime.UtcNow,
+                        IsArchived = false
+                    };
+
+                    await _unitOfWork.Conversations.AddAsync(dbConversation);
+                }
+                else
+                {
+                    dbConversation.ContextJson = JsonSerializer.Serialize(turnResult.UpdatedContext);
+                    dbConversation.LastActiveAt = DateTime.UtcNow;
+                    dbConversation.UpdatedAt = DateTime.UtcNow;
+                    await _unitOfWork.Conversations.UpdateAsync(dbConversation);
+                }
+
                 var userMessage = new TextToSqlAgent.Infrastructure.Entities.Message
                 {
                     ConversationId = conversationId,
@@ -236,6 +281,35 @@ public class AgentController : ControllerBase
     {
         // Get connection string with backward compatibility
         return _encryptionService.GetConnectionString(connection);
+    }
+
+    private SerializableConversationContext? DeserializeConversationContext(string? contextJson)
+    {
+        if (string.IsNullOrWhiteSpace(contextJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<SerializableConversationContext>(contextJson);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "[AgentController] Failed to deserialize persisted conversation context");
+            return null;
+        }
+    }
+
+    private static string BuildConversationTitle(string question)
+    {
+        var normalized = question.Trim();
+        if (normalized.Length <= 80)
+        {
+            return normalized;
+        }
+
+        return normalized[..77] + "...";
     }
 
     /// <summary>

@@ -14,6 +14,7 @@ import {
   RightOutlined,
   InfoCircleOutlined,
   AppstoreOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useLayout } from '../contexts/LayoutContext';
@@ -77,6 +78,11 @@ const MainLayout = () => {
       key: '/explorer',
       icon: <AppstoreOutlined />,
       label: 'DB Explorer',
+    },
+    {
+      key: '/query-lab',
+      icon: <ThunderboltOutlined />,
+      label: 'Query Lab',
     },
     {
       key: '/connections',

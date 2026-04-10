@@ -1,58 +1,104 @@
-import { useState, useCallback, useRef } from 'react';
+import { useCallback, useReducer, useRef } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://localhost:7189';
 
-/**
- * LARGE-1c: Real SSE streaming hook for agent query processing.
- * Connects to POST /api/v2/agent/process/stream and emits real-time stage updates.
- * 
- * ✅ FIX: Reads token from authStore (memory-only) instead of localStorage.
- * ✅ FIX: Supports connectionId parameter.
- */
+const initialState = {
+  stages: [],
+  currentStage: null,
+  progress: 0,
+  result: null,
+  error: null,
+  isStreaming: false,
+  isComplete: false,
+  sqlTokens: [],
+  generatedSql: '',
+};
+
+function upsertStage(stages, stage) {
+  const index = stages.findIndex((item) => item.stage === stage.stage);
+  if (index === -1) {
+    return [...stages, stage];
+  }
+
+  const nextStages = [...stages];
+  nextStages[index] = stage;
+  return nextStages;
+}
+
+function streamReducer(state, action) {
+  switch (action.type) {
+    case 'RESET':
+      return initialState;
+
+    case 'START':
+      return {
+        ...initialState,
+        isStreaming: true,
+      };
+
+    case 'SQL_TOKEN':
+      return {
+        ...state,
+        sqlTokens: [...state.sqlTokens, action.token],
+        generatedSql: state.generatedSql + action.token,
+      };
+
+    case 'STAGE_UPDATE':
+      return {
+        ...state,
+        currentStage: action.stage,
+        progress: Math.round((action.stage.progress || 0) * 100),
+        stages: upsertStage(state.stages, action.stage),
+      };
+
+    case 'RESULT':
+      return {
+        ...state,
+        result: action.result,
+        error: null,
+        isStreaming: false,
+        isComplete: true,
+        progress: 100,
+      };
+
+    case 'ERROR':
+      return {
+        ...state,
+        error: action.error,
+        isStreaming: false,
+      };
+
+    case 'COMPLETE':
+      return {
+        ...state,
+        isStreaming: false,
+        isComplete: true,
+      };
+
+    default:
+      return state;
+  }
+}
+
 export const useStreamingQuery = () => {
-  const [stages, setStages] = useState([]);
-  const [currentStage, setCurrentStage] = useState(null);
-  const [progress, setProgress] = useState(0);
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState(null);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [isComplete, setIsComplete] = useState(false);
-  const [sqlTokens, setSqlTokens] = useState([]);
-  const [generatedSql, setGeneratedSql] = useState('');
+  const [state, dispatch] = useReducer(streamReducer, initialState);
   const abortRef = useRef(null);
 
   const reset = useCallback(() => {
-    setStages([]);
-    setCurrentStage(null);
-    setProgress(0);
-    setResult(null);
-    setError(null);
-    setIsStreaming(false);
-    setIsComplete(false);
-    setSqlTokens([]);
-    setGeneratedSql('');
+    dispatch({ type: 'RESET' });
   }, []);
 
-  /**
-   * Start a streaming query via SSE (Server-Sent Events over fetch).
-   * Uses fetch + ReadableStream because EventSource does not support POST.
-   * ✅ FIX: Added token refresh on 401
-   */
   const startStream = useCallback(async (question, conversationId, connectionId) => {
-    reset();
-    setIsStreaming(true);
+    dispatch({ type: 'START' });
 
     const controller = new AbortController();
     abortRef.current = controller;
 
     try {
-      // ✅ FIX: Read token from authStore (memory-only) instead of localStorage
       const { default: useAuthStore } = await import('../store/authStore');
       let token = useAuthStore.getState().accessToken;
 
-      // ✅ FIX: If no token, try to initialize auth first
       if (!token) {
-        console.log('[useStreamingQuery] No token found, attempting to initialize auth...');
         await useAuthStore.getState().initializeAuth();
         token = useAuthStore.getState().accessToken;
 
@@ -72,11 +118,7 @@ export const useStreamingQuery = () => {
           signal: controller.signal,
         });
 
-        // ✅ FIX: Handle 401 by refreshing token and retrying
         if (response.status === 401) {
-          console.log('[useStreamingQuery] 401 Unauthorized, attempting token refresh...');
-
-          // Try to refresh token
           const refreshToken = localStorage.getItem('tts_refresh_token');
           if (!refreshToken) {
             throw new Error('Session expired. Please log in again.');
@@ -86,7 +128,7 @@ export const useStreamingQuery = () => {
             const refreshResponse = await fetch(`${API_BASE}/api/auth/refresh`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ refreshToken }), // camelCase - backend auto-converts
+              body: JSON.stringify({ refreshToken }),
             });
 
             if (!refreshResponse.ok) {
@@ -94,17 +136,10 @@ export const useStreamingQuery = () => {
             }
 
             const { accessToken, refreshToken: newRefreshToken } = await refreshResponse.json();
-
-            // Update authStore
             useAuthStore.getState().setToken(accessToken, newRefreshToken || refreshToken);
-
-            console.log('[useStreamingQuery] Token refreshed, retrying request...');
-
-            // Retry with new token
             return makeRequest(accessToken);
           } catch (refreshError) {
             console.error('[useStreamingQuery] Token refresh failed:', refreshError);
-            // Force logout
             useAuthStore.getState().forceLogout();
             throw new Error('Session expired. Please log in again.');
           }
@@ -118,23 +153,24 @@ export const useStreamingQuery = () => {
       };
 
       const response = await makeRequest(token);
-
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          break;
+        }
 
         buffer += decoder.decode(value, { stream: true });
-
-        // Parse SSE events from the buffer
         const events = buffer.split('\n\n');
-        buffer = events.pop() || ''; // Keep incomplete event in buffer
+        buffer = events.pop() || '';
 
         for (const eventBlock of events) {
-          if (!eventBlock.trim()) continue;
+          if (!eventBlock.trim()) {
+            continue;
+          }
 
           let eventType = 'message';
           let eventData = '';
@@ -147,81 +183,71 @@ export const useStreamingQuery = () => {
             }
           }
 
-          if (!eventData) continue;
+          if (!eventData) {
+            continue;
+          }
 
           try {
             const data = JSON.parse(eventData);
 
             switch (eventType) {
               case 'sql_token':
-                // ✅ NEW: Handle SQL token streaming
-                setSqlTokens(prev => [...prev, data.token]);
-                setGeneratedSql(prev => prev + data.token);
+                dispatch({ type: 'SQL_TOKEN', token: data.token || '' });
                 break;
 
               case 'stage_update':
-                setCurrentStage(data);
-                setProgress(Math.round((data.progress || 0) * 100));
-                setStages(prev => {
-                  const idx = prev.findIndex(s => s.stage === data.stage);
-                  if (idx >= 0) {
-                    const updated = [...prev];
-                    updated[idx] = data;
-                    return updated;
-                  }
-                  return [...prev, data];
-                });
+                dispatch({ type: 'STAGE_UPDATE', stage: data });
                 break;
 
               case 'result':
-                setResult(data);
-                setIsComplete(true);
-                setIsStreaming(false);
-                setProgress(100);
+                dispatch({ type: 'RESULT', result: data });
                 break;
 
               case 'error':
-                setError(data);
-                setIsStreaming(false);
+                dispatch({ type: 'ERROR', error: data });
                 break;
 
+              case 'turn_failed':
+                break;
+
+              case 'turn_completed':
+                break;
+
+              case 'turn_started':
               default:
                 break;
             }
-          } catch {
-            // Skip malformed JSON
+          } catch (parseError) {
+            console.error('[useStreamingQuery] Failed to parse SSE event:', parseError);
           }
         }
       }
 
-      // If stream ended without a result event, mark as complete
-      setIsStreaming(false);
+      dispatch({ type: 'COMPLETE' });
     } catch (err) {
-      if (err.name === 'AbortError') return;
+      if (err.name === 'AbortError') {
+        return;
+      }
+
       console.error('[useStreamingQuery] Error:', err);
-      setError({ code: 'STREAM_ERROR', message: err.message });
-      setIsStreaming(false);
+      dispatch({
+        type: 'ERROR',
+        error: { code: 'STREAM_ERROR', message: err.message },
+      });
     }
-  }, [reset]);
+  }, []);
 
   const cancel = useCallback(() => {
     if (abortRef.current) {
       abortRef.current.abort();
       abortRef.current = null;
     }
-    setIsStreaming(false);
+
+    dispatch({ type: 'COMPLETE' });
   }, []);
 
   return {
-    stages,
-    currentStage,
-    progress,
-    result,
-    error,
-    isStreaming,
-    isComplete,
-    sqlTokens,
-    generatedSql,
+    ...state,
     startStream,
     cancel,
     reset,

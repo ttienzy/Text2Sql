@@ -36,7 +36,13 @@ public class SqlGeneratorAdapter : ISqlGenerator
             ClarificationQuestion = intent.ClarificationQuestion
         };
 
-        return await _plugin.GenerateSqlWithContextLegacyAsync(oldIntent, schema, originalQuestion, null, ct);
+        return await _plugin.GenerateSqlWithContextLegacyAsync(
+            oldIntent,
+            schema,
+            originalQuestion,
+            null,
+            structuredConversationContext: null,
+            cancellationToken: ct);
     }
 
     public bool ValidateSafety(string sql)

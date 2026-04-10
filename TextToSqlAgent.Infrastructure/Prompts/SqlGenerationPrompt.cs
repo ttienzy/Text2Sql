@@ -745,9 +745,18 @@ REMEMBER:
         List<string>? metrics = null,
         string? originalQuestion = null,
         List<string>? selectColumns = null,
-        List<TextToSqlAgent.Infrastructure.Entities.Message>? conversationHistory = null)
+        List<TextToSqlAgent.Infrastructure.Entities.Message>? conversationHistory = null,
+        string? structuredConversationContext = null)
     {
         var prompt = "";
+
+        if (!string.IsNullOrWhiteSpace(structuredConversationContext) &&
+            !string.Equals(structuredConversationContext, "No previous conversation.", StringComparison.Ordinal))
+        {
+            prompt += "Structured Memory:\n";
+            prompt += structuredConversationContext;
+            prompt += "\n\n";
+        }
 
         // ✅ NEW: Add conversation history context
         if (conversationHistory?.Any() == true)
@@ -826,9 +835,18 @@ Schema Context:
         List<string>? metrics = null,
         string? originalQuestion = null,
         List<string>? selectColumns = null,
-        List<TextToSqlAgent.Infrastructure.Entities.Message>? conversationHistory = null)
+        List<TextToSqlAgent.Infrastructure.Entities.Message>? conversationHistory = null,
+        string? structuredConversationContext = null)
     {
         var prompt = "";
+
+        if (!string.IsNullOrWhiteSpace(structuredConversationContext) &&
+            !string.Equals(structuredConversationContext, "No previous conversation.", StringComparison.Ordinal))
+        {
+            prompt += "Structured Memory:\n";
+            prompt += structuredConversationContext;
+            prompt += "\n\n";
+        }
 
         // ✅ NEW: Add conversation history context
         if (conversationHistory?.Any() == true)
