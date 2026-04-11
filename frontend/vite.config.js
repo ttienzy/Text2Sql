@@ -18,12 +18,28 @@ export default defineConfig({
     rollupOptions: {
       output: {
         // Manual chunks for vendor libraries
-        manualChunks: {
-          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-          'vendor-antd': ['antd', '@ant-design/icons'],
-          'vendor-utils': ['axios', 'dayjs', 'zustand'],
-          'vendor-query': ['@tanstack/react-query'],
-          'vendor-charts': ['recharts'],
+        manualChunks: (id) => {
+          if (id.includes('node_modules')) {
+            if (id.includes('antd') || id.includes('@ant-design')) {
+              return 'vendor-antd';
+            }
+            if (id.includes('react-query')) {
+              return 'vendor-query';
+            }
+            if (id.includes('recharts')) {
+              return 'vendor-charts';
+            }
+            if (id.includes('react') || id.includes('scheduler')) {
+              return 'vendor-react';
+            }
+            if (id.includes('zustand')) {
+              return 'vendor-zustand';
+            }
+            if (id.includes('axios') || id.includes('dayjs') || id.includes('lodash')) {
+              return 'vendor-utils';
+            }
+            return 'vendor-misc';
+          }
         },
       },
     },
@@ -34,8 +50,8 @@ export default defineConfig({
     // Minify options
     minify: 'esbuild',
 
-    // Chunk size warning limit
-    chunkSizeWarningLimit: 1000,
+    // Chunk size warning limit increased to 1500
+    chunkSizeWarningLimit: 1500,
   },
 
   // Server configuration (development only)
