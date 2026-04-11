@@ -1,0 +1,84 @@
+### Test Write Pipeline Performance Optimization
+### Target: <10s for simple INSERT operations
+
+@baseUrl = https://localhost:7189
+@token = {{$dotenv BEARER_TOKEN}}
+
+### TEST 1: Simple INSERT - "Add a new customer named John Smith"
+### Expected: 7-10s (down from 12-20s)
+### Should use PreResolvedEntities from IntentClassifier
+POST {{baseUrl}}/api/v2/agent/process/stream
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "question": "Add a new customer named John Smith",
+  "connectionId": "{{$dotenv CONNECTION_ID}}",
+  "conversationId": null
+}
+
+### TEST 2: Simple INSERT (Vietnamese) - "Thêm khách hàng tên Nguyễn Văn A"
+### Expected: 7-10s
+POST {{baseUrl}}/api/v2/agent/process/stream
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "question": "Thêm khách hàng tên Nguyễn Văn A",
+  "connectionId": "{{$dotenv CONNECTION_ID}}",
+  "conversationId": null
+}
+
+### TEST 3: UPDATE with WHERE - "Update customer John Smith's email to john@example.com"
+### Expected: 8-12s
+POST {{baseUrl}}/api/v2/agent/process/stream
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "question": "Update customer John Smith's email to john@example.com",
+  "connectionId": "{{$dotenv CONNECTION_ID}}",
+  "conversationId": null
+}
+
+### TEST 4: DELETE with WHERE - "Delete customer with ID 123"
+### Expected: 8-12s
+POST {{baseUrl}}/api/v2/agent/process/stream
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "question": "Delete customer with ID 123",
+  "connectionId": "{{$dotenv CONNECTION_ID}}",
+  "conversationId": null
+}
+
+### TEST 5: Complex INSERT with FK - "Add a new order for customer John Smith"
+### Expected: 10-15s (needs FK lookup)
+POST {{baseUrl}}/api/v2/agent/process/stream
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "question": "Add a new order for customer John Smith with product Laptop",
+  "connectionId": "{{$dotenv CONNECTION_ID}}",
+  "conversationId": null
+}
+
+###
+### MONITORING CHECKLIST:
+### 
+### ✅ Check logs for:
+### [WritePipeline] Using pre-resolved entities from IntentClassifier: [customer]
+### [WritePipeline] Direct match found: 'customer' → 'Customers'
+### [PERF-SUMMARY] Duration=7200ms, Success=True
+### 
+### ❌ Should NOT see:
+### [WritePipeline] ⚠️ Using fallback table identification
+### 
+### 📊 Performance targets:
+### - Simple INSERT: <8s
+### - UPDATE with WHERE: <10s
+### - DELETE with WHERE: <10s
+### - Complex INSERT with FK: <15s
+###

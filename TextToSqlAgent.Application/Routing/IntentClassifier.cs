@@ -34,32 +34,61 @@ public class IntentClassifier : IIntentClassifier
     // REFACTORED: Use word boundaries to avoid false positives
     // ═══════════════════════════════════════════════════════════════
 
-    // FORBIDDEN - Highest priority, most dangerous
-    // REFACTORED: Use Regex patterns with word boundaries
+    // FORBIDDEN - Highest priority, ONLY mass-destruction with NO targeted identifier
+    // ✅ REFACTORED: DELETE with ID/WHERE → DML_DELETE (allowed with confirm)
+    //               DELETE ALL / DROP / TRUNCATE → FORBIDDEN (hard block)
     private static readonly (string Pattern, Regex Regex, double Weight)[] ForbiddenPatterns = new[]
     {
-        // SQL dangerous operations - exact matches with boundary
+        // SQL dangerous operations - mass destruction only
         (@"\bdrop\s+table\b", new Regex(@"\bdrop\s+table\b", RegexOptions.IgnoreCase), 1.0),
         (@"\bdrop\s+database\b", new Regex(@"\bdrop\s+database\b", RegexOptions.IgnoreCase), 1.0),
         (@"\btruncate\s+table\b", new Regex(@"\btruncate\s+table\b", RegexOptions.IgnoreCase), 1.0),
         (@"\btruncate\b", new Regex(@"\btruncate\b", RegexOptions.IgnoreCase), 0.95),
-        (@"\bdelete\s+from\b", new Regex(@"\bdelete\s+from\b", RegexOptions.IgnoreCase), 1.0),
         
-        // Natural language delete operations
-        (@"\bdelete\s+(?:customer|user|record|order|product|data|row|entry|item)\b", new Regex(@"\bdelete\s+(?:customer|user|record|order|product|data|row|entry|item)\b", RegexOptions.IgnoreCase), 1.0),
-        (@"\bremove\s+(?:customer|user|record|order|product|data|row|entry|item)\b", new Regex(@"\bremove\s+(?:customer|user|record|order|product|data|row|entry|item)\b", RegexOptions.IgnoreCase), 0.95),
+        // Mass delete (no target) - FORBIDDEN
         (@"\bdelete\s+all\b", new Regex(@"\bdelete\s+all\b", RegexOptions.IgnoreCase), 1.0),
         (@"\bremove\s+all\b", new Regex(@"\bremove\s+all\b", RegexOptions.IgnoreCase), 0.95),
         (@"\bclear\s+(?:table|data)\b", new Regex(@"\bclear\s+(?:table|data)\b", RegexOptions.IgnoreCase), 0.95),
         
-        // Vietnamese - dangerous
+        // Vietnamese - mass destruction
         (@"\bxóa\s+bảng\b", new Regex(@"\bxóa\s+bảng\b", RegexOptions.IgnoreCase), 1.0),
         (@"\bxóa\s+toàn\s+bộ\b", new Regex(@"\bxóa\s+toàn\s+bộ\b", RegexOptions.IgnoreCase), 1.0),
         (@"\bxóa\s+hết\b", new Regex(@"\bxóa\s+hết\b", RegexOptions.IgnoreCase), 1.0),
-        (@"\bxóa\s+dữ\s+liệu\b", new Regex(@"\bxóa\s+dữ\s+liệu\b", RegexOptions.IgnoreCase), 1.0),
-        (@"\bxóa\s+(?:khách\s+hàng|người\s+dùng|đơn\s+hàng|sản\s+phẩm|bản\s+ghi)\b", new Regex(@"\bxóa\s+(?:khách\s+hàng|người\s+dùng|đơn\s+hàng|sản\s+phẩm|bản\s+ghi)\b", RegexOptions.IgnoreCase), 1.0),
-        (@"\bxoá\b", new Regex(@"\bxoá\b", RegexOptions.IgnoreCase), 0.9),
         (@"\bdestroy\b", new Regex(@"\bdestroy\b", RegexOptions.IgnoreCase), 0.9),
+    };
+
+    // DML_DELETE - Targeted delete WITH identifier (ID, WHERE, specific record)
+    // ✅ NEW: These route to DmlPipeline with risk=CRITICAL, requires user confirmation
+    private static readonly (string Pattern, Regex Regex, double Weight)[] DeletePatterns = new[]
+    {
+        // SQL delete with WHERE (targeted)
+        (@"\bdelete\s+from\s+\w+\s+where\b", new Regex(@"\bdelete\s+from\s+\w+\s+where\b", RegexOptions.IgnoreCase), 0.95),
+        (@"\bdelete\s+from\b", new Regex(@"\bdelete\s+from\b", RegexOptions.IgnoreCase), 0.85),
+        
+        // English - targeted delete with identifier
+        (@"\bdelete\s+(?:customer|user|record|order|product|row|entry|item)\s+(?:with|where|id|#|number)\b", new Regex(@"\bdelete\s+(?:customer|user|record|order|product|row|entry|item)\s+(?:with|where|id|#|number)\b", RegexOptions.IgnoreCase), 0.95),
+        (@"\bremove\s+(?:customer|user|record|order|product|row|entry|item)\s+(?:with|where|id|#|number)\b", new Regex(@"\bremove\s+(?:customer|user|record|order|product|row|entry|item)\s+(?:with|where|id|#|number)\b", RegexOptions.IgnoreCase), 0.95),
+        // Generic delete/remove with entity (fallback — will check for identifier later)
+        (@"\bdelete\s+(?:customer|user|record|order|product|data|row|entry|item)\b", new Regex(@"\bdelete\s+(?:customer|user|record|order|product|data|row|entry|item)\b", RegexOptions.IgnoreCase), 0.80),
+        (@"\bremove\s+(?:customer|user|record|order|product|data|row|entry|item)\b", new Regex(@"\bremove\s+(?:customer|user|record|order|product|data|row|entry|item)\b", RegexOptions.IgnoreCase), 0.80),
+        
+        // Vietnamese - targeted delete
+        (@"\bxóa\s+(?:khách\s+hàng|người\s+dùng|đơn\s+hàng|sản\s+phẩm|bản\s+ghi)\s+(?:có|với|mã|id|số)\b", new Regex(@"\bxóa\s+(?:khách\s+hàng|người\s+dùng|đơn\s+hàng|sản\s+phẩm|bản\s+ghi)\s+(?:có|với|mã|id|số)\b", RegexOptions.IgnoreCase), 0.95),
+        (@"\bxóa\s+(?:khách\s+hàng|người\s+dùng|đơn\s+hàng|sản\s+phẩm|bản\s+ghi)\b", new Regex(@"\bxóa\s+(?:khách\s+hàng|người\s+dùng|đơn\s+hàng|sản\s+phẩm|bản\s+ghi)\b", RegexOptions.IgnoreCase), 0.80),
+        (@"\bxóa\s+dữ\s+liệu\b", new Regex(@"\bxóa\s+dữ\s+liệu\b", RegexOptions.IgnoreCase), 0.75),
+        (@"\bxoá\b", new Regex(@"\bxoá\b", RegexOptions.IgnoreCase), 0.70),
+    };
+
+    // DML_UPSERT - Insert or Update pattern
+    // ✅ NEW: Merge/upsert operations
+    private static readonly (string Pattern, Regex Regex, double Weight)[] UpsertPatterns = new[]
+    {
+        (@"\bupsert\b", new Regex(@"\bupsert\b", RegexOptions.IgnoreCase), 0.95),
+        (@"\bmerge\s+into\b", new Regex(@"\bmerge\s+into\b", RegexOptions.IgnoreCase), 0.95),
+        (@"\binsert\s+or\s+update\b", new Regex(@"\binsert\s+or\s+update\b", RegexOptions.IgnoreCase), 0.95),
+        (@"\binsert\s+on\s+duplicate\b", new Regex(@"\binsert\s+on\s+duplicate\b", RegexOptions.IgnoreCase), 0.90),
+        // Vietnamese
+        (@"\bthêm\s+hoặc\s+cập\s+nhật\b", new Regex(@"\bthêm\s+hoặc\s+cập\s+nhật\b", RegexOptions.IgnoreCase), 0.90),
     };
 
     // WRITE - INSERT patterns with EXPANDED coverage
@@ -71,14 +100,15 @@ public class IntentClassifier : IIntentClassifier
         (@"\badd\s+new\b", new Regex(@"\badd\s+new\b", RegexOptions.IgnoreCase), 0.85),
         (@"\bcreate\s+new\b", new Regex(@"\bcreate\s+new\b", RegexOptions.IgnoreCase), 0.85),
         (@"\binsert\s+record\b", new Regex(@"\binsert\s+record\b", RegexOptions.IgnoreCase), 0.9),
-        // ✅ FIX 4: Add more INSERT patterns for common phrases
-        (@"\badd\s+a\s+new\b", new Regex(@"\badd\s+a\s+new\b", RegexOptions.IgnoreCase), 0.85),
+        // ✅ FIX: Add negative lookahead to exclude DDL operations (column, table, index)
+        (@"\badd\s+a\s+new\s+(?!column|table|index|constraint|key)\b", new Regex(@"\badd\s+a\s+new\s+(?!column|table|index|constraint|key)\b", RegexOptions.IgnoreCase), 0.85),
         (@"\bcreate\s+user\b", new Regex(@"\bcreate\s+user\b", RegexOptions.IgnoreCase), 0.90),
         // ✅ TASK 2.2: More specific "register" patterns
         (@"\bregister\s+(?:user|customer|account|new)\b", new Regex(@"\bregister\s+(?:user|customer|account|new)\b", RegexOptions.IgnoreCase), 0.90), // Specific entities
         (@"\bregister\b", new Regex(@"\bregister\b", RegexOptions.IgnoreCase), 0.50), // ✅ Ambiguous → force LLM
         (@"\bsign\s+up\b", new Regex(@"\bsign\s+up\b", RegexOptions.IgnoreCase), 0.85),
-        (@"\badd\s+a\b", new Regex(@"\badd\s+a\b", RegexOptions.IgnoreCase), 0.80),
+        // ✅ FIX: Add negative lookahead for "add a" to exclude DDL
+        (@"\badd\s+a\s+(?!column|table|index|constraint|key)\b", new Regex(@"\badd\s+a\s+(?!column|table|index|constraint|key)\b", RegexOptions.IgnoreCase), 0.80),
         (@"\bnew\s+record\b", new Regex(@"\bnew\s+record\b", RegexOptions.IgnoreCase), 0.85),
         // ✅ TASK 2.2: Removed ambiguous "save" pattern (moved to UPDATE with more specific patterns)
         // Vietnamese - EXPANDED with more specific patterns
@@ -241,8 +271,8 @@ public class IntentClassifier : IIntentClassifier
             return CreateUnknownResult(question, "Empty question");
         }
 
-        // ✅ DEBUG LOG: Entry point
-        _logger.LogInformation("[IntentClassifier] START CLASSIFICATION - Question: '{Question}'", question);
+        // ✅ DEBUG LOG: Entry point (reduced verbosity)
+        _logger.LogDebug("[IntentClassifier] START CLASSIFICATION - Question: '{Question}'", question);
         _logger.LogDebug("[IntentClassifier] ConversationHistory: {HasHistory}, DatabaseContext: {HasContext}",
             !string.IsNullOrEmpty(conversationHistory),
             !string.IsNullOrEmpty(databaseContext));
@@ -256,7 +286,7 @@ public class IntentClassifier : IIntentClassifier
             var cachedResult = await _cacheService.GetCachedAsync(cacheKey, ct);
             if (cachedResult != null)
             {
-                _logger.LogInformation(
+                _logger.LogDebug(
                     "[IntentClassifier] ✅ CACHE HIT (context-aware): {Intent} (confidence: {Confidence})",
                     cachedResult.Intent, cachedResult.Confidence);
                 return cachedResult;
@@ -267,7 +297,7 @@ public class IntentClassifier : IIntentClassifier
         var quickResult = QuickBlockCheck(question);
         if (quickResult != null)
         {
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "[IntentClassifier] Quick-block matched: {Intent} (confidence: {Confidence})",
                 quickResult.Intent, quickResult.Confidence);
             return quickResult;
@@ -283,7 +313,7 @@ public class IntentClassifier : IIntentClassifier
         // If high confidence, cache and return immediately
         if (ruleResult.Confidence >= RuleBasedConfidenceThreshold)
         {
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "[IntentClassifier] High confidence rule-based classification: {Intent}",
                 ruleResult.Intent);
 
@@ -302,48 +332,15 @@ public class IntentClassifier : IIntentClassifier
             var llmResult = await ClassifyWithLlmAsync(
                 question, conversationHistory, databaseContext, ct);
 
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "[IntentClassifier] LLM classification: {Intent} (confidence: {Confidence})",
                 llmResult.Intent, llmResult.Confidence);
-
-            // ✅ NEW: Add complexity analysis if analyzer available
-            if (_complexityAnalyzer != null && llmResult.Intent == IntentCategory.Query)
-            {
-                try
-                {
-                    // Parse database context to schema (simplified)
-                    var schema = ParseDatabaseContext(databaseContext);
-                    if (schema != null)
-                    {
-                        var complexityScore = await _complexityAnalyzer.AnalyzeAsync(
-                            question, schema, null, ct);
-
-                        llmResult.ComplexityScore = complexityScore.Level switch
-                        {
-                            ComplexityLevel.Simple => 0.3,
-                            ComplexityLevel.Medium => 0.6,
-                            ComplexityLevel.Complex => 0.9,
-                            _ => 0.5
-                        };
-
-                        llmResult.ComplexityReasoning = complexityScore.Reasoning;
-
-                        _logger.LogInformation(
-                            "[IntentClassifier] Complexity analysis: {Level} (score: {Score})",
-                            complexityScore.Level, llmResult.ComplexityScore);
-                    }
-                }
-                catch (Exception complexityEx)
-                {
-                    _logger.LogWarning(complexityEx, "[IntentClassifier] Complexity analysis failed, continuing without it");
-                }
-            }
 
             // ✅ Cache LLM result if high confidence with context-aware key
             if (_cacheService != null && llmResult.Confidence >= 0.75)
             {
                 await _cacheService.CacheAsync(cacheKey, llmResult, ct);
-                _logger.LogInformation("[IntentClassifier] Cached LLM result (context-aware)");
+                _logger.LogDebug("[IntentClassifier] Cached LLM result (context-aware)");
             }
 
             return llmResult;
@@ -461,6 +458,38 @@ public class IntentClassifier : IIntentClassifier
     {
         var lower = question.ToLowerInvariant();
 
+        // ✅ STEP 1: Check if this is a TARGETED delete (has identifier → DML_DELETE, not FORBIDDEN)
+        // Must check BEFORE ForbiddenPatterns to avoid false-blocking "xóa khách hàng có ID 5"
+        var hasIdentifier = Regex.IsMatch(lower, @"(?:id|mã|số|#|where|có\s+(?:id|mã))\s*[=:]?\s*\w+", RegexOptions.IgnoreCase)
+                         || Regex.IsMatch(lower, @"\b(?:with|where)\s+", RegexOptions.IgnoreCase)
+                         || Regex.IsMatch(lower, @"\d{2,}", RegexOptions.None); // Contains numeric ID
+
+        foreach (var (pattern, regex, weight) in DeletePatterns)
+        {
+            if (regex.IsMatch(lower) && hasIdentifier)
+            {
+                _logger.LogInformation(
+                    "[IntentClassifier] TARGETED DELETE detected (has identifier): {Pattern} → DML_DELETE",
+                    pattern);
+
+                var deleteResult = new IntentClassificationResult
+                {
+                    Intent = IntentCategory.Delete,
+                    SubIntent = "with_where",
+                    Route = PipelineRoute.Dml,
+                    RiskLevel = RiskLevel.Critical,
+                    Confidence = weight,
+                    Reasoning = $"Targeted delete with identifier detected: '{pattern}'",
+                    NormalizedQuery = question,
+                    Method = ClassificationMethod.RuleBased,
+                    MatchedKeywords = new List<string> { pattern },
+                    DetectedEntities = ExtractEntitiesSimple(question)
+                };
+                return deleteResult;
+            }
+        }
+
+        // ✅ STEP 2: Check FORBIDDEN patterns (mass-destruction, no identifier)
         foreach (var (pattern, regex, weight) in ForbiddenPatterns)
         {
             if (regex.IsMatch(lower))
@@ -473,14 +502,28 @@ public class IntentClassifier : IIntentClassifier
                 {
                     Intent = IntentCategory.Forbidden,
                     Route = PipelineRoute.Forbidden,
+                    RiskLevel = RiskLevel.Critical,
                     Confidence = 0.99,
-                    Reasoning = $"Quick-block detected dangerous pattern: '{pattern}'",
+                    Reasoning = $"Quick-block detected mass-destruction pattern: '{pattern}'",
                     NormalizedQuery = question,
                     Method = ClassificationMethod.RuleBased,
                     MatchedKeywords = new List<string> { pattern },
-                    ForbiddenReason = $"Detected data deletion operation: {pattern}",
+                    ForbiddenReason = $"Mass data destruction detected: {pattern}",
                     SafeAlternatives = GetSafeAlternatives()
                 };
+            }
+        }
+
+        // ✅ STEP 3: Check delete patterns WITHOUT identifier → route to LLM for disambiguation
+        foreach (var (pattern, regex, weight) in DeletePatterns)
+        {
+            if (regex.IsMatch(lower) && !hasIdentifier)
+            {
+                _logger.LogInformation(
+                    "[IntentClassifier] DELETE without identifier: {Pattern} → routing to LLM for disambiguation",
+                    pattern);
+                // Return null to let LLM classify — it will decide DML_DELETE vs FORBIDDEN
+                return null;
             }
         }
 
@@ -504,6 +547,8 @@ public class IntentClassifier : IIntentClassifier
         // Check each pattern category with weighted scoring
         CheckPatternsWithWeight(lower, InsertPatterns, IntentCategory.Insert, scores, matchedKeywords);
         CheckPatternsWithWeight(lower, UpdatePatterns, IntentCategory.Update, scores, matchedKeywords);
+        CheckPatternsWithWeight(lower, DeletePatterns, IntentCategory.Delete, scores, matchedKeywords);
+        CheckPatternsWithWeight(lower, UpsertPatterns, IntentCategory.Upsert, scores, matchedKeywords);
         CheckPatternsWithWeight(lower, IndexPatterns, IntentCategory.DdlIndex, scores, matchedKeywords);
         CheckPatternsWithWeight(lower, ProcedurePatterns, IntentCategory.DdlProcedure, scores, matchedKeywords);
         CheckPatternsWithWeight(lower, AlterPatterns, IntentCategory.DdlAlter, scores, matchedKeywords);
@@ -542,15 +587,15 @@ public class IntentClassifier : IIntentClassifier
             MatchedKeywords = matchedKeywords
         };
 
-        // CRITICAL FIX 2: Extract entities for Write/DDL operations to avoid empty DetectedEntities
-        if (topIntent.Key == IntentCategory.Insert ||
-            topIntent.Key == IntentCategory.Update ||
-            topIntent.Key == IntentCategory.DdlAlter ||
-            topIntent.Key == IntentCategory.DdlIndex)
+        // CRITICAL FIX 2: Extract entities for Write/DDL/Delete operations
+        if (topIntent.Key is IntentCategory.Insert or IntentCategory.Update
+            or IntentCategory.Delete or IntentCategory.Upsert
+            or IntentCategory.DdlAlter or IntentCategory.DdlIndex)
         {
             result.DetectedEntities = ExtractEntitiesSimple(question);
-            _logger.LogInformation("[IntentClassifier] Rule-based entity extraction: [{Entities}] for intent {Intent}",
-                string.Join(", ", result.DetectedEntities), topIntent.Key);
+            result.RiskLevel = CalculateRiskLevel(topIntent.Key, question);
+            _logger.LogDebug("[IntentClassifier] Rule-based entity extraction: [{Entities}] for intent {Intent}, risk: {Risk}",
+                string.Join(", ", result.DetectedEntities), topIntent.Key, result.RiskLevel);
         }
 
         return result;
@@ -644,34 +689,41 @@ public class IntentClassifier : IIntentClassifier
     | Intent           | Description                                                    |
     |------------------|----------------------------------------------------------------|
     | QUERY            | Read data: SELECT, search, statistics, reports, view lists    |
-    | INSERT           | Add new data to table                                          |
-    | UPDATE           | Update existing data (not delete)                              |
+    | DML_INSERT       | Add new data to table                                          |
+    | DML_UPDATE       | Update existing data (not delete)                              |
+    | DML_DELETE       | Delete SPECIFIC records with WHERE clause (targeted deletion)  |
+    | DML_UPSERT       | Insert or update (MERGE/UPSERT pattern)                       |
     | DDL_INDEX        | Create, modify, or optimize indexes                            |
     | DDL_PROCEDURE    | Create or modify stored procedures, functions                  |
     | DDL_ALTER        | Add/modify/remove columns, change data types, rename           |
     | DDL_VIEW         | Create or modify views                                         |
-    | FORBIDDEN        | DELETE data: DELETE, DROP TABLE, TRUNCATE, PURGE               |
+    | FORBIDDEN        | Mass destruction: DROP TABLE, TRUNCATE, DELETE ALL (no WHERE)  |
     | OFF_TOPIC        | Not related to database (weather, etc.)                        |
     | UNKNOWN          | Cannot determine clearly                                       |
 
-    ## FORBIDDEN - Absolute Rules (NO EXCEPTIONS)
+    ## CRITICAL: DML_DELETE vs FORBIDDEN Rules
 
-    Any request with intent to permanently delete data -> classify as FORBIDDEN:
-    - Direct SQL: DELETE, DROP, TRUNCATE, PURGE
-    - Natural language: 
-      * ""delete customer"", ""delete user"", ""delete record"", ""delete order""
-      * ""remove customer"", ""remove user"", ""remove record""
-      * ""delete all"", ""remove all"", ""clear table"", ""clear data""
-      * Vietnamese: ""xóa khách hàng"", ""xóa người dùng"", ""xóa bản ghi""
-    - Even if user says ""just testing"", ""demo only"" -> still FORBIDDEN
-    - CRITICAL: ""Delete customer with ID 123"" = FORBIDDEN (not UPDATE)
-    - CRITICAL: ""Remove user John"" = FORBIDDEN (not UPDATE)
+    DML_DELETE (ALLOWED with confirmation):
+    - ""Delete customer with ID 123"" → DML_DELETE (has specific target)
+    - ""Remove order #456"" → DML_DELETE (has identifier)
+    - ""Xóa khách hàng có mã 789"" → DML_DELETE (has Vietnamese identifier)
+    - ""DELETE FROM users WHERE id = 5"" → DML_DELETE (has WHERE clause)
+    - Any delete that targets SPECIFIC record(s) with identifiable criteria
+
+    FORBIDDEN (HARD BLOCK, no exceptions):
+    - ""Delete all customers"" → FORBIDDEN (mass deletion)
+    - ""DELETE FROM users"" (no WHERE) → FORBIDDEN
+    - ""DROP TABLE users"" → FORBIDDEN
+    - ""TRUNCATE TABLE orders"" → FORBIDDEN
+    - ""Xóa toàn bộ dữ liệu"" → FORBIDDEN
+    - ""Xóa hết khách hàng"" → FORBIDDEN
+    - Any request to delete ALL data without specific criteria
 
     ## Output Format - PURE JSON ONLY
 
     Return EXACTLY this format:
     {{
-      ""intent"": ""QUERY|INSERT|UPDATE|DDL_INDEX|DDL_PROCEDURE|DDL_ALTER|DDL_VIEW|FORBIDDEN|OFF_TOPIC|UNKNOWN"",
+      ""intent"": ""QUERY|DML_INSERT|DML_UPDATE|DML_DELETE|DML_UPSERT|DDL_INDEX|DDL_PROCEDURE|DDL_ALTER|DDL_VIEW|FORBIDDEN|OFF_TOPIC|UNKNOWN"",
       ""confidence"": 0.0,
       ""complexityScore"": 0.0,
       ""reason"": ""Brief explanation (max 1 sentence)"",
@@ -776,8 +828,10 @@ public class IntentClassifier : IIntentClassifier
     private IntentCategory ParseIntentType(string raw) => raw.ToUpperInvariant() switch
     {
         "QUERY" => IntentCategory.Query,
-        "INSERT" => IntentCategory.Insert,
-        "UPDATE" => IntentCategory.Update,
+        "INSERT" or "DML_INSERT" => IntentCategory.Insert,
+        "UPDATE" or "DML_UPDATE" => IntentCategory.Update,
+        "DELETE" or "DML_DELETE" => IntentCategory.Delete,
+        "UPSERT" or "DML_UPSERT" => IntentCategory.Upsert,
         "DDL_INDEX" => IntentCategory.DdlIndex,
         "DDL_PROCEDURE" => IntentCategory.DdlProcedure,
         "DDL_ALTER" => IntentCategory.DdlAlter,
@@ -790,13 +844,36 @@ public class IntentClassifier : IIntentClassifier
     private PipelineRoute ResolveRoute(IntentCategory intent) => intent switch
     {
         IntentCategory.Query => PipelineRoute.Query,
-        IntentCategory.Insert or IntentCategory.Update => PipelineRoute.Write,
+        IntentCategory.Insert or IntentCategory.Update
+            or IntentCategory.Delete or IntentCategory.Upsert => PipelineRoute.Dml,
         IntentCategory.DdlIndex or IntentCategory.DdlProcedure
             or IntentCategory.DdlAlter or IntentCategory.DdlView => PipelineRoute.Ddl,
         IntentCategory.Forbidden => PipelineRoute.Forbidden,
         IntentCategory.OffTopic or IntentCategory.Unknown => PipelineRoute.Reject,
         _ => PipelineRoute.Reject
     };
+
+    /// <summary>
+    /// Calculate risk level based on intent type and query content
+    /// </summary>
+    private RiskLevel CalculateRiskLevel(IntentCategory intent, string question)
+    {
+        var lower = question.ToLowerInvariant();
+        return intent switch
+        {
+            IntentCategory.Delete => RiskLevel.Critical,
+            IntentCategory.Update when Regex.IsMatch(lower, @"\b(?:all|toàn\s+bộ|tất\s+cả)\b") => RiskLevel.Critical,
+            IntentCategory.Update => RiskLevel.High,
+            IntentCategory.Insert when Regex.IsMatch(lower, @"\b(?:bulk|batch|nhiều|hàng\s+loạt)\b") => RiskLevel.High,
+            IntentCategory.Insert => RiskLevel.Medium,
+            IntentCategory.Upsert => RiskLevel.Medium,
+            IntentCategory.DdlAlter => RiskLevel.High,
+            IntentCategory.DdlIndex => RiskLevel.Low,
+            IntentCategory.DdlView => RiskLevel.Low,
+            IntentCategory.DdlProcedure => RiskLevel.Medium,
+            _ => RiskLevel.Low
+        };
+    }
 
     private List<SafeAlternative> GetSafeAlternatives() => new()
     {
@@ -853,8 +930,9 @@ public class IntentClassifier : IIntentClassifier
         var lower = question.ToLowerInvariant();
 
         // Pattern 1: INSERT/ADD patterns - "thêm/tạo/insert/add [entity]"
+        // ✅ FIX: Skip articles (a, an, the) before entity name
         var insertMatch = Regex.Match(question,
-            @"\b(?:thêm|tạo\s+mới|insert\s+(?:into\s+)?|add\s+(?:new\s+)?)\s*(\w+)",
+            @"\b(?:thêm|tạo\s+mới|insert\s+(?:into\s+)?|add\s+(?:(?:a|an|the)\s+)?(?:new\s+)?)\s*(\w+)",
             RegexOptions.IgnoreCase);
         if (insertMatch.Success)
         {
@@ -863,7 +941,7 @@ public class IntentClassifier : IIntentClassifier
 
         // Pattern 2: UPDATE patterns - "cập nhật/update/sửa [entity]"
         var updateMatch = Regex.Match(question,
-            @"\b(?:cập\s+nhật|update|sửa|chỉnh\s+sửa)\s+(\w+)",
+            @"\b(?:cập\s+nhật|update|sửa|chỉnh\s+sửa)\s+(?:(?:a|an|the)\s+)?(\w+)",
             RegexOptions.IgnoreCase);
         if (updateMatch.Success && !entities.Contains(updateMatch.Groups[1].Value))
         {

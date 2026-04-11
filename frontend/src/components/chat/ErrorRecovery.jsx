@@ -75,28 +75,6 @@ const ErrorRecovery = ({ error, originalQuestion, suggestedQueries, onRetry, onR
         </div>
       )}
 
-      {/* Retry with different wording */}
-      <div style={styles.section}>
-        <div style={styles.sectionTitle}>🔄 Retry with different wording:</div>
-        <div style={styles.retryRow}>
-          <input
-            type="text"
-            value={altQuestion}
-            onChange={e => setAltQuestion(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleRetry()}
-            placeholder="Try rephrasing your question..."
-            style={styles.retryInput}
-          />
-          <button
-            style={styles.retryBtn}
-            onClick={handleRetry}
-            disabled={!altQuestion.trim()}
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-
       {/* Report Error */}
       <div style={styles.section}>
         {!showReport ? (
@@ -155,17 +133,7 @@ const styles = {
     fontSize: '13px', cursor: 'pointer', textAlign: 'left',
     transition: 'background-color 0.15s',
   },
-  retryRow: { display: 'flex', gap: '8px' },
-  retryInput: {
-    flex: 1, padding: '8px 12px', borderRadius: '8px',
-    border: '1px solid #334155', backgroundColor: '#0f172a',
-    color: '#e2e8f0', fontSize: '13px',
-  },
-  retryBtn: {
-    padding: '8px 16px', borderRadius: '8px', border: 'none',
-    backgroundColor: '#4f46e5', color: '#fff', fontSize: '13px',
-    fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
-  },
+
   reportToggle: {
     background: 'none', border: 'none', color: '#94a3b8',
     fontSize: '12px', cursor: 'pointer', padding: 0,

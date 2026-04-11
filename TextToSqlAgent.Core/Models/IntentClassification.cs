@@ -16,6 +16,12 @@ public enum IntentCategory
     /// <summary>UPDATE operations - modifying existing data</summary>
     Update,
 
+    /// <summary>DELETE operations with WHERE clause - removing specific data (requires confirmation)</summary>
+    Delete,
+
+    /// <summary>UPSERT/MERGE operations - insert or update pattern</summary>
+    Upsert,
+
     /// <summary>CREATE/DROP INDEX operations</summary>
     DdlIndex,
 
@@ -28,7 +34,7 @@ public enum IntentCategory
     /// <summary>CREATE/ALTER VIEW operations</summary>
     DdlView,
 
-    /// <summary>DELETE/DROP/TRUNCATE - forbidden operations</summary>
+    /// <summary>DROP TABLE/TRUNCATE/DELETE ALL - forbidden operations (no WHERE, mass destruction)</summary>
     Forbidden,
 
     /// <summary>Off-topic questions not related to database</summary>
@@ -46,8 +52,11 @@ public enum PipelineRoute
     /// <summary>Route to existing QUERY pipeline (Simple/Medium/Complex)</summary>
     Query,
 
-    /// <summary>Route to new WRITE pipeline (INSERT/UPDATE)</summary>
-    Write,
+    /// <summary>Route to DML pipeline (INSERT/UPDATE/DELETE/UPSERT) — requires confirmation</summary>
+    Dml,
+
+    /// <summary>Route to new WRITE pipeline (INSERT/UPDATE) — legacy alias for Dml</summary>
+    Write = Dml,
 
     /// <summary>Route to new DDL pipeline (INDEX/PROC/ALTER/VIEW)</summary>
     Ddl,
@@ -82,8 +91,14 @@ public class IntentClassificationResult
     /// <summary>Detected intent category</summary>
     public IntentCategory Intent { get; set; }
 
+    /// <summary>Sub-intent for finer routing (e.g. "single", "bulk", "targeted", "mass")</summary>
+    public string? SubIntent { get; set; }
+
     /// <summary>Recommended pipeline route</summary>
     public PipelineRoute Route { get; set; }
+
+    /// <summary>Risk level of the operation</summary>
+    public RiskLevel RiskLevel { get; set; } = RiskLevel.Low;
 
     /// <summary>Confidence score (0.0 - 1.0)</summary>
     public double Confidence { get; set; }
@@ -136,6 +151,24 @@ public enum SafeAlternativeType
     Archive,         // Move to archive table
     InactiveFlag,    // status = 'inactive'
     AuditLog         // Log before deactivate
+}
+
+/// <summary>
+/// Risk level for DML/DDL operations — determines UI treatment and confirmation requirements
+/// </summary>
+public enum RiskLevel
+{
+    /// <summary>Read-only or metadata operations (QUERY, SCHEMA_DESCRIBE)</summary>
+    Low,
+
+    /// <summary>Single-row INSERT, CREATE INDEX/VIEW (reversible)</summary>
+    Medium,
+
+    /// <summary>Multi-row UPDATE, ALTER TABLE, mass INSERT</summary>
+    High,
+
+    /// <summary>DELETE with WHERE, DROP operations — requires explicit confirmation</summary>
+    Critical
 }
 
 /// <summary>

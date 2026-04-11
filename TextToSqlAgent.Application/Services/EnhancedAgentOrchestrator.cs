@@ -100,6 +100,7 @@ public class EnhancedAgentOrchestrator
     public async Task<AgentResponse> ProcessQueryWithPipelineAsync(
         Pipeline.PipelineOrchestrator pipelineOrchestrator,
         string userQuestion,
+        string? connectionId = null,
         string? conversationId = null,
         List<TextToSqlAgent.Infrastructure.Entities.Message>? conversationHistory = null,
         IProgress<AgentStageEvent>? progress = null,
@@ -107,6 +108,12 @@ public class EnhancedAgentOrchestrator
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("[EnhancedAgent] 🚀 Using modular pipeline (Phase 1 refactor)");
+
+        DatabaseSchema? scopedSchema = null;
+        if (!string.IsNullOrWhiteSpace(connectionId) && _schemaCache != null)
+        {
+            scopedSchema = await _schemaCache.GetAsync(connectionId, cancellationToken);
+        }
 
         var context = new Pipeline.PipelineContext
         {
@@ -116,7 +123,7 @@ public class EnhancedAgentOrchestrator
             ConversationHistory = conversationHistory,
             Progress = progress,
             SqlTokenCallback = sqlTokenCallback,
-            Schema = _globalCachedSchema // Share global cached schema if available
+            Schema = scopedSchema ?? _globalCachedSchema // Share scoped or fallback to global cached schema
         };
 
         return await pipelineOrchestrator.ExecuteAsync(context, cancellationToken);
@@ -142,6 +149,7 @@ public class EnhancedAgentOrchestrator
             conversationId,
             conversationHistory,
             persistedContext: null,
+            schema: null, // ✅ PHASE-1 TASK-01: No schema injection for legacy calls
             progress,
             sqlTokenCallback,
             preClassified,
@@ -154,6 +162,7 @@ public class EnhancedAgentOrchestrator
         string? conversationId,
         List<TextToSqlAgent.Infrastructure.Entities.Message>? conversationHistory,
         SerializableConversationContext? persistedContext,
+        DatabaseSchema? schema, // ✅ PHASE-1 TASK-01: Add schema parameter
         IProgress<AgentStageEvent>? progress,
         Action<string>? sqlTokenCallback,
         IntentClassificationResult? preClassified,
@@ -433,9 +442,19 @@ public class EnhancedAgentOrchestrator
             DatabaseSchema? loadedSchema;
             try
             {
-                loadedSchema = !string.IsNullOrWhiteSpace(connectionId)
-                    ? await EnsureSchemaLoadedForConnectionAsync(connectionId, steps, cancellationToken)
-                    : await EnsureLegacySchemaLoadedAsync(steps, cancellationToken);
+                // ✅ PHASE-1 TASK-01: Use injected schema if provided (skip loading)
+                if (schema != null)
+                {
+                    _logger.LogInformation("[EnhancedAgent] ✅ Schema injected from cache, skipping database scan");
+                    loadedSchema = schema;
+                }
+                else
+                {
+                    _logger.LogInformation("[EnhancedAgent] Schema not injected, loading from database");
+                    loadedSchema = !string.IsNullOrWhiteSpace(connectionId)
+                        ? await EnsureSchemaLoadedForConnectionAsync(connectionId, steps, cancellationToken)
+                        : await EnsureLegacySchemaLoadedAsync(steps, cancellationToken);
+                }
             }
             catch (Exception ex)
             {
@@ -1575,6 +1594,7 @@ public class EnhancedAgentOrchestrator
             conversationId,
             conversationHistory,
             persistedContext: null,
+            schema: null, // ✅ PHASE-1 TASK-01: No schema for backward compatibility
             progress,
             sqlTokenCallback,
             cancellationToken);
@@ -1586,12 +1606,21 @@ public class EnhancedAgentOrchestrator
         string? conversationId,
         List<Message>? conversationHistory,
         SerializableConversationContext? persistedContext,
+        DatabaseSchema? schema, // ✅ PHASE-1 TASK-01: Add schema parameter
         IProgress<AgentStageEvent>? progress,
         Action<string>? sqlTokenCallback,
         CancellationToken cancellationToken = default)
     {
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         _logger.LogInformation("[EnhancedAgent] Processing with intent-based routing");
+
+        // ✅ PHASE-1 TASK-01: Log schema injection status
+        if (schema != null)
+        {
+            _logger.LogInformation(
+                "[EnhancedAgent] ✅ Schema injected ({TableCount} tables), skipping scan",
+                schema.Tables.Count);
+        }
 
         // Check if intent routing is enabled
         if (_intentClassifier == null)
@@ -1603,6 +1632,7 @@ public class EnhancedAgentOrchestrator
                 conversationId,
                 conversationHistory,
                 persistedContext,
+                schema, // ✅ PHASE-1 TASK-01: Pass schema
                 progress,
                 sqlTokenCallback,
                 null,
@@ -1625,7 +1655,17 @@ public class EnhancedAgentOrchestrator
             _logger.LogInformation("[EnhancedAgent] Step 1: Classifying intent");
 
             var conversationContext = BuildConversationContext(conversationHistory, persistedContext);
-            var databaseContext = await BuildDatabaseContextAsync(connectionId, cancellationToken);
+
+            // ✅ FIX: Use injected schema to build context (avoid redundant Redis round-trip)
+            // schema is already loaded by the controller from ISchemaCache before entering this method.
+            var databaseContext = schema != null
+                ? BuildDatabaseContextFromSchema(schema)
+                : await BuildDatabaseContextAsync(connectionId, cancellationToken);
+
+            if (schema != null)
+            {
+                _logger.LogDebug("[EnhancedAgent] ✅ Using injected schema for databaseContext (skip cache read)");
+            }
 
             var intentResult = await _intentClassifier.ClassifyAsync(
                 userQuestion,
@@ -1653,13 +1693,13 @@ public class EnhancedAgentOrchestrator
             return intentResult.Route switch
             {
                 PipelineRoute.Query => await RouteToQueryPipelineAsync(
-                    userQuestion, connectionId, conversationId, conversationHistory, persistedContext, intentResult, stopwatch, progress, sqlTokenCallback, cancellationToken),
+                    userQuestion, connectionId, conversationId, conversationHistory, persistedContext, schema, intentResult, stopwatch, progress, sqlTokenCallback, cancellationToken),
 
                 PipelineRoute.Write => await RouteToWritePipelineAsync(
-                    userQuestion, connectionId, conversationId, intentResult, stopwatch, progress, cancellationToken),
+                    userQuestion, connectionId, conversationId, intentResult, stopwatch, progress, schema, cancellationToken),
 
                 PipelineRoute.Ddl => await RouteToDDLPipelineAsync(
-                    userQuestion, connectionId, conversationId, intentResult, stopwatch, progress, cancellationToken),
+                    userQuestion, connectionId, conversationId, intentResult, stopwatch, progress, schema, cancellationToken),
 
                 PipelineRoute.Forbidden => await RoutToForbiddenPipeline(
                     userQuestion, intentResult, stopwatch, cancellationToken),
@@ -1804,6 +1844,40 @@ public class EnhancedAgentOrchestrator
         }
     }
 
+    /// <summary>
+    /// Build database context from a pre-loaded schema (no async I/O, zero latency).
+    /// ✅ FIX: Avoids redundant Redis/cache read when schema is already injected.
+    /// </summary>
+    private string BuildDatabaseContextFromSchema(DatabaseSchema schema)
+    {
+        try
+        {
+            var context = new System.Text.StringBuilder();
+            context.AppendLine($"Total Tables: {schema.Tables.Count}");
+            context.AppendLine();
+            context.AppendLine("Available Tables:");
+
+            foreach (var table in schema.Tables.Take(15))
+            {
+                context.AppendLine($"  • {table.TableName} ({table.Columns.Count} columns)");
+                var keyColumns = table.Columns.Take(5).Select(c => c.ColumnName);
+                context.AppendLine($"    Columns: {string.Join(", ", keyColumns)}");
+            }
+
+            if (schema.Tables.Count > 15)
+            {
+                context.AppendLine($"  ... and {schema.Tables.Count - 15} more tables");
+            }
+
+            return context.ToString();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Schema] Error building database context from injected schema");
+            return string.Empty;
+        }
+    }
+
     private async Task<string> BuildDatabaseContextAsync(string connectionId, CancellationToken ct)
     {
         try
@@ -1816,27 +1890,7 @@ public class EnhancedAgentOrchestrator
                 return string.Empty;
             }
 
-            // Build rich context with table and column info
-            var context = new System.Text.StringBuilder();
-            context.AppendLine($"Total Tables: {schema.Tables.Count}");
-            context.AppendLine();
-            context.AppendLine("Available Tables:");
-
-            foreach (var table in schema.Tables.Take(15))
-            {
-                context.AppendLine($"  • {table.TableName} ({table.Columns.Count} columns)");
-
-                // Add key columns for better intent classification
-                var keyColumns = table.Columns.Take(5).Select(c => c.ColumnName);
-                context.AppendLine($"    Columns: {string.Join(", ", keyColumns)}");
-            }
-
-            if (schema.Tables.Count > 15)
-            {
-                context.AppendLine($"  ... and {schema.Tables.Count - 15} more tables");
-            }
-
-            return context.ToString();
+            return BuildDatabaseContextFromSchema(schema);
         }
         catch (Exception ex)
         {
@@ -1851,6 +1905,7 @@ public class EnhancedAgentOrchestrator
         string? conversationId,
         List<Message>? conversationHistory,
         SerializableConversationContext? persistedContext,
+        DatabaseSchema? schema, // ✅ PHASE-1 TASK-01: Add schema parameter
         IntentClassificationResult intentResult,
         System.Diagnostics.Stopwatch stopwatch,
         IProgress<AgentStageEvent>? progress,
@@ -1875,6 +1930,7 @@ public class EnhancedAgentOrchestrator
             conversationId,
             conversationHistory,
             persistedContext,
+            schema, // ✅ PHASE-1 TASK-01: Pass schema
             progress,
             sqlTokenCallback,
             intentResult, // ← Pass pre-classified intent
@@ -1938,6 +1994,7 @@ public class EnhancedAgentOrchestrator
         IntentClassificationResult intentResult,
         System.Diagnostics.Stopwatch stopwatch,
         IProgress<AgentStageEvent>? progress,
+        DatabaseSchema? schema, // ✅ ADD schema parameter
         CancellationToken ct)
     {
         _logger.LogInformation("[EnhancedAgent] → Routing to WRITE pipeline");
@@ -1966,7 +2023,8 @@ public class EnhancedAgentOrchestrator
             ConnectionId = connectionId,
             ConversationId = conversationId,
             IsConfirmed = false, // Always require confirmation
-            PreResolvedEntities = intentResult.DetectedEntities // FIX 1: Pass entities from IntentClassifier
+            PreResolvedEntities = intentResult.DetectedEntities, // FIX 1: Pass entities from IntentClassifier
+            Schema = schema // ✅ OPTIMIZATION: Inject schema to avoid Redis round-trip
         };
 
         // Report progress: Analyzing query
@@ -1999,6 +2057,7 @@ public class EnhancedAgentOrchestrator
         IntentClassificationResult intentResult,
         System.Diagnostics.Stopwatch stopwatch,
         IProgress<AgentStageEvent>? progress,
+        DatabaseSchema? schema, // ✅ ADD schema parameter
         CancellationToken ct)
     {
         _logger.LogInformation("[EnhancedAgent] → Routing to DDL pipeline");
@@ -2026,7 +2085,8 @@ public class EnhancedAgentOrchestrator
             Question = userQuestion,
             ConnectionId = connectionId,
             ConversationId = conversationId,
-            IsConfirmed = false // Always require confirmation
+            IsConfirmed = false, // Always require confirmation
+            Schema = schema // ✅ OPTIMIZATION: Inject schema to avoid Redis round-trip
         };
 
         // Report progress: Analyzing DDL operation

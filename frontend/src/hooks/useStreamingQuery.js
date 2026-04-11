@@ -12,6 +12,7 @@ const initialState = {
   isComplete: false,
   sqlTokens: [],
   generatedSql: '',
+  pendingConfirmation: null,
 };
 
 function upsertStage(stages, stage) {
@@ -34,6 +35,7 @@ function streamReducer(state, action) {
       return {
         ...initialState,
         isStreaming: true,
+        pendingConfirmation: null,
       };
 
     case 'SQL_TOKEN':
@@ -43,13 +45,30 @@ function streamReducer(state, action) {
         generatedSql: state.generatedSql + action.token,
       };
 
-    case 'STAGE_UPDATE':
+    case 'STAGE_UPDATE': {
+      let newPendingConfirmation = state.pendingConfirmation;
+      const stageId = action.stage.stage;
+      
+      if (stageId === 'SQL_PREVIEW' || stageId === 'SqlPreview' || stageId === 7) {
+        try {
+           newPendingConfirmation = typeof action.stage.detail === 'string'
+             ? JSON.parse(action.stage.detail)
+             : action.stage.detail;
+        } catch(e) {
+           console.error("[useStreamingQuery] Failed to parse SQL preview", e);
+        }
+      } else if (stageId === 'BLOCKED' || stageId === 'Blocked' || stageId === 13) {
+        newPendingConfirmation = null;
+      }
+
       return {
         ...state,
         currentStage: action.stage,
         progress: Math.round((action.stage.progress || 0) * 100),
         stages: upsertStage(state.stages, action.stage),
+        pendingConfirmation: newPendingConfirmation,
       };
+    }
 
     case 'RESULT':
       return {
@@ -59,6 +78,7 @@ function streamReducer(state, action) {
         isStreaming: false,
         isComplete: true,
         progress: 100,
+        pendingConfirmation: null,
       };
 
     case 'ERROR':
@@ -66,6 +86,7 @@ function streamReducer(state, action) {
         ...state,
         error: action.error,
         isStreaming: false,
+        pendingConfirmation: null,
       };
 
     case 'COMPLETE':

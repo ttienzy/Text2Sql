@@ -24,16 +24,20 @@ public class PipelineOrchestrator
     /// <summary>
     /// Execute all registered stages with optimized parallel execution where possible.
     /// PHASE-2 TASK 2.3: Parallelize independent stages to reduce latency.
+    /// PHASE-0: Added total pipeline performance measurement.
     /// Returns the final AgentResponse from the PipelineContext.
     /// </summary>
     public async Task<AgentResponse> ExecuteAsync(PipelineContext context, CancellationToken ct)
     {
         var orderedStages = _stages.OrderBy(s => s.ProgressStart).ToList();
 
-        _logger.LogInformation(
+        _logger.LogDebug(
             "[Pipeline] Starting optimized pipeline with {Count} stages: [{Stages}]",
             orderedStages.Count,
             string.Join(" → ", orderedStages.Select(s => s.StageName)));
+
+        // ✅ PHASE-0: Start total pipeline measurement
+        var pipelineStopwatch = System.Diagnostics.Stopwatch.StartNew();
 
         try
         {
@@ -42,18 +46,23 @@ public class PipelineOrchestrator
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("[Pipeline] Pipeline cancelled");
+            pipelineStopwatch.Stop();
+            _logger.LogInformation("[Pipeline] Pipeline cancelled after {Duration}ms", pipelineStopwatch.ElapsedMilliseconds);
             throw;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[Pipeline] Pipeline execution failed: {Message}", ex.Message);
+            pipelineStopwatch.Stop();
+            _logger.LogError(ex, "[Pipeline] Pipeline execution failed after {Duration}ms: {Message}",
+                pipelineStopwatch.ElapsedMilliseconds, ex.Message);
             context.ReportProgress(AgentStage.ERROR, "Pipeline error", 0.0, ex.Message);
 
             context.Response.Success = false;
             context.Response.ErrorMessage = $"Pipeline error: {ex.Message}";
             context.Response.ProcessingSteps = context.Steps;
         }
+
+        pipelineStopwatch.Stop();
 
         // Emit completed if response is successful
         if (context.Response.Success)
@@ -62,6 +71,13 @@ public class PipelineOrchestrator
         }
 
         context.Response.ProcessingSteps = context.Steps;
+
+        // ✅ PHASE-0: Log total pipeline summary (INFO level for visibility)
+        _logger.LogInformation(
+            "[PERF-SUMMARY] Duration={Duration}ms, Success={Success}",
+            pipelineStopwatch.ElapsedMilliseconds,
+            context.Response.Success);
+
         return context.Response;
     }
 
@@ -87,30 +103,33 @@ public class PipelineOrchestrator
         var sqlExecStage = orderedStages.FirstOrDefault(s => s.Stage == AgentStage.EXECUTING);
         var responseStage = orderedStages.FirstOrDefault(s => s.Stage == AgentStage.BUILDING_RESPONSE);
 
-        // ✅ GROUP A: Parallel execution (IntentClassification + Validation)
-        // These stages are independent and can run concurrently
-        _logger.LogInformation("[Pipeline] ⚡ GROUP A: Parallel execution (Intent + Validation)");
+        // ✅ GROUP A: Sequential execution (Validation -> IntentClassification)
+        // Validation now provides Context Enrichment which IntentClassification needs
+        _logger.LogDebug("[Pipeline] → GROUP A: Sequential execution (Validation → IntentClassification)");
 
-        var groupATasks = new List<Task<StageResult>>();
-        if (intentStage != null)
-            groupATasks.Add(ExecuteStageAsync(intentStage, context, ct));
         if (validationStage != null)
-            groupATasks.Add(ExecuteStageAsync(validationStage, context, ct));
-
-        if (groupATasks.Any())
         {
-            var groupAResults = await Task.WhenAll(groupATasks);
-            if (groupAResults.Any(r => r.ShouldStop))
+            var result = await ExecuteStageAsync(validationStage, context, ct);
+            if (result.ShouldStop)
             {
-                var stoppedStage = groupAResults.First(r => r.ShouldStop);
-                _logger.LogInformation("[Pipeline] ⏹ Pipeline stopped in GROUP A: {Reason}", stoppedStage.StopReason);
+                _logger.LogInformation("[Pipeline] ⏹ Pipeline stopped at Validation: {Reason}", result.StopReason);
+                return;
+            }
+        }
+
+        if (intentStage != null)
+        {
+            var result = await ExecuteStageAsync(intentStage, context, ct);
+            if (result.ShouldStop)
+            {
+                _logger.LogInformation("[Pipeline] ⏹ Pipeline stopped at IntentClassification: {Reason}", result.StopReason);
                 return;
             }
         }
 
         // ✅ GROUP B: Sequential execution (Reasoning → Schema)
         // Reasoning may be skipped, Schema depends on validation
-        _logger.LogInformation("[Pipeline] → GROUP B: Sequential execution (Reasoning → Schema)");
+        _logger.LogDebug("[Pipeline] → GROUP B: Sequential execution (Reasoning → Schema)");
 
         if (reasoningStage != null)
         {
@@ -134,7 +153,7 @@ public class PipelineOrchestrator
 
         // ✅ GROUP C: Sequential execution (SqlGen → SqlExec)
         // SQL execution depends on SQL generation
-        _logger.LogInformation("[Pipeline] → GROUP C: Sequential execution (SqlGen → SqlExec)");
+        _logger.LogDebug("[Pipeline] → GROUP C: Sequential execution (SqlGen → SqlExec)");
 
         if (sqlGenStage != null)
         {
@@ -157,7 +176,7 @@ public class PipelineOrchestrator
         }
 
         // ✅ GROUP D: Sequential execution (Response Formatting)
-        _logger.LogInformation("[Pipeline] → GROUP D: Response formatting");
+        _logger.LogDebug("[Pipeline] → GROUP D: Response formatting");
 
         if (responseStage != null)
         {
@@ -167,6 +186,7 @@ public class PipelineOrchestrator
 
     /// <summary>
     /// Execute a single stage with error handling and progress reporting.
+    /// PHASE-0: Added performance baseline logging.
     /// </summary>
     private async Task<StageResult> ExecuteStageAsync(
         IPipelineStage stage,
@@ -175,16 +195,44 @@ public class PipelineOrchestrator
     {
         ct.ThrowIfCancellationRequested();
 
-        _logger.LogInformation(
+        _logger.LogDebug(
             "[Pipeline] ▶ Executing stage: {Stage} (progress: {Progress:P0})",
             stage.StageName, stage.ProgressStart);
 
         // Emit SSE progress event before each stage
         context.ReportProgress(stage.Stage, $"Processing: {stage.StageName}...", stage.ProgressStart);
 
+        // ✅ PHASE-0: Start performance measurement
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        bool llmCalled = false;
+        bool cacheHit = false;
+
         try
         {
             var result = await stage.ExecuteAsync(context, ct);
+            stopwatch.Stop();
+
+            // ✅ PHASE-0: Extract metrics from context metadata
+            if (context.Response.Metadata != null)
+            {
+                if (context.Response.Metadata.TryGetValue("llmCalled", out var llmCalledObj))
+                {
+                    llmCalled = llmCalledObj is bool b && b;
+                }
+                if (context.Response.Metadata.TryGetValue("cacheHit", out var cacheHitObj))
+                {
+                    cacheHit = cacheHitObj is bool c && c;
+                }
+            }
+
+            // ✅ PHASE-0: Baseline performance logging (reduced verbosity)
+            _logger.LogDebug(
+                "[PERF-BASELINE] Stage={Stage}, Duration={Duration}ms, LLMCalled={LLMCalled}, CacheHit={CacheHit}, Success={Success}",
+                stage.StageName,
+                stopwatch.ElapsedMilliseconds,
+                llmCalled,
+                cacheHit,
+                !result.ShouldStop);
 
             if (result.ShouldStop)
             {
@@ -201,7 +249,14 @@ public class PipelineOrchestrator
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[Pipeline] ✗ Stage {Stage} failed: {Message}", stage.StageName, ex.Message);
+            stopwatch.Stop();
+
+            // ✅ PHASE-0: Log failure with duration
+            _logger.LogError(ex,
+                "[PERF-BASELINE] Stage={Stage}, Duration={Duration}ms, Failed=true, Error={Error}",
+                stage.StageName,
+                stopwatch.ElapsedMilliseconds,
+                ex.Message);
 
             // Emit error progress
             context.ReportProgress(AgentStage.ERROR, $"Error in {stage.StageName}", 0.0, ex.Message);

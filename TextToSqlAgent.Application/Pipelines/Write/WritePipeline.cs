@@ -9,22 +9,24 @@ using TextToSqlAgent.Core.Ports;
 namespace TextToSqlAgent.Application.Pipelines.Write;
 
 /// <summary>
-/// WRITE Pipeline - Handles INSERT and UPDATE operations
+/// DML Pipeline - Handles INSERT, UPDATE, DELETE (with WHERE), and UPSERT operations
 /// 
 /// Flow (10 steps):
 /// 0. Validate query relevance (shared)
-/// W1. Safety gate - block DELETE/DROP
+/// W1. Safety gate - block DROP/TRUNCATE (DELETE allowed if routed by IntentClassifier)
 /// W2. Identify target table
 /// W3. Load target table schema
-/// W4. RAG - Retrieve table context
-/// W5. Generate INSERT/UPDATE SQL
-/// W6. Validate WHERE clause (UPDATE only)
-/// W7. Preview SQL + user confirm
+/// W4. RAG - Retrieve MULTI-TABLE context (primary + top 4 related tables)
+/// W5. Generate INSERT/UPDATE/DELETE/UPSERT SQL
+/// W6. Validate WHERE clause (UPDATE/DELETE mandatory)
+/// W7. Preview SQL + user confirm (via SSE awaiting_confirm event)
 /// W8. Execute + report affected rows
 /// W9. Generate contextual suggestions
 /// 
 /// Target: <10s execution time, 3 LLM calls
 /// ⚠️ MANDATORY: User confirmation required before execution
+/// ✅ REFACTORED: Multi-table context prevents FK hallucination
+/// ✅ REFACTORED: DELETE with WHERE now routable (risk=CRITICAL, confirm required)
 /// </summary>
 public class WritePipeline : IWritePipeline
 {
@@ -38,10 +40,11 @@ public class WritePipeline : IWritePipeline
     private const string UpdateWithoutWhereError =
         "UPDATE without WHERE clause is forbidden. Please specify which rows to update.";
 
-    // Forbidden keywords that should never appear
+    // Forbidden keywords that should never appear in DML SQL
+    // ✅ REFACTORED: DELETE removed — now allowed with WHERE clause via IntentClassifier routing
     private static readonly string[] ForbiddenKeywords =
     {
-        "DROP", "DELETE", "TRUNCATE", "PURGE"
+        "DROP", "TRUNCATE", "PURGE"
     };
 
     public WritePipeline(
@@ -83,7 +86,8 @@ public class WritePipeline : IWritePipeline
             }
 
             // W2: Identify target table with semantic resolution (optimized)
-            var schema = await _schemaCache.GetAsync(request.ConnectionId, ct);
+            // ✅ OPTIMIZATION: Use injected schema first to avoid Redis round-trip
+            var schema = request.Schema ?? await _schemaCache.GetAsync(request.ConnectionId, ct);
             if (schema == null)
             {
                 return new WriteOperationPreview
@@ -92,6 +96,9 @@ public class WritePipeline : IWritePipeline
                     RequiresConfirmation = false
                 };
             }
+
+            _logger.LogDebug("[WritePipeline] Schema source: {Source}",
+                request.Schema != null ? "Injected" : "Cache");
 
             string targetTable;
             TableInfo? tableSchema;
@@ -377,53 +384,106 @@ public class WritePipeline : IWritePipeline
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // W2: IDENTIFY TARGET TABLE
+    // W2: IDENTIFY TARGET TABLE (REMOVED - Use IntentClassifier entities)
     // ═══════════════════════════════════════════════════════════════
+    // ✅ OPTIMIZATION: This method is now deprecated. 
+    // Table identification is handled by IntentClassifier.ClassifyAsync()
+    // which provides PreResolvedEntities in the request.
+    // Keeping this as fallback only for legacy code paths.
 
     private async Task<string> IdentifyTargetTableAsync(string question, CancellationToken ct)
     {
-        var prompt = $@"Extract the target table name from this question.
-Return ONLY the table name, nothing else.
+        _logger.LogWarning("[WritePipeline] ⚠️ Using fallback table identification - IntentClassifier should provide entities");
 
-Question: {question}
-
-Table name:";
+        var prompt = $@"Extract table name from: {question}
+Return ONLY the table name:";
 
         var response = await _llmClient.CompleteAsync(prompt, ct);
         return response.Trim().Trim('"', '\'', '`');
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // W3 & W4: LOAD SCHEMA + BUILD CONTEXT
-    // ═══════════════════════════════════════════════════════════════
-
-    private string BuildTableContext(TableInfo table, DatabaseSchema fullSchema)
+    /// <summary>
+    /// Build multi-table context: primary table + top N related tables via FK relationships.
+    /// ✅ REFACTORED: Replaces single-table context to prevent FK hallucination.
+    /// The LLM now sees the full relationship graph needed for correct SQL generation.
+    /// </summary>
+    private string BuildTableContext(TableInfo primaryTable, DatabaseSchema fullSchema)
     {
         var sb = new StringBuilder();
 
-        sb.AppendLine($"Table: {table.TableName}");
+        // === PRIMARY TABLE (full detail) ===
+        sb.AppendLine($"═══ PRIMARY TARGET TABLE ═══");
+        sb.AppendLine($"Table: {primaryTable.TableName}");
         sb.AppendLine("Columns:");
 
-        foreach (var col in table.Columns)
+        foreach (var col in primaryTable.Columns)
         {
             sb.Append($"  - {col.ColumnName} {col.DataType}");
             if (!col.IsNullable) sb.Append(" NOT NULL");
             if (col.IsPrimaryKey) sb.Append(" PRIMARY KEY");
+            if (col.IsForeignKey) sb.Append(" FK");
             if (!string.IsNullOrEmpty(col.DefaultValue)) sb.Append($" DEFAULT {col.DefaultValue}");
             sb.AppendLine();
         }
 
-        // Add foreign key relationships
+        // === FOREIGN KEY RELATIONSHIPS ===
         var relationships = fullSchema.Relationships
-            .Where(r => r.FromTable == table.TableName || r.ToTable == table.TableName)
+            .Where(r => r.FromTable.Equals(primaryTable.TableName, StringComparison.OrdinalIgnoreCase)
+                     || r.ToTable.Equals(primaryTable.TableName, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         if (relationships.Any())
         {
-            sb.AppendLine("\nRelationships:");
+            sb.AppendLine("\nForeign Key Relationships:");
             foreach (var rel in relationships)
             {
                 sb.AppendLine($"  - {rel.FromTable}.{rel.FromColumn} → {rel.ToTable}.{rel.ToColumn}");
+            }
+        }
+
+        // === RELATED TABLES (top 4, summary only) ===
+        var relatedTableNames = relationships
+            .SelectMany(r => new[] { r.FromTable, r.ToTable })
+            .Where(t => !t.Equals(primaryTable.TableName, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(4)
+            .ToList();
+
+        if (relatedTableNames.Any())
+        {
+            sb.AppendLine("\n═══ RELATED TABLES (for FK lookup) ═══");
+
+            foreach (var relTableName in relatedTableNames)
+            {
+                var relTable = fullSchema.Tables.FirstOrDefault(t =>
+                    t.TableName.Equals(relTableName, StringComparison.OrdinalIgnoreCase));
+
+                if (relTable == null) continue;
+
+                sb.AppendLine($"\nTable: {relTable.TableName}");
+                sb.AppendLine("Key Columns:");
+
+                // Show PK + FK + frequently-referenced columns only (compact)
+                var keyColumns = relTable.Columns
+                    .Where(c => c.IsPrimaryKey || c.IsForeignKey
+                        || c.ColumnName.EndsWith("Id", StringComparison.OrdinalIgnoreCase)
+                        || c.ColumnName.EndsWith("Name", StringComparison.OrdinalIgnoreCase)
+                        || c.ColumnName.EndsWith("Code", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                // If no key columns detected, show first 5 columns
+                if (!keyColumns.Any())
+                {
+                    keyColumns = relTable.Columns.Take(5).ToList();
+                }
+
+                foreach (var col in keyColumns)
+                {
+                    sb.Append($"  - {col.ColumnName} {col.DataType}");
+                    if (col.IsPrimaryKey) sb.Append(" PK");
+                    if (col.IsForeignKey) sb.Append(" FK");
+                    sb.AppendLine();
+                }
             }
         }
 
@@ -431,7 +491,7 @@ Table name:";
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // W5: GENERATE SQL
+    // W5: GENERATE SQL (OPTIMIZED - Single LLM call)
     // ═══════════════════════════════════════════════════════════════
 
     private async Task<(string Sql, WriteOperationType Type, List<string> Columns)> GenerateSqlAsync(
@@ -440,47 +500,187 @@ Table name:";
         string tableContext,
         CancellationToken ct)
     {
-        var systemPrompt = @"You are a SQL generator for write operations (INSERT/UPDATE only).
+        // ✅ OPTIMIZATION: Compact system prompt to reduce token usage
+        var systemPrompt = @"Generate SQL for DML operations (INSERT/UPDATE/DELETE/UPSERT).
 
 Rules:
-1. Generate ONLY INSERT or UPDATE statements
-2. For UPDATE: ALWAYS include WHERE clause - never update all rows
-3. Use proper data types and quote strings correctly
-4. Return valid SQL that can be executed immediately
-5. Do NOT include explanations, only SQL
+1. UPDATE/DELETE: ALWAYS include WHERE clause
+2. Use proper data types, quote strings with N'' for Unicode
+3. Use ONLY columns from provided schema
+4. Return valid SQL Server syntax
+5. CRITICAL: Return ONLY valid JSON, no markdown, no explanations
 
-Return JSON format:
-{
-  ""sql"": ""the SQL statement"",
-  ""operation_type"": ""INSERT"" or ""UPDATE"",
-  ""affected_columns"": [""column1"", ""column2""]
-}";
+JSON format (STRICT):
+{""sql"":""statement"",""operation_type"":""INSERT|UPDATE|DELETE|UPSERT"",""affected_columns"":[""col1""]}";
 
-        var userPrompt = $@"Generate SQL for this request:
+        var userPrompt = $@"Question: {question}
 
-Question: {question}
-
-Target table schema:
+Schema:
 {tableContext}
 
-Generate the SQL:";
+Generate SQL (JSON only):";
 
-        var response = await _llmClient.CompleteWithSystemPromptAsync(systemPrompt, userPrompt, ct);
+        var maxRetries = 3;
+        Exception? lastException = null;
 
-        // Parse response
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                var response = await _llmClient.CompleteWithSystemPromptAsync(systemPrompt, userPrompt, ct);
+
+                // ✅ DEFENSIVE PARSING: Multiple strategies
+                var parsed = TryParseJsonResponse(response, attempt);
+
+                if (parsed != null)
+                {
+                    var operationType = parsed.OperationType?.ToUpperInvariant() switch
+                    {
+                        "INSERT" => WriteOperationType.Insert,
+                        "UPDATE" => WriteOperationType.Update,
+                        "DELETE" => WriteOperationType.Delete,
+                        "UPSERT" or "MERGE" => WriteOperationType.Upsert,
+                        _ => WriteOperationType.Update
+                    };
+
+                    return (parsed.Sql ?? "", operationType, parsed.AffectedColumns ?? new List<string>());
+                }
+
+                // If parsing failed but no exception, retry with stronger prompt
+                if (attempt < maxRetries)
+                {
+                    _logger.LogWarning(
+                        "[WritePipeline] Attempt {Attempt}/{MaxRetries} - LLM returned non-JSON response, retrying with stricter prompt",
+                        attempt, maxRetries);
+
+                    // Re-prompt with error feedback
+                    systemPrompt = @"CRITICAL: You MUST return ONLY valid JSON. No markdown, no explanations, no text before or after.
+
+Previous attempt failed because you returned text instead of JSON.
+
+JSON format (STRICT):
+{""sql"":""statement"",""operation_type"":""INSERT|UPDATE|DELETE|UPSERT"",""affected_columns"":[""col1""]}
+
+Example valid response:
+{""sql"":""INSERT INTO Customers (Name) VALUES ('John')"",""operation_type"":""INSERT"",""affected_columns"":[""Name""]}";
+
+                    await Task.Delay(500 * attempt, ct); // Exponential backoff
+                    continue;
+                }
+            }
+            catch (JsonException ex)
+            {
+                lastException = ex;
+                _logger.LogWarning(ex,
+                    "[WritePipeline] Attempt {Attempt}/{MaxRetries} - JSON parsing failed",
+                    attempt, maxRetries);
+
+                if (attempt < maxRetries)
+                {
+                    await Task.Delay(500 * attempt, ct);
+                    continue;
+                }
+            }
+        }
+
+        // All retries failed - return error with helpful message
+        _logger.LogError(lastException,
+            "[WritePipeline] Failed to parse LLM response after {MaxRetries} attempts. Question: {Question}",
+            maxRetries, question);
+
+        throw new InvalidOperationException(
+            $"LLM failed to generate valid SQL JSON after {maxRetries} attempts. " +
+            $"This may indicate the question requires DDL operations (ALTER TABLE, CREATE TABLE) " +
+            $"which should be handled by DDL pipeline, not Write pipeline. " +
+            $"Question: {question}",
+            lastException);
+    }
+
+    /// <summary>
+    /// Defensive JSON parsing with multiple fallback strategies
+    /// Based on best practices from production LLM applications
+    /// </summary>
+    private SqlGenerationResponse? TryParseJsonResponse(string response, int attempt)
+    {
+        if (string.IsNullOrWhiteSpace(response))
+        {
+            _logger.LogWarning("[WritePipeline] LLM returned empty response");
+            return null;
+        }
+
+        // Strategy 1: Clean markdown wrappers
         var cleaned = response.Trim();
-        if (cleaned.StartsWith("```json")) cleaned = cleaned[7..];
-        else if (cleaned.StartsWith("```")) cleaned = cleaned[3..];
-        if (cleaned.EndsWith("```")) cleaned = cleaned[..^3];
+        if (cleaned.StartsWith("```json"))
+        {
+            cleaned = cleaned[7..];
+            _logger.LogDebug("[WritePipeline] Stripped ```json prefix");
+        }
+        else if (cleaned.StartsWith("```"))
+        {
+            cleaned = cleaned[3..];
+            _logger.LogDebug("[WritePipeline] Stripped ``` prefix");
+        }
+
+        if (cleaned.EndsWith("```"))
+        {
+            cleaned = cleaned[..^3];
+            _logger.LogDebug("[WritePipeline] Stripped ``` suffix");
+        }
+
         cleaned = cleaned.Trim();
 
-        var parsed = JsonSerializer.Deserialize<SqlGenerationResponse>(cleaned);
+        // Strategy 2: Try direct parse
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<SqlGenerationResponse>(cleaned);
+            if (parsed != null && !string.IsNullOrEmpty(parsed.Sql))
+            {
+                _logger.LogDebug("[WritePipeline] Successfully parsed JSON (direct)");
+                return parsed;
+            }
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogDebug(ex, "[WritePipeline] Direct JSON parse failed, trying fallback strategies");
+        }
 
-        var operationType = parsed?.OperationType?.ToUpperInvariant() == "INSERT"
-            ? WriteOperationType.Insert
-            : WriteOperationType.Update;
+        // Strategy 3: Extract JSON from text (find first { to last })
+        var firstBrace = cleaned.IndexOf('{');
+        var lastBrace = cleaned.LastIndexOf('}');
 
-        return (parsed?.Sql ?? "", operationType, parsed?.AffectedColumns ?? new List<string>());
+        if (firstBrace >= 0 && lastBrace > firstBrace)
+        {
+            var extracted = cleaned.Substring(firstBrace, lastBrace - firstBrace + 1);
+            try
+            {
+                var parsed = JsonSerializer.Deserialize<SqlGenerationResponse>(extracted);
+                if (parsed != null && !string.IsNullOrEmpty(parsed.Sql))
+                {
+                    _logger.LogDebug("[WritePipeline] Successfully parsed JSON (extracted from text)");
+                    return parsed;
+                }
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogDebug(ex, "[WritePipeline] Extracted JSON parse failed");
+            }
+        }
+
+        // Strategy 4: Check if response is plain text explanation (not JSON at all)
+        if (!cleaned.Contains('{') || !cleaned.Contains('}'))
+        {
+            _logger.LogWarning(
+                "[WritePipeline] LLM returned plain text instead of JSON. Response preview: {Preview}",
+                cleaned.Length > 100 ? cleaned[..100] + "..." : cleaned);
+            return null;
+        }
+
+        // All strategies failed
+        _logger.LogWarning(
+            "[WritePipeline] All parsing strategies failed. Response preview: {Preview}",
+            cleaned.Length > 200 ? cleaned[..200] + "..." : cleaned);
+
+        return null;
     }
 
     private class SqlGenerationResponse
@@ -506,7 +706,7 @@ Generate the SQL:";
         var upper = sql.ToUpperInvariant();
         var warnings = new List<string>();
 
-        // Check for forbidden keywords
+        // Check for forbidden keywords (DROP, TRUNCATE, PURGE)
         foreach (var keyword in ForbiddenKeywords)
         {
             if (upper.Contains(keyword))
@@ -535,6 +735,28 @@ Generate the SQL:";
             return (true, true, null, warnings);
         }
 
+        // ✅ NEW: For DELETE: WHERE clause is MANDATORY (critical safety)
+        if (operationType == WriteOperationType.Delete)
+        {
+            var hasWhere = upper.Contains("WHERE");
+
+            if (!hasWhere)
+            {
+                _logger.LogWarning("[WritePipeline] DELETE without WHERE clause rejected — this is a mass deletion");
+                return (false, false, "DELETE without WHERE clause is forbidden. This would delete ALL rows.", warnings);
+            }
+
+            // Extra safety for DELETE: always warn
+            warnings.Add("⚠️ DELETE operation — rows will be permanently removed. This action cannot be undone.");
+
+            if (upper.Contains("WHERE 1=1") || upper.Contains("WHERE TRUE"))
+            {
+                return (false, false, "DELETE with WHERE 1=1 is equivalent to DELETE ALL — forbidden.", warnings);
+            }
+
+            return (true, true, null, warnings);
+        }
+
         // For INSERT: basic validation
         if (operationType == WriteOperationType.Insert)
         {
@@ -544,6 +766,18 @@ Generate the SQL:";
             }
 
             return (true, false, null, warnings);
+        }
+
+        // ✅ NEW: For UPSERT/MERGE: basic validation
+        if (operationType == WriteOperationType.Upsert)
+        {
+            if (!upper.Contains("MERGE") && !upper.Contains("INSERT"))
+            {
+                return (false, false, "Invalid UPSERT/MERGE statement", warnings);
+            }
+
+            warnings.Add("UPSERT operation — will insert new rows or update existing ones.");
+            return (true, upper.Contains("WHEN MATCHED"), null, warnings);
         }
 
         return (false, false, "Unknown operation type", warnings);
@@ -566,8 +800,8 @@ Generate the SQL:";
                 return 1;
             }
 
-            // For UPDATE: try to estimate by converting to SELECT COUNT
-            var estimateQuery = ConvertToCountQuery(sql);
+            // For UPDATE/DELETE: try to estimate by converting to SELECT COUNT
+            var estimateQuery = ConvertToCountQuery(sql, operationType);
             if (string.IsNullOrEmpty(estimateQuery))
             {
                 return -1; // Unknown
@@ -591,25 +825,42 @@ Generate the SQL:";
         }
     }
 
-    private string ConvertToCountQuery(string updateSql)
+    private string ConvertToCountQuery(string dmlSql, WriteOperationType operationType)
     {
         try
         {
-            // Extract table and WHERE clause from UPDATE statement
-            // UPDATE table SET ... WHERE condition
-            var upper = updateSql.ToUpperInvariant();
-            var updateIndex = upper.IndexOf("UPDATE");
-            var setIndex = upper.IndexOf("SET");
-            var whereIndex = upper.IndexOf("WHERE");
+            var upper = dmlSql.ToUpperInvariant();
+            string tableName;
+            int whereIndex;
 
-            if (updateIndex == -1 || setIndex == -1)
-                return string.Empty;
+            if (operationType == WriteOperationType.Delete)
+            {
+                // DELETE FROM table WHERE condition
+                var fromIndex = upper.IndexOf("FROM");
+                whereIndex = upper.IndexOf("WHERE");
 
-            var tableName = updateSql.Substring(updateIndex + 6, setIndex - updateIndex - 6).Trim();
+                if (fromIndex == -1) return string.Empty;
+
+                var afterFrom = fromIndex + 4;
+                var endOfTable = whereIndex > 0 ? whereIndex : dmlSql.Length;
+                tableName = dmlSql.Substring(afterFrom, endOfTable - afterFrom).Trim();
+            }
+            else
+            {
+                // UPDATE table SET ... WHERE condition
+                var updateIndex = upper.IndexOf("UPDATE");
+                var setIndex = upper.IndexOf("SET");
+                whereIndex = upper.IndexOf("WHERE");
+
+                if (updateIndex == -1 || setIndex == -1)
+                    return string.Empty;
+
+                tableName = dmlSql.Substring(updateIndex + 6, setIndex - updateIndex - 6).Trim();
+            }
 
             if (whereIndex > 0)
             {
-                var whereClause = updateSql.Substring(whereIndex);
+                var whereClause = dmlSql.Substring(whereIndex);
                 return $"SELECT COUNT(*) FROM {tableName} {whereClause}";
             }
 
@@ -634,20 +885,29 @@ Generate the SQL:";
         var suggestions = new List<string>();
 
         // Always suggest verification
-        suggestions.Add($"Verify the changes: SELECT * FROM {targetTable} ORDER BY id DESC LIMIT 10");
+        suggestions.Add($"Verify the changes: SELECT * FROM {targetTable} ORDER BY 1 DESC");
 
-        if (operationType == WriteOperationType.Insert)
+        switch (operationType)
         {
-            suggestions.Add($"Check total count: SELECT COUNT(*) FROM {targetTable}");
-        }
-        else if (operationType == WriteOperationType.Update)
-        {
-            suggestions.Add($"Review updated records to ensure correctness");
+            case WriteOperationType.Insert:
+                suggestions.Add($"Check total count: SELECT COUNT(*) FROM {targetTable}");
+                break;
 
-            if (affectedRows > 10)
-            {
-                suggestions.Add($"⚠️ {affectedRows} rows were updated. Consider reviewing all affected records.");
-            }
+            case WriteOperationType.Update:
+                suggestions.Add($"Review updated records to ensure correctness");
+                if (affectedRows > 10)
+                    suggestions.Add($"⚠️ {affectedRows} rows were updated. Consider reviewing all affected records.");
+                break;
+
+            case WriteOperationType.Delete:
+                suggestions.Add($"Check remaining count: SELECT COUNT(*) FROM {targetTable}");
+                if (affectedRows > 1)
+                    suggestions.Add($"⚠️ {affectedRows} rows were permanently deleted.");
+                break;
+
+            case WriteOperationType.Upsert:
+                suggestions.Add($"Review affected records: SELECT TOP 10 * FROM {targetTable} ORDER BY 1 DESC");
+                break;
         }
 
         return suggestions;

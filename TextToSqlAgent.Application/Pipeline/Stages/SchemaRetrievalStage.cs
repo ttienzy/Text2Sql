@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.Caching.Distributed; // ✅ PHASE-1 TASK-03: Add for IDistributedCache extension methods
 using Microsoft.Extensions.Logging;
 using TextToSqlAgent.Application.Services;
 using TextToSqlAgent.Core.Interfaces;
@@ -18,6 +19,7 @@ public class SchemaRetrievalStage : IPipelineStage
     private readonly IAgentServiceFactory _serviceFactory;
     private readonly DatabaseConfig _dbConfig;
     private readonly ISchemaCache? _schemaCache;
+    private readonly Microsoft.Extensions.Caching.Distributed.IDistributedCache? _distributedCache; // ✅ PHASE-1 TASK-03: Use Redis instead of IMemoryCache
     private readonly ILogger<SchemaRetrievalStage> _logger;
 
     // Mutable state — mirrors the original orchestrator caching behavior
@@ -32,12 +34,14 @@ public class SchemaRetrievalStage : IPipelineStage
         IAgentServiceFactory serviceFactory,
         DatabaseConfig dbConfig,
         ILogger<SchemaRetrievalStage> logger,
-        ISchemaCache? schemaCache = null)
+        ISchemaCache? schemaCache = null,
+        Microsoft.Extensions.Caching.Distributed.IDistributedCache? distributedCache = null) // ✅ PHASE-1 TASK-03: Inject IDistributedCache
     {
         _serviceFactory = serviceFactory;
         _dbConfig = dbConfig;
         _logger = logger;
         _schemaCache = schemaCache;
+        _distributedCache = distributedCache; // ✅ PHASE-1 TASK-03: Store distributed cache
     }
 
     public async Task<StageResult> ExecuteAsync(PipelineContext context, CancellationToken ct)
@@ -45,8 +49,20 @@ public class SchemaRetrievalStage : IPipelineStage
         // ── Step 1: Load / scan database schema ──
         context.Steps.Add("Load database schema");
 
-        await EnsureSchemaLoadedAsync(context.Steps, ct);
-        context.Schema = _cachedSchema;
+        if (context.Schema != null)
+        {
+            _cachedSchema = context.Schema;
+            context.Steps.Add("Use context schema (skip scan)");
+
+            // Still need to trigger indexing check quietly if it wasn't done
+            await TryEnsureSchemaIndexedAsync(_cachedSchema, context.ConversationId, ct);
+        }
+        else
+        {
+            await EnsureSchemaLoadedAsync(context.Steps, ct);
+            context.Schema = _cachedSchema;
+        }
+
         context.TableNames = _cachedSchema?.Tables.Select(t => t.TableName).ToList() ?? new List<string>();
 
         // ── Step 2: RAG — retrieve relevant schema ──
@@ -66,19 +82,31 @@ public class SchemaRetrievalStage : IPipelineStage
             relevantSchema.RelevantTables.Count, relevantSchema.RelevantRelationships.Count);
 
         // ── Step 3: Intent analysis (needed for SQL generation) ──
+        // ✅ T6: Skip IntentAnalysis LLM for simple queries
         IntentAnalysis intent;
-        var intentAnalyzer = _serviceFactory.GetIntentAnalyzer();
 
         if (relevantSchema.RelevantTables.Count == 0)
         {
             _logger.LogWarning("[SchemaRetrieval] RAG found 0 results, using fallback");
 
+            var intentAnalyzer = _serviceFactory.GetIntentAnalyzer();
             intent = await intentAnalyzer.AnalyzeIntentAsync(queryText, context.TableNames, ct);
             relevantSchema = BuildFallbackSchema(intent.Target, _cachedSchema!);
         }
+        else if (TryBuildSimpleIntent(queryText, context.IntentClassification, relevantSchema, out var simpleIntent))
+        {
+            // ✅ T6: Deterministic path — no LLM call needed
+            intent = simpleIntent!;
+            context.Steps.Add("Intent resolved (rule-based, skip LLM)");
+            _logger.LogInformation(
+                "[SchemaRetrieval] ⚡ Simple intent resolved locally: {Intent} → {Target} (skip LLM)",
+                intent.Intent, intent.Target);
+        }
         else
         {
-            context.Steps.Add("Analyze intent");
+            // Complex query — need full LLM intent analysis
+            context.Steps.Add("Analyze intent (LLM)");
+            var intentAnalyzer = _serviceFactory.GetIntentAnalyzer();
             intent = await intentAnalyzer.AnalyzeIntentAsync(
                 queryText,
                 relevantSchema.RelevantTables.Select(t => t.TableName).ToList(),
@@ -108,6 +136,100 @@ public class SchemaRetrievalStage : IPipelineStage
 
         return StageResult.Continue();
     }
+
+    #region T6: Simple Intent Detection (Rule-based, skip LLM)
+
+    /// <summary>
+    /// T6: Try to build IntentAnalysis deterministically for simple queries.
+    /// Returns true if the query is simple enough to skip the LLM call.
+    /// Decision is based on:
+    ///   1. Primary: IntentType detection via regex (COUNT, LIST, DETAIL keywords)
+    ///   2. Secondary: IntentClassification.ComplexityScore from classifier (< 0.5 = simple)
+    /// </summary>
+    private bool TryBuildSimpleIntent(
+        string queryText,
+        IntentClassificationResult? classification,
+        RetrievedSchemaContext relevantSchema,
+        out IntentAnalysis? intent)
+    {
+        intent = null;
+
+        // Detect simple intent type from query text
+        var detectedIntent = DetectSimpleQueryIntent(queryText);
+        if (detectedIntent == null)
+        {
+            // Check complexity score as fallback signal
+            if (classification?.ComplexityScore is > 0 and < 0.5)
+            {
+                detectedIntent = QueryIntent.LIST; // Default simple intent
+            }
+            else
+            {
+                return false; // Not a simple query
+            }
+        }
+
+        // Resolve target table from IntentClassification entities or RAG results
+        var targetTable = classification?.DetectedEntities?.FirstOrDefault()
+            ?? relevantSchema.RelevantTables.FirstOrDefault()?.TableName
+            ?? string.Empty;
+
+        if (string.IsNullOrEmpty(targetTable))
+        {
+            return false; // Can't determine target without LLM
+        }
+
+        intent = new IntentAnalysis
+        {
+            Intent = detectedIntent.Value,
+            Target = targetTable,
+            Complexity = "Simple",
+            RelatedEntities = relevantSchema.RelevantTables.Select(t => t.TableName).ToList(),
+            NeedsClarification = false
+        };
+
+        return true;
+    }
+
+    /// <summary>
+    /// Detect simple query intent type from text using regex patterns.
+    /// Returns null if the query is ambiguous or complex.
+    /// </summary>
+    private static QueryIntent? DetectSimpleQueryIntent(string queryText)
+    {
+        var lower = queryText.ToLowerInvariant();
+
+        // COUNT patterns (EN + VI)
+        if (System.Text.RegularExpressions.Regex.IsMatch(lower,
+            @"\b(?:count|how\s+many|có\s+bao\s+nhiêu|đếm|tổng\s+số)\b"))
+        {
+            return QueryIntent.COUNT;
+        }
+
+        // LIST patterns (EN + VI) — "show all", "list", "danh sách", "liệt kê"
+        if (System.Text.RegularExpressions.Regex.IsMatch(lower,
+            @"\b(?:show\s+all|list\s+all|list\b|display\s+all|danh\s+sách|liệt\s+kê|hiển\s+thị\s+tất\s+cả|xem\s+tất\s+cả)\b"))
+        {
+            return QueryIntent.LIST;
+        }
+
+        // DETAIL patterns (EN + VI) — "show me details", "chi tiết", "thông tin về"
+        if (System.Text.RegularExpressions.Regex.IsMatch(lower,
+            @"\b(?:detail|details\s+of|info\s+about|chi\s+tiết|thông\s+tin\s+về)\b"))
+        {
+            return QueryIntent.DETAIL;
+        }
+
+        // Simple SELECT keyword without complex clauses
+        if (System.Text.RegularExpressions.Regex.IsMatch(lower, @"^\s*select\s+\*?\s+from\s+\w+\s*;?\s*$"))
+        {
+            return QueryIntent.LIST;
+        }
+
+        return null; // Ambiguous — needs LLM
+    }
+
+    #endregion
 
     #region Private helpers (extracted from EnhancedAgentOrchestrator)
 
@@ -144,17 +266,33 @@ public class SchemaRetrievalStage : IPipelineStage
         if (!_schemaIndexed)
         {
             steps.Add("Index schema into vector database");
-            await TryEnsureSchemaIndexedAsync(_cachedSchema, ct);
+            await TryEnsureSchemaIndexedAsync(_cachedSchema, ct: ct);
             _schemaIndexed = true;
         }
     }
 
-    private async Task TryEnsureSchemaIndexedAsync(DatabaseSchema schema, CancellationToken ct)
+    private async Task TryEnsureSchemaIndexedAsync(DatabaseSchema schema, string? connectionId = null, CancellationToken ct = default)
     {
         try
         {
             var schemaIndexer = _serviceFactory.GetSchemaIndexer();
             var fingerprint = CreateSimpleFingerprint(schema);
+
+            // ✅ PHASE-1 TASK-03: Use Redis for distributed caching (multi-instance safe)
+            string cacheKey = $"TextToSqlAgent:SchemaIndexed:{fingerprint.Hash}";
+
+            // Check Redis cache first (avoid Qdrant network call)
+            if (_distributedCache != null)
+            {
+                var cachedValue = await _distributedCache.GetStringAsync(cacheKey, ct);
+                if (cachedValue == "true")
+                {
+                    _logger.LogInformation(
+                        "[SchemaRetrieval] ✅ Schema indexing status cached in Redis (hash: {Hash}), skipping Qdrant check",
+                        fingerprint.Hash.Substring(0, 8));
+                    return;
+                }
+            }
 
             // ✅ PHASE-2 TASK 2.1: Check if schema is already indexed before re-indexing
             var isIndexed = await schemaIndexer.IsSchemaIndexedAsync(fingerprint, ct);
@@ -163,12 +301,40 @@ public class SchemaRetrievalStage : IPipelineStage
                 _logger.LogInformation(
                     "[SchemaRetrieval] ✓ Schema already indexed (fingerprint match: {Hash}), skipping re-index",
                     fingerprint.Hash.Substring(0, 8));
+
+                // ✅ PHASE-1 TASK-03: Cache result in Redis for 5 minutes
+                if (_distributedCache != null)
+                {
+                    var options = new Microsoft.Extensions.Caching.Distributed.DistributedCacheEntryOptions
+                    {
+                        AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5)
+                    };
+                    await _distributedCache.SetStringAsync(cacheKey, "true", options, ct);
+                    _logger.LogInformation("[SchemaRetrieval] ✅ Cached indexing status in Redis (TTL: 5min)");
+                }
                 return;
             }
 
             _logger.LogInformation("[SchemaRetrieval] Schema not indexed or fingerprint mismatch, indexing now...");
-            await schemaIndexer.IndexSchemaAsync(schema, fingerprint, ct);
+            if (connectionId != null)
+            {
+                await schemaIndexer.IndexSchemaAsync(schema, fingerprint, connectionId, ct);
+            }
+            else
+            {
+                await schemaIndexer.IndexSchemaAsync(schema, fingerprint, ct);
+            }
             _logger.LogInformation("[SchemaRetrieval] ✓ Schema indexed successfully");
+
+            // ✅ PHASE-1 TASK-03: Cache successful indexing in Redis
+            if (_distributedCache != null)
+            {
+                var options = new Microsoft.Extensions.Caching.Distributed.DistributedCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5)
+                };
+                await _distributedCache.SetStringAsync(cacheKey, "true", options, ct);
+            }
         }
         catch (Exception ex)
         {

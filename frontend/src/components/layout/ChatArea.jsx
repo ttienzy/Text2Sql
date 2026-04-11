@@ -26,9 +26,8 @@ import useConversationStore from '../../store/conversationStore';
 import useConnectionStore from '../../store/connectionStore';
 import { useMessagesQuery } from '../../api/messages';
 import { useUpdateConversationMutation } from '../../api/conversations';
-import { useProcessMessageMutation } from '../../api/agent';
+import { useProcessMessageMutation, confirmExecution, cancelExecution } from '../../api/agent';
 import { useRefreshSchemaMutation } from '../../api/connections';
-import { executeWriteOperation } from '../../api/write';
 import { useQueryClient } from '@tanstack/react-query';
 import { conversationKeys } from '../../api/conversations/queries';
 import { useTablesQuery } from '../../api/dbExplorer';
@@ -69,6 +68,7 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
     error: sseError,
     isStreaming: sseIsStreaming,
     generatedSql: sseGeneratedSql,
+    pendingConfirmation: ssePendingConfirmation,
     startStream,
     reset: resetStream,
   } = useStreamingQuery();
@@ -480,69 +480,36 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
     }
   };
 
+  // ✅ Watch for SSE pending confirmations to trigger the confirm modal
+  useEffect(() => {
+    if (ssePendingConfirmation && ssePendingConfirmation.confirmId) {
+      setWritePreview(ssePendingConfirmation);
+      setPendingQuestion(currentQuestionRef.current);
+      setShowWriteModal(true);
+    }
+  }, [ssePendingConfirmation]);
+
   // Handle WRITE operation confirmation
   const handleConfirmWrite = async () => {
-    if (!writePreview || !pendingQuestion) return;
+    if (!writePreview || !writePreview.confirmId) return;
 
     try {
       setIsExecutingWrite(true);
 
-      // Call WRITE execute endpoint
-      const result = await executeWriteOperation({
-        question: pendingQuestion,
-        connectionId: activeConnection.id,
-        conversationId: currentConversation.id,
-        confirmed: true,
-        preview: writePreview
-      });
+      // Tell backend to proceed
+      await confirmExecution(writePreview.confirmId);
 
-      // Add success message to chat
-      const successMessage = {
-        id: getUniqueId('assistant'),
-        conversationId: currentConversation?.id,
-        role: 'assistant',
-        content: `✓ Successfully ${result.operationType?.toLowerCase() || 'modified'} ${result.actualAffectedRows || 0} row(s)`,
-        sqlQuery: result.sqlExecuted,
-        success: true,
-        rowCount: result.actualAffectedRows || 0,
-        createdAt: new Date().toISOString(),
-      };
-
-      updateMessages((prev) => {
-        const currentMessages = prev.filter((message) => !message.isPending);
-        return [...currentMessages, successMessage];
-      });
-
+      // 💡 Important: we don't push success message here manually.
+      // SSE connection is still open and will push 'executing' -> 'result' 
+      // automatically when backend resumes polling.
+      
       setShowWriteModal(false);
       setWritePreview(null);
       setPendingQuestion('');
-      setCurrentQuestion('');
-
-      message.success(`Operation executed successfully - ${result.actualAffectedRows || 0} row(s) affected`);
-
-      // Invalidate queries to refresh conversation list
-      queryClient.invalidateQueries({ queryKey: conversationKeys.lists() });
-
+      
     } catch (error) {
-      console.error('Failed to execute WRITE operation:', error);
-      const errorMsg = error.response?.data?.message || error.message || 'Failed to execute operation';
-
-      // Add error message to chat
-      const errorMessage = {
-        id: getUniqueId('error'),
-        conversationId: currentConversation?.id,
-        role: 'assistant',
-        content: `✗ Failed to execute operation: ${errorMsg}`,
-        success: false,
-        errorMessage: errorMsg,
-        createdAt: new Date().toISOString(),
-      };
-
-      updateMessages((prev) => {
-        const currentMessages = prev.filter((message) => !message.isPending);
-        return [...currentMessages, errorMessage];
-      });
-
+      console.error('Failed to confirm WRITE operation:', error);
+      const errorMsg = error.response?.data?.message || error.message || 'Failed to confirm operation';
       message.error(errorMsg);
     } finally {
       setIsExecutingWrite(false);
@@ -550,11 +517,19 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
   };
 
   // Handle WRITE operation cancellation
-  const handleCancelWrite = () => {
+  const handleCancelWrite = async () => {
+    if (writePreview && writePreview.confirmId) {
+       try {
+          await cancelExecution(writePreview.confirmId, "Cancelled by user via UI");
+       } catch (error) {
+          console.error("Failed to send cancellation signal", error);
+       }
+    }
+    
     setShowWriteModal(false);
     setWritePreview(null);
     setPendingQuestion('');
-    setCurrentQuestion('');
+    // Current question will be cleared by the SSE result or error handler
     message.info('Operation cancelled');
   };
 
@@ -619,8 +594,9 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
       }
     }
 
-    // WRITE operation - show confirmation modal
-    if (pipelineType === 'Write') {
+    // WRITE operation - this part is now mostly legacy handling since actual confirmation pop is driven by SSE pendingConfirmation
+    // However, if the API directly returns a Write preview as a Final Result (e.g. timeout without confirm?), we can handle it
+    if (pipelineType === 'Write' || pipelineType === 'Dml') {
       const preview = sseResult.data?.preview;
       if (preview && sseResult.requiresConfirmation) {
         setWritePreview(preview);

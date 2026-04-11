@@ -27,3 +27,24 @@ export const useProcessMessageMutation = (options = {}) => {
         ...options,
     });
 };
+
+/**
+ * Confirm a pending DML/DDL execution
+ * @param {string} confirmId - The ID of the pending confirmation
+ * @returns {Promise<any>}
+ */
+export const confirmExecution = async (confirmId) => {
+    const response = await axios.post(`/api/agent/confirm/${confirmId}`);
+    return response.data;
+};
+
+/**
+ * Cancel a pending DML/DDL execution
+ * @param {string} confirmId - The ID of the pending confirmation
+ * @param {string} reason - Reason for cancellation
+ * @returns {Promise<any>}
+ */
+export const cancelExecution = async (confirmId, reason = 'User cancelled') => {
+    const response = await axios.post(`/api/agent/confirm/${confirmId}/cancel`, { reason });
+    return response.data;
+};

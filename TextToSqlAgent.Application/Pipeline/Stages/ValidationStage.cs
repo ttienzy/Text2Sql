@@ -71,51 +71,12 @@ public class ValidationStage : IPipelineStage
             }
         }
 
-        // ── Step 2: Validate query relevance ──
-        var queryValidator = _serviceFactory.GetQueryValidator();
-        var validation = await queryValidator.ValidateQueryAsync(
-            enrichedQuestion,
-            new List<string>(), // Empty — validator uses heuristics
-            ct);
-
-        context.ValidationResult = validation;
-
-        _logger.LogInformation(
-            "[Validation] Type: {Type}, Relevant: {Relevant}, Confidence: {Confidence:P0}",
-            validation.QueryType, validation.IsRelevant, validation.Confidence);
-
-        // Handle non-database queries (fast path)
-        if (!validation.IsRelevant)
-        {
-            context.Response.Success = true;
-            context.Response.Answer = validation.SuggestedResponse ??
-                "I'm a database assistant. Please ask a database-related question.";
-
-            conversationManager.AddTurn(conversationCtx, context.UserQuestion,
-                context.Response.Answer, success: true);
-
-            return StageResult.Stop("Non-database query rejected");
-        }
-
-        // Handle clarification needed
-        if (validation.NeedsClarification)
-        {
-            var clarification = validation.ClarificationQuestion ?? "Please clarify your question.";
-            context.Response.Success = false;
-            context.Response.Answer = clarification;
-            context.Response.ErrorMessage = clarification;
-
-            conversationManager.AddTurn(conversationCtx, context.UserQuestion,
-                context.Response.Answer, success: false);
-
-            return StageResult.Stop("Clarification needed");
-        }
-
-        // ── Step 3: Normalize prompt ──
+        // ── Step 2: Normalize prompt ──
         context.Steps.Add("Normalize with conversation context");
         var normalizeTask = _serviceFactory.GetOrCreate<TextToSqlAgent.Core.Tasks.NormalizePromptTask>();
         context.NormalizedPrompt = await normalizeTask.ExecuteAsync(enrichedQuestion, ct);
 
+        // Validation logic removed: Routing is handled by IntentClassificationStage
         return StageResult.Continue();
     }
 

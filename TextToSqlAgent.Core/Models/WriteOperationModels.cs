@@ -6,7 +6,9 @@ namespace TextToSqlAgent.Core.Models;
 public enum WriteOperationType
 {
     Insert,
-    Update
+    Update,
+    Delete,
+    Upsert
 }
 
 /// <summary>
@@ -23,6 +25,11 @@ public class WriteOperationRequest
     /// Pre-resolved entities from IntentClassifier to avoid duplicate LLM calls
     /// </summary>
     public List<string>? PreResolvedEntities { get; set; }
+
+    /// <summary>
+    /// ✅ OPTIMIZATION: Injected schema from controller to avoid Redis round-trip
+    /// </summary>
+    public DatabaseSchema? Schema { get; set; }
 }
 
 /// <summary>
@@ -39,6 +46,15 @@ public class WriteOperationPreview
     public bool HasWhereClause { get; set; }
     public List<string> AffectedColumns { get; set; } = new();
     public string? ValidationError { get; set; }
+
+    /// <summary>Unique confirmation ID for SSE confirm flow (stored in Redis)</summary>
+    public string? ConfirmId { get; set; }
+
+    /// <summary>Risk level of this operation</summary>
+    public RiskLevel RiskLevel { get; set; } = RiskLevel.Medium;
+
+    /// <summary>Seconds before the confirmation times out (default 30s — enough for read + click)</summary>
+    public int TimeoutSeconds { get; set; } = 30;
 }
 
 /// <summary>

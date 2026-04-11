@@ -25,6 +25,9 @@ public class StreamingAgentController : ControllerBase
     private readonly ISchemaCache _schemaCache;
     private readonly TextToSqlAgent.Infrastructure.Services.ITokenQuotaService _tokenQuotaService;
     private readonly TextToSqlAgent.API.Services.IConnectionEncryptionService _encryptionService;
+    private readonly IConfirmationStore _confirmationStore;
+    private readonly IWritePipeline _writePipeline;
+    private readonly IApprovalQueueService _approvalQueueService;
 
     // ✅ CRIT-3 FIX: SemaphoreSlim to serialize SSE writes (prevent race conditions)
     private readonly SemaphoreSlim _sseWriteLock = new(1, 1);
@@ -35,7 +38,10 @@ public class StreamingAgentController : ControllerBase
         ConversationTurnOrchestrator turnOrchestrator,
         ISchemaCache schemaCache,
         TextToSqlAgent.Infrastructure.Services.ITokenQuotaService tokenQuotaService,
-        TextToSqlAgent.API.Services.IConnectionEncryptionService encryptionService)
+        TextToSqlAgent.API.Services.IConnectionEncryptionService encryptionService,
+        IConfirmationStore confirmationStore,
+        IWritePipeline writePipeline,
+        IApprovalQueueService approvalQueueService)
     {
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -43,6 +49,9 @@ public class StreamingAgentController : ControllerBase
         _schemaCache = schemaCache;
         _tokenQuotaService = tokenQuotaService;
         _encryptionService = encryptionService;
+        _confirmationStore = confirmationStore;
+        _writePipeline = writePipeline;
+        _approvalQueueService = approvalQueueService;
     }
 
     /// <summary>
@@ -69,15 +78,15 @@ public class StreamingAgentController : ControllerBase
 
         try
         {
-            // ✅ DEBUG LOG: Entry point
-            _logger.LogInformation(
+            // ✅ DEBUG LOG: Entry point (reduced verbosity)
+            _logger.LogDebug(
                 "[StreamingAgent] REQUEST RECEIVED - Question: '{Question}', ConnectionId: {ConnectionId}, ConversationId: {ConversationId}, CorrelationId: {CorrelationId}",
                 request.Question,
                 request.ConnectionId,
                 request.ConversationId ?? "null",
                 correlationId);
 
-            _logger.LogInformation("[StreamingAgent] SSE stream started for correlationId={CorrelationId}", correlationId);
+            _logger.LogDebug("[StreamingAgent] SSE stream started for correlationId={CorrelationId}", correlationId);
 
             // ✅ Extract user ID and validate
             var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
@@ -120,6 +129,7 @@ public class StreamingAgentController : ControllerBase
                 correlationId,
                 request.ConnectionId,
                 request.ConversationId,
+                pipeline = "detecting",
                 timestamp = DateTime.UtcNow
             }, ct);
 
@@ -312,12 +322,74 @@ public class StreamingAgentController : ControllerBase
                         ConversationId = request.ConversationId,
                         ConversationHistory = conversationHistory,
                         PersistedContext = persistedContext,
+                        Schema = schema, // ✅ PHASE-1 TASK-01: Inject schema from cache
                         Progress = progress,
                         SqlTokenCallback = sqlTokenCallback
                     },
                     ct);
 
                 var unifiedResponse = turnResult.Response;
+
+                // ✅ NEW: Intercept DML pipeline responses for async approval queue
+                if (unifiedResponse.Pipeline == PipelineType.Write
+                    && unifiedResponse.Data is WritePipelineData writeData
+                    && writeData.Preview != null
+                    && writeData.Preview.RequiresConfirmation)
+                {
+                    // Create approval queue entry instead of blocking SSE flow
+                    var approvalId = Guid.NewGuid().ToString("N")[..12];
+                    var approvalDto = new ApprovalQueueDto
+                    {
+                        Id = approvalId,
+                        UserId = userId!,
+                        ConnectionId = request.ConnectionId!,
+                        ConversationId = request.ConversationId,
+                        Question = request.Question,
+                        OperationType = writeData.Preview.OperationType.ToString(),
+                        TargetTable = writeData.Preview.TargetTable,
+                        SqlStatement = writeData.Preview.SqlStatement,
+                        EstimatedRows = writeData.Preview.EstimatedAffectedRows,
+                        RiskLevel = writeData.Preview.RiskLevel.ToString(),
+                        Status = "pending",
+                        CreatedAt = DateTime.UtcNow,
+                        TimeoutAt = DateTime.UtcNow.AddHours(4), // 4-hour timeout
+                        Warnings = writeData.Preview.Warnings.Any()
+                            ? JsonSerializer.Serialize(writeData.Preview.Warnings)
+                            : null,
+                        HasWhereClause = writeData.Preview.HasWhereClause
+                    };
+
+                    await _approvalQueueService.CreateApprovalAsync(approvalDto, ct);
+
+                    // Emit approval_created event with approval ID
+                    await WriteSseEventAsync("approval_created", new
+                    {
+                        approvalId,
+                        message = "SQL generated successfully - review and approve when ready",
+                        operationType = writeData.Preview.OperationType.ToString(),
+                        targetTable = writeData.Preview.TargetTable,
+                        sqlStatement = writeData.Preview.SqlStatement,
+                        estimatedRows = writeData.Preview.EstimatedAffectedRows,
+                        riskLevel = writeData.Preview.RiskLevel.ToString(),
+                        warnings = writeData.Preview.Warnings,
+                        hasWhereClause = writeData.Preview.HasWhereClause,
+                        timeoutAt = approvalDto.TimeoutAt
+                    }, ct);
+
+                    // Override response to indicate approval is pending
+                    unifiedResponse = new UnifiedPipelineResponse
+                    {
+                        Pipeline = PipelineType.Write,
+                        Success = true,
+                        Message = $"SQL generated successfully. Review and approve the {writeData.Preview.OperationType} operation on {writeData.Preview.TargetTable}.",
+                        SqlGenerated = writeData.Preview.SqlStatement,
+                        Data = new WritePipelineData
+                        {
+                            Preview = writeData.Preview,
+                            ApprovalId = approvalId
+                        }
+                    };
+                }
 
                 // ✅ PHASE-1 TASK 1.1: Save messages with UnifiedPipelineResponse data
                 var conversationId = turnResult.ConversationId;
@@ -444,6 +516,8 @@ public class StreamingAgentController : ControllerBase
                 }
 
                 // ✅ PHASE-1 TASK 1.3: Emit UnifiedPipelineResponse directly (correct format for frontend)
+                _logger.LogInformation("[StreamingAgent] ✅ Sending result to frontend - Pipeline: {Pipeline}, Success: {Success}",
+                    unifiedResponse.Pipeline, unifiedResponse.Success);
                 await WriteSseEventAsync("result", unifiedResponse, ct);
                 await WriteSseEventAsync("turn_completed", new
                 {
@@ -532,10 +606,10 @@ public class StreamingAgentController : ControllerBase
         }
 
         // Check for common image-related keywords in user request
-        var imageKeywords = new[] { "analyze this image", "look at this", "what's in this picture", 
+        var imageKeywords = new[] { "analyze this image", "look at this", "what's in this picture",
             "describe the image", "what does this show", "read this image", "extract text from image",
             "ocr", "convert image to text" };
-        
+
         foreach (var keyword in imageKeywords)
         {
             if (lowerQuestion.Contains(keyword))
@@ -571,6 +645,7 @@ public class StreamingAgentController : ControllerBase
         return normalized[..77] + "...";
     }
 
+    /// <summary>
     /// Writes a Server-Sent Event to the response stream.
     /// Format: "event: {eventType}\ndata: {json}\n\n"
     /// 

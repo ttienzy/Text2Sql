@@ -84,6 +84,11 @@ public class WritePipelineData : IPipelineData
     /// Write operation result (after execution)
     /// </summary>
     public WriteOperationResult? Result { get; set; }
+
+    /// <summary>
+    /// Approval ID for async approval queue (new UX pattern)
+    /// </summary>
+    public string? ApprovalId { get; set; }
 }
 
 /// <summary>

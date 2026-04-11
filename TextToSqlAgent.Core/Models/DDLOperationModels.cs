@@ -28,6 +28,11 @@ public class DDLOperationRequest
     public string ConnectionId { get; set; } = string.Empty;
     public string? ConversationId { get; set; }
     public bool IsConfirmed { get; set; } = false;
+
+    /// <summary>
+    /// ✅ OPTIMIZATION: Injected schema from controller to avoid Redis round-trip
+    /// </summary>
+    public DatabaseSchema? Schema { get; set; }
 }
 
 /// <summary>

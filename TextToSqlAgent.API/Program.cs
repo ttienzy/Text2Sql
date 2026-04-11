@@ -287,6 +287,9 @@ try
     // TODO: Re-enable after cleaning up invalid connections or improving error handling
     // builder.Services.AddHostedService<TextToSqlAgent.API.Services.SchemaPrewarmingService>();
 
+    // ✅ NEW: Approval Timeout Background Worker (checks every 1 minute)
+    builder.Services.AddHostedService<TextToSqlAgent.API.BackgroundServices.ApprovalTimeoutWorker>();
+
     // Infrastructure - Analysis (for legacy orchestrator)
     builder.Services.AddSingleton<SqlErrorAnalyzer>();
 
@@ -353,6 +356,9 @@ try
     // ✅ NEW: Conversation Manager - required by EnhancedAgentOrchestrator
     builder.Services.AddSingleton<CoreferenceResolver>();
     builder.Services.AddSingleton<ConversationManager>();
+
+    // ✅ NEW: Confirmation flow store for DML/DDL safety gates
+    builder.Services.AddSingleton<TextToSqlAgent.Core.Interfaces.IConfirmationStore, TextToSqlAgent.Infrastructure.Caching.RedisConfirmationStore>();
 
     // ============================================
     // 🎯 PHASE 1: INTENT-BASED MULTI-PIPELINE ARCHITECTURE
@@ -444,6 +450,9 @@ try
 
     // Token Quota Service
     builder.Services.AddScoped<TextToSqlAgent.Infrastructure.Services.ITokenQuotaService, TextToSqlAgent.Infrastructure.Services.TokenQuotaService>();
+
+    // Approval Queue Service (Async Write/DDL Approval UX)
+    builder.Services.AddScoped<IApprovalQueueService, ApprovalQueueService>();
 
     // Repository Pattern Services
     builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();

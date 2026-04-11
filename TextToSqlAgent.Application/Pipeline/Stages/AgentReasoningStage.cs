@@ -15,7 +15,7 @@ public class AgentReasoningStage : IPipelineStage
 
     public string StageName => "Agentic Reasoning";
     public AgentStage Stage => AgentStage.AGENT_THINKING;
-    public double ProgressStart => 0.20;
+    public double ProgressStart => 0.35; // ✅ PHASE-2 TASK-08: Changed from 0.20 to 0.35 to avoid conflict with SchemaRetrieval
 
     public AgentReasoningStage(AgentLoop agentLoop, ILogger<AgentReasoningStage> logger)
     {
@@ -59,7 +59,7 @@ public class AgentReasoningStage : IPipelineStage
         context.Response = response;
         context.GeneratedSql = memory.GeneratedSql;
         context.ExecutionResult = memory.ExecutionResult;
-        
+
         // Track the agent steps
         context.Steps.AddRange(memory.Steps.Select(s => $"Agent Step {s.StepNumber}: {s.Action}"));
 

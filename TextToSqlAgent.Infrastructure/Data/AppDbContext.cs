@@ -22,6 +22,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<TokenUsage> TokenUsages => Set<TokenUsage>();
     public DbSet<DatabaseSchema> DatabaseSchemas => Set<DatabaseSchema>();
     public DbSet<AgentJob> AgentJobs => Set<AgentJob>();
+    public DbSet<ApprovalQueue> ApprovalQueues => Set<ApprovalQueue>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -149,6 +150,33 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             entity.HasIndex(e => e.Status).HasDatabaseName("IX_AgentJob_Status");
             entity.HasIndex(e => e.CreatedAt);
             entity.HasIndex(e => e.HangfireJobId).HasDatabaseName("IX_AgentJob_HangfireJobId");
+            entity.HasOne<ApplicationUser>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Connection>().WithMany().HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ApprovalQueue
+        builder.Entity<ApprovalQueue>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasMaxLength(50);
+            entity.Property(e => e.UserId).HasMaxLength(450).IsRequired();
+            entity.Property(e => e.ConnectionId).HasMaxLength(50).IsRequired();
+            entity.Property(e => e.ConversationId).HasMaxLength(50);
+            entity.Property(e => e.Question).IsRequired();
+            entity.Property(e => e.OperationType).HasMaxLength(50).IsRequired();
+            entity.Property(e => e.TargetTable).HasMaxLength(256).IsRequired();
+            entity.Property(e => e.SqlStatement).IsRequired();
+            entity.Property(e => e.RiskLevel).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.Status).HasMaxLength(50).IsRequired();
+            entity.Property(e => e.ResponseAction).HasMaxLength(20);
+            entity.Property(e => e.ModifiedSql).HasMaxLength(10000);
+            entity.Property(e => e.RejectionReason).HasMaxLength(1000);
+            entity.Property(e => e.ExecutionResult).HasMaxLength(50000);
+            entity.Property(e => e.Warnings).HasMaxLength(5000);
+            entity.HasIndex(e => e.UserId).HasDatabaseName("IX_ApprovalQueue_UserId");
+            entity.HasIndex(e => e.Status).HasDatabaseName("IX_ApprovalQueue_Status");
+            entity.HasIndex(e => e.CreatedAt);
+            entity.HasIndex(e => e.TimeoutAt);
             entity.HasOne<ApplicationUser>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<Connection>().WithMany().HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.Restrict);
         });

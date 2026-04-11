@@ -79,7 +79,8 @@ public class DDLPipeline : IDDLPipeline
             }
 
             // D2: Load full schema context
-            var schema = await _schemaCache.GetAsync(request.ConnectionId, ct);
+            // ✅ OPTIMIZATION: Use injected schema first to avoid Redis round-trip
+            var schema = request.Schema ?? await _schemaCache.GetAsync(request.ConnectionId, ct);
             if (schema == null)
             {
                 return new DDLOperationPreview
@@ -88,6 +89,9 @@ public class DDLPipeline : IDDLPipeline
                     RequiresConfirmation = false
                 };
             }
+
+            _logger.LogDebug("[DDLPipeline] Schema source: {Source}",
+                request.Schema != null ? "Injected" : "Cache");
 
             // D3: RAG - Find related objects (with semantic resolution)
             var relatedObjects = await FindRelatedObjectsAsync(request.Question, schema, ddlType, ct);
@@ -347,12 +351,11 @@ Return ONLY the type, nothing else:";
         List<string> relatedObjects,
         CancellationToken ct)
     {
-        var systemPrompt = $@"You are a DDL script generator.
-
-Generate DDL scripts following these naming conventions:
-- Indexes: idx_{{table}}_{{columns}} (e.g., idx_users_email)
-- Procedures: sp_{{action}}_{{entity}} (e.g., sp_get_active_users)
-- Views: vw_{{description}} (e.g., vw_monthly_revenue)
+        // ✅ OPTIMIZATION: Compact system prompt to reduce token usage
+        var systemPrompt = @"Generate DDL scripts following naming conventions:
+- Indexes: idx_{table}_{columns}
+- Procedures: sp_{action}_{entity}
+- Views: vw_{description}
 
 Rules:
 1. Follow SQL standard syntax
@@ -360,36 +363,171 @@ Rules:
 3. For indexes: consider column order for query optimization
 4. For procedures: include parameter documentation
 5. For views: ensure query is optimized
+6. CRITICAL: Return ONLY valid JSON, no markdown, no explanations
 
-Return JSON format:
-{{
-  ""ddl_script"": ""the DDL statement with comments"",
-  ""target_object"": ""name of the object being created/modified""
-}}";
+JSON format (STRICT):
+{""ddl_script"":""statement"",""target_object"":""object_name""}";
 
         var schemaContext = BuildSchemaContext(schema, relatedObjects);
-        var userPrompt = $@"Generate DDL script for this request:
-
-Question: {question}
+        var userPrompt = $@"Question: {question}
 DDL Type: {ddlType}
 
 Schema context:
 {schemaContext}
 
-Generate the DDL script:";
+Generate DDL script (JSON only):";
 
-        var response = await _llmClient.CompleteWithSystemPromptAsync(systemPrompt, userPrompt, ct);
+        var maxRetries = 3;
+        Exception? lastException = null;
 
-        // Parse response
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                var response = await _llmClient.CompleteWithSystemPromptAsync(systemPrompt, userPrompt, ct);
+
+                // ✅ DEFENSIVE PARSING: Multiple strategies
+                var parsed = TryParseJsonResponse(response, attempt);
+
+                if (parsed != null)
+                {
+                    return (parsed.DdlScript ?? "", parsed.TargetObject ?? "unknown");
+                }
+
+                // If parsing failed but no exception, retry with stronger prompt
+                if (attempt < maxRetries)
+                {
+                    _logger.LogWarning(
+                        "[DDLPipeline] Attempt {Attempt}/{MaxRetries} - LLM returned non-JSON response, retrying with stricter prompt",
+                        attempt, maxRetries);
+
+                    // Re-prompt with error feedback
+                    systemPrompt = @"CRITICAL: You MUST return ONLY valid JSON. No markdown, no explanations, no text before or after.
+
+Previous attempt failed because you returned text instead of JSON.
+
+JSON format (STRICT):
+{""ddl_script"":""statement"",""target_object"":""object_name""}
+
+Example valid response:
+{""ddl_script"":""CREATE INDEX idx_customers_email ON Customers(Email)"",""target_object"":""idx_customers_email""}";
+
+                    await Task.Delay(500 * attempt, ct); // Exponential backoff
+                    continue;
+                }
+            }
+            catch (JsonException ex)
+            {
+                lastException = ex;
+                _logger.LogWarning(ex,
+                    "[DDLPipeline] Attempt {Attempt}/{MaxRetries} - JSON parsing failed",
+                    attempt, maxRetries);
+
+                if (attempt < maxRetries)
+                {
+                    await Task.Delay(500 * attempt, ct);
+                    continue;
+                }
+            }
+        }
+
+        // All retries failed - return error with helpful message
+        _logger.LogError(lastException,
+            "[DDLPipeline] Failed to parse LLM response after {MaxRetries} attempts. Question: {Question}",
+            maxRetries, question);
+
+        throw new InvalidOperationException(
+            $"LLM failed to generate valid DDL JSON after {maxRetries} attempts. " +
+            $"This may indicate the question is ambiguous or requires clarification. " +
+            $"Question: {question}",
+            lastException);
+    }
+
+    /// <summary>
+    /// Defensive JSON parsing with multiple fallback strategies
+    /// Based on best practices from production LLM applications
+    /// </summary>
+    private DDLGenerationResponse? TryParseJsonResponse(string response, int attempt)
+    {
+        if (string.IsNullOrWhiteSpace(response))
+        {
+            _logger.LogWarning("[DDLPipeline] LLM returned empty response");
+            return null;
+        }
+
+        // Strategy 1: Clean markdown wrappers
         var cleaned = response.Trim();
-        if (cleaned.StartsWith("```json")) cleaned = cleaned[7..];
-        else if (cleaned.StartsWith("```")) cleaned = cleaned[3..];
-        if (cleaned.EndsWith("```")) cleaned = cleaned[..^3];
+        if (cleaned.StartsWith("```json"))
+        {
+            cleaned = cleaned[7..];
+            _logger.LogDebug("[DDLPipeline] Stripped ```json prefix");
+        }
+        else if (cleaned.StartsWith("```"))
+        {
+            cleaned = cleaned[3..];
+            _logger.LogDebug("[DDLPipeline] Stripped ``` prefix");
+        }
+
+        if (cleaned.EndsWith("```"))
+        {
+            cleaned = cleaned[..^3];
+            _logger.LogDebug("[DDLPipeline] Stripped ``` suffix");
+        }
+
         cleaned = cleaned.Trim();
 
-        var parsed = JsonSerializer.Deserialize<DDLGenerationResponse>(cleaned);
+        // Strategy 2: Try direct parse
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<DDLGenerationResponse>(cleaned);
+            if (parsed != null && !string.IsNullOrEmpty(parsed.DdlScript))
+            {
+                _logger.LogDebug("[DDLPipeline] Successfully parsed JSON (direct)");
+                return parsed;
+            }
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogDebug(ex, "[DDLPipeline] Direct JSON parse failed, trying fallback strategies");
+        }
 
-        return (parsed?.DdlScript ?? "", parsed?.TargetObject ?? "unknown");
+        // Strategy 3: Extract JSON from text (find first { to last })
+        var firstBrace = cleaned.IndexOf('{');
+        var lastBrace = cleaned.LastIndexOf('}');
+
+        if (firstBrace >= 0 && lastBrace > firstBrace)
+        {
+            var extracted = cleaned.Substring(firstBrace, lastBrace - firstBrace + 1);
+            try
+            {
+                var parsed = JsonSerializer.Deserialize<DDLGenerationResponse>(extracted);
+                if (parsed != null && !string.IsNullOrEmpty(parsed.DdlScript))
+                {
+                    _logger.LogDebug("[DDLPipeline] Successfully parsed JSON (extracted from text)");
+                    return parsed;
+                }
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogDebug(ex, "[DDLPipeline] Extracted JSON parse failed");
+            }
+        }
+
+        // Strategy 4: Check if response is plain text explanation (not JSON at all)
+        if (!cleaned.Contains('{') || !cleaned.Contains('}'))
+        {
+            _logger.LogWarning(
+                "[DDLPipeline] LLM returned plain text instead of JSON. Response preview: {Preview}",
+                cleaned.Length > 100 ? cleaned[..100] + "..." : cleaned);
+            return null;
+        }
+
+        // All strategies failed
+        _logger.LogWarning(
+            "[DDLPipeline] All parsing strategies failed. Response preview: {Preview}",
+            cleaned.Length > 200 ? cleaned[..200] + "..." : cleaned);
+
+        return null;
     }
 
     private class DDLGenerationResponse

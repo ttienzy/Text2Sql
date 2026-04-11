@@ -49,6 +49,12 @@ public enum AgentStage
     /// <summary>Validating generated SQL for safety.</summary>
     SQL_VALIDATION,
 
+    /// <summary>SQL preview generated — showing to user before confirmation (DML/DDL).</summary>
+    SQL_PREVIEW,
+
+    /// <summary>Waiting for user confirmation before executing DML/DDL operation.</summary>
+    AWAITING_CONFIRM,
+
     /// <summary>Executing SQL against the database.</summary>
     EXECUTING,
 
@@ -60,6 +66,9 @@ public enum AgentStage
 
     /// <summary>Processing complete — final result attached.</summary>
     COMPLETED,
+
+    /// <summary>Operation was blocked by safety policy (FORBIDDEN).</summary>
+    BLOCKED,
 
     /// <summary>An error occurred.</summary>
     ERROR

@@ -87,13 +87,25 @@ public class SqlGenerationStage : IPipelineStage
         }
 
         // ── Optional: Explain query before execution ──
-        if (_agentConfig.ExplainQueriesBeforeExecution)
+        // ✅ PHASE-2 TASK-09: Skip explanation for simple queries (complexity < 0.5)
+        var complexityScore = context.IntentClassification?.ComplexityScore ?? 1.0;
+        var shouldExplain = _agentConfig.ExplainQueriesBeforeExecution && complexityScore >= 0.5;
+
+        if (shouldExplain)
         {
             context.Steps.Add("Explain query");
             var queryExplainer = _serviceFactory.GetQueryExplainer();
             var explanation = await queryExplainer.ExplainQueryAsync(
                 sqlResult.Sql, context.UserQuestion, ct);
             context.Response.QueryExplanation = explanation;
+
+            _logger.LogInformation("[SqlGeneration] Query explained (complexity: {Score:F2})", complexityScore);
+        }
+        else if (_agentConfig.ExplainQueriesBeforeExecution)
+        {
+            _logger.LogInformation(
+                "[SqlGeneration] ⚡ Skipped query explanation for simple query (complexity: {Score:F2})",
+                complexityScore);
         }
 
         return StageResult.Continue();

@@ -35,12 +35,25 @@ public class ConversationTurnOrchestrator
             conversationId,
             request.ConnectionId);
 
+        // ✅ PHASE-1 TASK-01: Log schema injection status
+        if (request.Schema != null)
+        {
+            _logger.LogInformation(
+                "[ConversationTurn] ✅ Schema injected from cache ({TableCount} tables)",
+                request.Schema.Tables.Count);
+        }
+        else
+        {
+            _logger.LogWarning("[ConversationTurn] ⚠️ No schema provided, will load in pipeline");
+        }
+
         var response = await _agent.ProcessMessageWithIntentRoutingAsync(
             request.UserQuestion,
             request.ConnectionId,
             conversationId,
             request.ConversationHistory,
             request.PersistedContext,
+            request.Schema, // ✅ PHASE-1 TASK-01: Pass schema to orchestrator
             request.Progress,
             request.SqlTokenCallback,
             cancellationToken);
@@ -154,6 +167,9 @@ public class ConversationTurnRequest
     public SerializableConversationContext? PersistedContext { get; set; }
     public IProgress<AgentStageEvent>? Progress { get; set; }
     public Action<string>? SqlTokenCallback { get; set; }
+
+    // ✅ PHASE-1 TASK-01: Add Schema property to avoid re-scanning
+    public DatabaseSchema? Schema { get; set; }
 }
 
 public class ConversationTurnResult

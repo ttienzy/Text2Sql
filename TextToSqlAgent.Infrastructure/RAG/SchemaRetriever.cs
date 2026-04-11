@@ -19,11 +19,10 @@ public class SchemaRetriever
     private readonly KeywordSchemaRetriever _keywordRetriever;
     private readonly IEmbeddingClient _embeddingClient;
     private readonly RAGConfig _ragConfig;
-    private readonly IMemoryCache _queryCache;
+    private readonly Microsoft.Extensions.Caching.Distributed.IDistributedCache? _distributedCache; // ✅ PHASE-2 TASK-07: Use Redis for embedding cache
     private readonly ILogger<SchemaRetriever> _logger;
 
     // Cache configuration
-    private const int MaxCacheSize = 1000;
     private const int CacheExpirationMinutes = 60;
 
     public SchemaRetriever(
@@ -31,14 +30,14 @@ public class SchemaRetriever
         KeywordSchemaRetriever keywordRetriever,
         IEmbeddingClient embeddingClient,
         RAGConfig ragConfig,
-        IMemoryCache queryCache,
-        ILogger<SchemaRetriever> logger)
+        ILogger<SchemaRetriever> logger,
+        Microsoft.Extensions.Caching.Distributed.IDistributedCache? distributedCache = null) // ✅ PHASE-2 TASK-07: Inject IDistributedCache
     {
         _vectorStore = vectorStore;
         _keywordRetriever = keywordRetriever;
         _embeddingClient = embeddingClient;
         _ragConfig = ragConfig;
-        _queryCache = queryCache;
+        _distributedCache = distributedCache; // ✅ PHASE-2 TASK-07: Store distributed cache
         _logger = logger;
     }
 
@@ -184,13 +183,32 @@ public class SchemaRetriever
         string query,
         CancellationToken cancellationToken)
     {
-        var cacheKey = $"query_embedding:{query}";
+        // ✅ PHASE-2 TASK-07: Use Redis for distributed embedding cache
+        // Hash the query to create a stable cache key
+        var queryHash = System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(query));
+        var cacheKey = $"TextToSqlAgent:QueryEmbedding:{Convert.ToHexString(queryHash)}";
 
-        // Check cache for existing embedding
-        if (_queryCache.TryGetValue(cacheKey, out float[]? cachedEmbedding) && cachedEmbedding != null)
+        // Check Redis cache first
+        if (_distributedCache != null)
         {
-            _logger.LogDebug("[SchemaRetriever] Using cached embedding for query");
-            return cachedEmbedding;
+            try
+            {
+                var cachedBytes = await _distributedCache.GetAsync(cacheKey, cancellationToken);
+                if (cachedBytes != null && cachedBytes.Length > 0)
+                {
+                    // Deserialize float[] from bytes
+                    var cachedEmbedding = DeserializeEmbedding(cachedBytes);
+                    _logger.LogDebug(
+                        "[SchemaRetriever] ✅ Using cached embedding from Redis (hash: {Hash})",
+                        Convert.ToHexString(queryHash).Substring(0, 8));
+                    return cachedEmbedding;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[SchemaRetriever] Failed to read embedding from Redis cache");
+            }
         }
 
         try
@@ -198,31 +216,56 @@ public class SchemaRetriever
             // Generate new embedding
             var embedding = await _embeddingClient.GenerateEmbeddingAsync(query, cancellationToken);
 
-            // Cache with expiration and size limit
-            var cacheOptions = new MemoryCacheEntryOptions
+            // Cache in Redis with 1 hour expiration
+            if (_distributedCache != null)
             {
-                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(CacheExpirationMinutes),
-                Size = 1
-            };
+                try
+                {
+                    var embeddingBytes = SerializeEmbedding(embedding);
+                    var cacheOptions = new Microsoft.Extensions.Caching.Distributed.DistributedCacheEntryOptions
+                    {
+                        AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(CacheExpirationMinutes)
+                    };
+                    await _distributedCache.SetAsync(cacheKey, embeddingBytes, cacheOptions, cancellationToken);
 
-            _queryCache.Set(cacheKey, embedding, cacheOptions);
-            _logger.LogDebug("[SchemaRetriever] Generated and cached new embedding for query");
+                    _logger.LogDebug(
+                        "[SchemaRetriever] ✅ Generated and cached embedding in Redis (TTL: {Minutes}min, size: {Size} bytes)",
+                        CacheExpirationMinutes, embeddingBytes.Length);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[SchemaRetriever] Failed to cache embedding in Redis (non-critical)");
+                }
+            }
 
             return embedding;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[SchemaRetriever] Failed to generate query embedding");
-
-            // Try to use any cached version as fallback (ignore age)
-            if (_queryCache.TryGetValue(cacheKey, out float[]? fallbackEmbedding) && fallbackEmbedding != null)
-            {
-                _logger.LogWarning("[SchemaRetriever] Using stale cached embedding as fallback");
-                return fallbackEmbedding;
-            }
-
             throw;
         }
+    }
+
+    /// <summary>
+    /// Serialize float[] embedding to byte[] for Redis storage.
+    /// Format: 4 bytes per float (little-endian).
+    /// </summary>
+    private static byte[] SerializeEmbedding(float[] embedding)
+    {
+        var bytes = new byte[embedding.Length * sizeof(float)];
+        Buffer.BlockCopy(embedding, 0, bytes, 0, bytes.Length);
+        return bytes;
+    }
+
+    /// <summary>
+    /// Deserialize byte[] from Redis back to float[] embedding.
+    /// </summary>
+    private static float[] DeserializeEmbedding(byte[] bytes)
+    {
+        var embedding = new float[bytes.Length / sizeof(float)];
+        Buffer.BlockCopy(bytes, 0, embedding, 0, bytes.Length);
+        return embedding;
     }
 
     /// <summary>
