@@ -16,6 +16,7 @@ import {
   UsageByConversation,
   UsageByModel,
 } from '../components/dashboard';
+import PreferencesForm from '../components/settings/PreferencesForm';
 
 const { Title, Text } = Typography;
 
@@ -171,25 +172,7 @@ const SettingsPage = () => {
           Preferences
         </span>
       ),
-      children: (
-        <Card title="Application" style={{ maxWidth: 600, marginTop: 24 }}>
-          <Form layout="vertical" initialValues={{ appName: APP_NAME }}>
-            <Form.Item
-              name="appName"
-              label="Application Name"
-            >
-              <Input disabled />
-            </Form.Item>
-
-            <Form.Item
-              name="theme"
-              label="Theme"
-            >
-              <Input disabled placeholder="Coming soon" />
-            </Form.Item>
-          </Form>
-        </Card>
-      ),
+      children: <PreferencesForm />,
     },
   ];
 

@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Table, Button, Space, Spin, Alert, Typography } from 'antd';
-import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Table, Button, Space, Spin, Alert, Typography, Dropdown, Tooltip } from 'antd';
+import { DownloadOutlined, ReloadOutlined, FileExcelOutlined, MoreOutlined } from '@ant-design/icons';
 import { useQueryPagination } from '../../hooks/useQueryPagination';
 import { FixedSizeList } from 'react-window';
 
@@ -21,9 +21,12 @@ const PaginatedResultsTable = ({
     totalRows = 0,
     resultId = null,
     hasMore = false,
+    executionTimeMs,
 }) => {
     const [allRows, setAllRows] = useState(initialRows);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
+    const [columnWidths, setColumnWidths] = useState({});
+    const tableRef = useRef(null);
 
     const {
         loading,
@@ -45,12 +48,25 @@ const PaginatedResultsTable = ({
         }
     }, [resultId, getAllLoadedRows, initialRows]);
 
-    // Prepare columns for Ant Design Table
+    // Handle column resize
+    const handleColumnResize = useCallback((columnKey, width) => {
+        setColumnWidths(prev => ({
+            ...prev,
+            [columnKey]: width,
+        }));
+    }, []);
+
+    // Prepare columns for Ant Design Table with resizing
     const tableColumns = columns.map((col) => ({
-        title: col.columnName,
+        title: (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>{col.columnName}</span>
+            </div>
+        ),
         dataIndex: col.columnName,
         key: col.columnName,
-        width: 150,
+        width: columnWidths[col.columnName] || 150,
+        minWidth: 80,
         ellipsis: true,
         render: (value) => {
             if (value === null || value === undefined) {
@@ -89,9 +105,42 @@ const PaginatedResultsTable = ({
     }, [loading, hasMore, resultId, handleLoadMore]);
 
     // Export to CSV
-    const handleExport = useCallback(() => {
+    const handleExport = useCallback((format = 'csv') => {
         if (!allRows.length) return;
 
+        if (format === 'excel') {
+            // Convert to Excel-compatible XML format
+            const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+  xmlns:o="urn:schemas-microsoft-com:office:office"
+  xmlns:x="urn:schemas-microsoft-com:office:excel"
+  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+  <Worksheet ss:Name="Query Results">
+    <Table>
+      <Row>
+        ${columns.map(col => `<Cell><Data ss:Type="String">${col.columnName}</Data></Cell>`).join('')}
+      </Row>
+      ${allRows.map(row => `
+      <Row>
+        ${columns.map(col => {
+          const value = row[col.columnName];
+          return `<Cell><Data ss:Type="${typeof value === 'number' ? 'Number' : 'String'}">${value ?? ''}</Data></Cell>`;
+        }).join('')}
+      </Row>`).join('')}
+    </Table>
+  </Worksheet>
+</Workbook>`;
+
+            const blob = new Blob([xmlContent], { type: 'application/vnd.ms-excel' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `query_results_${Date.now()}.xls`;
+            link.click();
+            return;
+        }
+
+        // Default CSV export
         const csvContent = [
             // Header
             columns.map(col => col.columnName).join(','),
@@ -115,6 +164,24 @@ const PaginatedResultsTable = ({
         link.click();
     }, [allRows, columns]);
 
+    // Export menu items
+    const exportMenuItems = {
+        items: [
+            {
+                key: 'csv',
+                icon: <DownloadOutlined />,
+                label: 'Export CSV',
+                onClick: () => handleExport('csv'),
+            },
+            {
+                key: 'excel',
+                icon: <FileExcelOutlined />,
+                label: 'Export Excel',
+                onClick: () => handleExport('excel'),
+            },
+        ],
+    };
+
     if (error) {
         return (
             <Alert
@@ -126,8 +193,19 @@ const PaginatedResultsTable = ({
         );
     }
 
+    const getQueryTimeClass = (ms) => {
+        if (ms < 500) return 'fast';
+        if (ms < 2000) return 'medium';
+        return 'slow';
+    };
+
+    const formatTime = (ms) => {
+        if (ms < 1000) return `${ms}ms`;
+        return `${(ms / 1000).toFixed(1)}s`;
+    };
+
     return (
-        <div style={{ width: '100%' }}>
+        <div style={{ width: '100%' }} className="fade-in">
             {/* Header with stats and actions */}
             <div style={{
                 display: 'flex',
@@ -140,20 +218,22 @@ const PaginatedResultsTable = ({
             }}>
                 <Space>
                     <Text strong>Query Results</Text>
+                    <span className={`query-time-badge ${executionTimeMs ? getQueryTimeClass(executionTimeMs) : ''}`}>
+                        {executionTimeMs ? formatTime(executionTimeMs) : ''}
+                    </span>
                     <Text type="secondary">
                         {allRows.length} of {totalRows} rows
                         {resultId && totalPages > 1 && ` (Page ${currentPage}/${totalPages})`}
                     </Text>
                 </Space>
                 <Space>
-                    <Button
-                        icon={<DownloadOutlined />}
-                        onClick={handleExport}
-                        disabled={!allRows.length}
-                        size="small"
-                    >
-                        Export CSV
-                    </Button>
+                    {allRows.length > 0 && (
+                        <Dropdown menu={exportMenuItems} trigger={['click']}>
+                            <Button size="small" icon={<MoreOutlined />}>
+                                Export
+                            </Button>
+                        </Dropdown>
+                    )}
                     {hasMore && resultId && (
                         <Button
                             icon={<ReloadOutlined />}
@@ -169,6 +249,8 @@ const PaginatedResultsTable = ({
 
             {/* Table with virtual scrolling */}
             <div
+                className="table-sticky-header"
+                ref={tableRef}
                 style={{
                     maxHeight: 600,
                     overflow: 'auto',
@@ -185,6 +267,7 @@ const PaginatedResultsTable = ({
                     scroll={{ x: 'max-content', y: 550 }}
                     size="small"
                     loading={loading && allRows.length === 0}
+                    resizable
                 />
             </div>
 

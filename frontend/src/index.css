@@ -39,3 +39,399 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #a8a8a8;
 }
+
+/* ============================================
+   UI Polish: Animations & Transitions
+   ============================================ */
+
+/* Tab transitions */
+.ant-tabs-tab {
+  transition: all 0.2s ease-in-out;
+}
+
+.ant-tabs-tab:hover {
+  color: #1890ff;
+  transform: translateY(-1px);
+}
+
+.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #1890ff;
+  font-weight: 600;
+}
+
+/* Message bubble hover effects */
+.message-bubble {
+  transition: all 0.15s ease-in-out;
+}
+
+.message-bubble:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transform: translateY(-1px);
+}
+
+.message-bubble:hover .message-actions {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Message actions hidden by default, shown on hover */
+.message-actions {
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.15s ease-in-out;
+}
+
+/* Button press effect */
+.ant-btn:active {
+  transform: scale(0.98);
+}
+
+/* List item hover */
+.ant-list-item {
+  transition: all 0.15s ease-in-out;
+}
+
+.ant-list-item:hover {
+  background-color: #f5f5f5 !important;
+}
+
+/* Card hover */
+.ant-card {
+  transition: all 0.2s ease-in-out;
+}
+
+.ant-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Input focus glow */
+.ant-input:focus,
+.ant-input-focused {
+  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+}
+
+/* Smooth skeleton loading */
+.ant-skeleton-content .ant-skeleton-title,
+.ant-skeleton-content .ant-skeleton-paragraph > li {
+  animation: skeleton-loading 1.5s ease-in-out infinite;
+}
+
+@keyframes skeleton-loading {
+  0% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.6;
+  }
+}
+
+/* Fade in animation for content */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
+/* Slide in from right */
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.slide-in-right {
+  animation: slideInRight 0.3s ease-out forwards;
+}
+
+/* Stagger children animations */
+.stagger-children > * {
+  animation: fadeIn 0.3s ease-out forwards;
+  opacity: 0;
+}
+
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 50ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 100ms; }
+.stagger-children > *:nth-child(4) { animation-delay: 150ms; }
+.stagger-children > *:nth-child(5) { animation-delay: 200ms; }
+
+/* ============================================
+   Accessibility: Focus Indicators
+   ============================================ */
+
+/* Visible focus outline */
+*:focus-visible {
+  outline: 2px solid #1890ff;
+  outline-offset: 2px;
+}
+
+/* Enhanced focus for buttons */
+.ant-btn:focus-visible {
+  outline: 2px solid #1890ff;
+  outline-offset: 2px;
+}
+
+/* Focus within for interactive containers */
+.ant-table-row:hover {
+  outline: 2px solid #1890ff;
+  outline-offset: -2px;
+}
+
+/* ============================================
+   Table Enhancements
+   ============================================ */
+
+/* Sticky header style */
+.table-sticky-header .ant-table-thead > tr > th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fafafa;
+  box-shadow: 0 1px 0 #f0f0f0;
+}
+
+/* Column resizer handle */
+.column-resizer {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.column-resizer:hover,
+.column-resizer:active {
+  background: #1890ff;
+}
+
+/* ============================================
+   SQL Syntax Highlighting (Standard Theme)
+   Based on conventional SQL tools
+   ============================================ */
+
+.sql-keyword {
+  color: #0000ff;
+  font-weight: 600;
+}
+
+.sql-datatype {
+  color: #267f99;
+}
+
+.sql-string {
+  color: #a31515;
+}
+
+.sql-number {
+  color: #098658;
+}
+
+.sql-comment {
+  color: #008000;
+  font-style: italic;
+}
+
+.sql-function {
+  color: #af00db;
+}
+
+.sql-operator {
+  color: #000000;
+}
+
+.sql-parameter {
+  color: #001080;
+}
+
+/* Dark theme for code blocks */
+.sql-block-dark {
+  background-color: #1e1e1e;
+  color: #d4d4d4;
+}
+
+.sql-block-dark .sql-keyword { color: #569cd6; }
+.sql-block-dark .sql-datatype { color: #4ec9b0; }
+.sql-block-dark .sql-string { color: #ce9178; }
+.sql-block-dark .sql-number { color: #b5cea8; }
+.sql-block-dark .sql-comment { color: #6a9955; font-style: italic; }
+.sql-block-dark .sql-function { color: #dcdcaa; }
+.sql-block-dark .sql-operator { color: #d4d4d4; }
+
+/* Light theme for code blocks */
+.sql-block-light {
+  background-color: #fafafa;
+  color: #24292e;
+}
+
+.sql-block-light .sql-keyword { color: #0000ff; font-weight: 600; }
+.sql-block-light .sql-datatype { color: #267f99; }
+.sql-block-light .sql-string { color: #a31515; }
+.sql-block-light .sql-number { color: #098658; }
+.sql-block-light .sql-comment { color: #008000; font-style: italic; }
+.sql-block-light .sql-function { color: #af00db; }
+.sql-block-light .sql-operator { color: #000000; }
+
+/* ============================================
+   Performance Indicators
+   ============================================ */
+
+/* Query time badge */
+.query-time-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.query-time-badge.fast {
+  background: #f6ffed;
+  color: #52c41a;
+  border: 1px solid #b7eb8f;
+}
+
+.query-time-badge.medium {
+  background: #fffbe6;
+  color: #faad14;
+  border: 1px solid #ffe58f;
+}
+
+.query-time-badge.slow {
+  background: #fff2f0;
+  color: #ff4d4f;
+  border: 1px solid #ffccc7;
+}
+
+/* Cache indicator */
+.cache-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #8c8c8c;
+}
+
+.cache-indicator.cached {
+  color: #52c41a;
+}
+
+.cache-indicator.uncached {
+  color: #faad14;
+}
+
+/* Connection latency */
+.connection-latency {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  background: #f5f5f5;
+}
+
+/* ============================================
+   Empty States
+   ============================================ */
+
+.empty-state-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.empty-state-container .empty-icon {
+  font-size: 48px;
+  color: #d9d9d9;
+  margin-bottom: 16px;
+}
+
+.empty-state-container .empty-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: #262626;
+  margin-bottom: 8px;
+}
+
+.empty-state-container .empty-description {
+  font-size: 14px;
+  color: #8c8c8c;
+  margin-bottom: 16px;
+  max-width: 300px;
+}
+
+.empty-state-container .empty-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ============================================
+   Mobile Responsive
+   ============================================ */
+
+@media (max-width: 768px) {
+  /* Touch-friendly tap targets */
+  .ant-btn,
+  .ant-list-item,
+  .ant-tabs-tab {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Larger touch targets for mobile */
+  .ant-btn-md {
+    padding: 12px 20px;
+    font-size: 16px;
+  }
+
+  /* Adjust message bubbles for mobile */
+  .message-bubble {
+    max-width: 90%;
+  }
+
+  /* Hide non-essential info on mobile */
+  .mobile-hidden {
+    display: none;
+  }
+
+  /* Stack columns on mobile */
+  .mobile-stack {
+    flex-direction: column;
+  }
+}
+
+/* Touch device detection for larger tap targets */
+@media (hover: none) and (pointer: coarse) {
+  .ant-btn,
+  .ant-list-item,
+  .ant-tabs-tab,
+  .ant-menu-item {
+    min-height: 48px;
+    padding: 12px 16px;
+  }
+}
