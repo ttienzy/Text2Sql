@@ -12,8 +12,8 @@ using TextToSqlAgent.Infrastructure.Data;
 namespace TextToSqlAgent.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260408162144_AddSystemContextToConnection")]
-    partial class AddSystemContextToConnection
+    [Migration("20260418163205_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -328,6 +328,112 @@ namespace TextToSqlAgent.Infrastructure.Migrations
                         .HasFilter("[NormalizedUserName] IS NOT NULL");
 
                     b.ToTable("AspNetUsers", (string)null);
+                });
+
+            modelBuilder.Entity("TextToSqlAgent.Infrastructure.Entities.ApprovalQueue", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<int?>("AffectedRows")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ConnectionId")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("ConversationId")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("EstimatedRows")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("ExecutedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ExecutionResult")
+                        .HasMaxLength(50000)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("HasWhereClause")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("ModifiedSql")
+                        .HasMaxLength(10000)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("OperationType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("Question")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime?>("RespondedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ResponseAction")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("RiskLevel")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("SqlStatement")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("TargetTable")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<DateTime>("TimeoutAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("Warnings")
+                        .HasMaxLength(5000)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConnectionId");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("IX_ApprovalQueue_Status");
+
+                    b.HasIndex("TimeoutAt");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("IX_ApprovalQueue_UserId");
+
+                    b.ToTable("ApprovalQueues");
                 });
 
             modelBuilder.Entity("TextToSqlAgent.Infrastructure.Entities.Connection", b =>
@@ -790,6 +896,21 @@ namespace TextToSqlAgent.Infrastructure.Migrations
                 });
 
             modelBuilder.Entity("TextToSqlAgent.Infrastructure.Entities.AgentJob", b =>
+                {
+                    b.HasOne("TextToSqlAgent.Infrastructure.Entities.Connection", null)
+                        .WithMany()
+                        .HasForeignKey("ConnectionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TextToSqlAgent.Infrastructure.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TextToSqlAgent.Infrastructure.Entities.ApprovalQueue", b =>
                 {
                     b.HasOne("TextToSqlAgent.Infrastructure.Entities.Connection", null)
                         .WithMany()
