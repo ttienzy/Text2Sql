@@ -220,6 +220,7 @@ public static class DependencyInjection
     {
         // PHASE 1: Query Routing (fast-path for greetings/out-of-scope)
         services.AddSingleton<IQueryRouter, FastPathQueryRouter>();
+        services.AddTransient<TextToSqlAgent.Core.Interfaces.IIntentRoutingPromptService, TextToSqlAgent.Application.Routing.PromptRegistryIntentRoutingPromptService>();
         services.AddSingleton<Console.Services.ConsoleRequestProcessor>();
 
         // LAZY LOADING: Register factory for on-demand service creation

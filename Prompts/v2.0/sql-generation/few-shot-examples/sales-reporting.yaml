@@ -1,0 +1,104 @@
+# SALES REPORTING FEW-SHOT EXAMPLES
+# Version: 2.0.0
+# Last Updated: 2026-04-21
+
+metadata:
+  name: sales-reporting-examples
+  version: "2.0.0"
+  category: few-shot-examples
+  domain: "sales"
+
+examples:
+  - description: "Daily sales summary"
+    schema: "Orders(OrderId, OrderDate, CustomerId, TotalAmount, Status)"
+    question: "Doanh thu theo ngày"
+    expected_sql: |
+      SELECT
+          CAST(OrderDate AS DATE) AS SaleDate,
+          COUNT(*) AS OrderCount,
+          SUM(TotalAmount) AS DailyRevenue
+      FROM Orders
+      WHERE OrderDate >= DATEADD(MONTH, -1, GETDATE())
+        AND Status = N'Completed'
+      GROUP BY CAST(OrderDate AS DATE)
+      ORDER BY SaleDate DESC;
+
+  - description: "Monthly revenue comparison"
+    schema: "Orders(OrderId, OrderDate, TotalAmount)"
+    question: "So sánh doanh thu tháng này với tháng trước"
+    expected_sql: |
+      WITH MonthlyRevenue AS (
+          SELECT
+              YEAR(OrderDate) AS Year,
+              MONTH(OrderDate) AS Month,
+              SUM(TotalAmount) AS Revenue
+          FROM Orders
+          WHERE OrderDate >= DATEADD(YEAR, -1, GETDATE())
+          GROUP BY YEAR(OrderDate), MONTH(OrderDate)
+      )
+      SELECT
+          cy.Year,
+          cy.Month,
+          cy.Revenue AS CurrentMonth,
+          py.Revenue AS PreviousMonth,
+          (cy.Revenue - ISNULL(py.Revenue, 0)) AS Difference,
+          CASE 
+              WHEN py.Revenue IS NULL OR py.Revenue = 0 THEN NULL
+              ELSE CAST((cy.Revenue - py.Revenue) * 100.0 / py.Revenue AS DECIMAL(10,2))
+          END AS GrowthPercent
+      FROM MonthlyRevenue cy
+      LEFT JOIN MonthlyRevenue py 
+          ON cy.Month = py.Month 
+          AND cy.Year = py.Year + 1
+      WHERE cy.Year = YEAR(GETDATE())
+        AND cy.Month <= MONTH(GETDATE())
+      ORDER BY cy.Month;
+
+  - description: "Top selling products"
+    schema: "Products(ProductId, ProductName, CategoryId), OrderDetails(OrderId, ProductId, Quantity, UnitPrice)"
+    question: "Top 5 sản phẩm bán chạy nhất"
+    expected_sql: |
+      SELECT TOP 5
+          p.ProductId,
+          p.ProductName,
+          SUM(od.Quantity) AS TotalSold,
+          SUM(od.Quantity * od.UnitPrice) AS TotalRevenue
+      FROM Products p
+      INNER JOIN OrderDetails od ON p.ProductId = od.ProductId
+      GROUP BY p.ProductId, p.ProductName
+      ORDER BY TotalSold DESC;
+
+  - description: "Sales by category"
+    schema: "Categories(CategoryId, CategoryName), Products(ProductId, CategoryId), OrderDetails(ProductId, Quantity, UnitPrice)"
+    question: "Doanh thu theo danh mục sản phẩm"
+    expected_sql: |
+      SELECT
+          c.CategoryId,
+          c.CategoryName,
+          COUNT(DISTINCT p.ProductId) AS ProductCount,
+          SUM(od.Quantity) AS TotalSold,
+          SUM(od.Quantity * od.UnitPrice) AS TotalRevenue
+      FROM Categories c
+      INNER JOIN Products p ON c.CategoryId = p.CategoryId
+      INNER JOIN OrderDetails od ON p.ProductId = od.ProductId
+      GROUP BY c.CategoryId, c.CategoryName
+      ORDER BY TotalRevenue DESC;
+
+  - description: "Running total sales"
+    schema: "Orders(OrderId, OrderDate, TotalAmount)"
+    question: "Doanh thu tích lũy theo ngày"
+    expected_sql: |
+      WITH DailySales AS (
+          SELECT
+              CAST(OrderDate AS DATE) AS SaleDate,
+              SUM(TotalAmount) AS DailyRevenue
+          FROM Orders
+          WHERE YEAR(OrderDate) = YEAR(GETDATE())
+          GROUP BY CAST(OrderDate AS DATE)
+      )
+      SELECT
+          SaleDate,
+          DailyRevenue,
+          SUM(DailyRevenue) OVER (ORDER BY SaleDate) AS RunningTotal
+      FROM DailySales
+      ORDER BY SaleDate;

@@ -1,0 +1,119 @@
+# SEMANTIC TAGGING PROMPT
+# Version: 2.0.0
+# Last Updated: 2026-04-21
+
+metadata:
+  name: semantic-tagging
+  version: "2.0.0"
+  category: db-explorer
+  description: "Generate semantic tags and synonyms for table search optimization"
+
+variables:
+  - name: system_context
+    type: string
+    required: true
+  - name: domain
+    type: string
+    required: true
+  - name: table_name
+    type: string
+    required: true
+  - name: description
+    type: string
+    required: true
+  - name: role
+    type: string
+    required: false
+  - name: module
+    type: string
+    required: false
+
+system_template: |
+  {{system_context}}
+  
+  Bạn là chuyên gia database {{domain}}.
+
+prompt_template: |
+  Tạo semantic tags (từ đồng nghĩa và liên quan) cho bảng sau để cải thiện khả năng tìm kiếm:
+  
+  Bảng: {{table_name}}
+  Mô tả: {{description}}
+  {{#if role}}Role: {{role}}{{/if}}
+  {{#if module}}Module: {{module}}{{/if}}
+  
+  Yêu cầu:
+  1. Tạo danh sách các từ đồng nghĩa (synonyms) bằng tiếng Việt và tiếng Anh
+  2. Tạo các khái niệm liên quan (related concepts)
+  3. Tạo các từ khóa tìm kiếm phổ biến (common search terms)
+  4. Xử lý viết tắt tiếng Việt (Ma = Mã, Ten = Tên, KH = Khách Hàng, etc.)
+
+output:
+  format: "json"
+  schema:
+    vietnamese: "string[]"
+    english: "string[]"
+    abbreviations: "string[]"
+    relatedConcepts: "string[]"
+    searchTerms: "string[]"
+  markdown: false
+
+examples:
+  - table: "KhachHang"
+    output:
+      vietnamese:
+        - "khách hàng"
+        - "người mua"
+        - "người dùng"
+        - "client"
+      english:
+        - "customer"
+        - "client"
+        - "buyer"
+        - "user"
+      abbreviations:
+        - "KH"
+        - "KHachHang"
+      relatedConcepts:
+        - "CRM"
+        - "bán hàng"
+        - "marketing"
+        - "quản lý khách"
+      searchTerms:
+        - "tìm khách"
+        - "danh sách khách"
+        - "quản lý khách"
+        - "khách hàng mới"
+
+  - table: "Orders"
+    output:
+      vietnamese:
+        - "đơn hàng"
+        - "đơn đặt hàng"
+        - "giao dịch"
+      english:
+        - "order"
+        - "purchase"
+        - "transaction"
+        - "sale"
+      abbreviations:
+        - "DH"
+      relatedConcepts:
+        - "e-commerce"
+        - "thanh toán"
+        - "giao hàng"
+      searchTerms:
+        - "tìm đơn"
+        - "danh sách đơn"
+        - "đơn hàng mới"
+
+validation:
+  min_vietnamese_terms: 2
+  min_english_terms: 2
+  max_terms_per_category: 20
+  abbreviations_must_match: true
+
+version_history:
+  - version: "1.0"
+    changes: "Initial version"
+  - version: "2.0"
+    changes: "Added abbreviation expansion, more search term categories"

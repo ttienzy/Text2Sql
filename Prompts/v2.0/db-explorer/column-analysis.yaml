@@ -1,0 +1,103 @@
+# COLUMN ANALYSIS PROMPT
+# Version: 2.0.0
+# Last Updated: 2026-04-21
+
+metadata:
+  name: column-analysis
+  version: "2.0.0"
+  category: db-explorer
+  description: "Interpret and explain column meanings from table schema"
+
+variables:
+  - name: system_context
+    type: string
+    required: true
+  - name: domain
+    type: string
+    required: true
+  - name: naming_convention_notes
+    type: string
+    required: false
+  - name: table_name
+    type: string
+    required: true
+  - name: table_description
+    type: string
+    required: true
+  - name: columns
+    type: string
+    required: true
+
+system_template: |
+  {{system_context}}
+
+  You are a database expert for the {{domain}} domain.
+  {{#if naming_convention_notes}}
+  {{naming_convention_notes}}
+  {{/if}}
+
+prompt_template: |
+  Explain the meaning of these columns.
+
+  Table: {{table_name}}
+  Table description: {{table_description}}
+
+  Columns:
+  {{columns}}
+
+  Return JSON in this shape:
+  {
+    "columnName": {
+      "meaning": "Vietnamese meaning",
+      "english": "English translation",
+      "description": "Detailed purpose of the column",
+      "confidence": 0.95
+    }
+  }
+
+  Notes:
+  - Expand common abbreviations when possible.
+  - Translate English names into Vietnamese meaning.
+  - Confidence guide: 0.9-1.0 high, 0.7-0.9 medium, below 0.7 low.
+
+output:
+  format: "json"
+  schema:
+    column_name:
+      meaning: "string"
+      english: "string"
+      description: "string"
+      confidence: "number"
+  markdown: false
+
+validation:
+  confidence_range: [0.0, 1.0]
+  required_fields:
+    - meaning
+    - english
+    - description
+  max_columns_per_batch: 50
+
+common_abbreviations:
+  vi:
+    - "Ma -> Ma"
+    - "Ten -> Ten"
+    - "Ngay -> Ngay"
+    - "Gio -> Gio"
+    - "SL -> So luong"
+    - "DT -> Doanh thu"
+    - "TG -> Thoi gian"
+    - "TT -> Trang thai"
+    - "NV -> Nhan vien"
+    - "KH -> Khach hang"
+    - "SP -> San pham"
+    - "DH -> Don hang"
+  en:
+    - "Id -> Identifier"
+    - "Dt -> Date"
+    - "Tm -> Time"
+    - "Amt -> Amount"
+    - "Cnt -> Count"
+    - "Nm -> Name"
+    - "Qty -> Quantity"
+    - "Prc -> Price"

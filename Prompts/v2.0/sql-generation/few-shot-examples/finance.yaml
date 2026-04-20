@@ -1,0 +1,239 @@
+# FINANCE FEW-SHOT EXAMPLES
+# Version: 2.0.0
+# Last Updated: 2026-04-21
+# Description: Financial analysis and reporting examples
+
+metadata:
+  name: finance-examples
+  version: "2.0.0"
+  category: few-shot
+  domain: Finance
+  complexity: high
+
+examples:
+
+  - id: "fin-001"
+    description: "Revenue by Period with YoY Comparison"
+    input: |
+      Show me revenue comparison year over year by quarter
+      - Compare 2023 vs 2024
+      - Show growth percentage
+    output: |
+      SELECT 
+          DATEPART(QUARTER, o.OrderDate) AS Quarter,
+          YEAR(o.OrderDate) AS Year,
+          SUM(od.UnitPrice * od.Quantity) AS Revenue,
+          LAG(SUM(od.UnitPrice * od.Quantity)) OVER (
+              PARTITION BY DATEPART(QUARTER, o.OrderDate) 
+              ORDER BY YEAR(o.OrderDate)
+          ) AS PreviousYearRevenue,
+          (SUM(od.UnitPrice * od.Quantity) - 
+              LAG(SUM(od.UnitPrice * od.Quantity)) OVER (
+                  PARTITION BY DATEPART(QUARTER, o.OrderDate) 
+                  ORDER BY YEAR(o.OrderDate)
+              )) * 100.0 / 
+              NULLIF(LAG(SUM(od.UnitPrice * od.Quantity)) OVER (
+                  PARTITION BY DATEPART(QUARTER, o.OrderDate) 
+                  ORDER BY YEAR(o.OrderDate)
+              ), 0) AS GrowthPercent
+      FROM Orders o
+      JOIN OrderDetails od ON o.OrderID = od.OrderID
+      WHERE YEAR(o.OrderDate) IN (2023, 2024)
+      GROUP BY DATEPART(QUARTER, o.OrderDate), YEAR(o.OrderDate)
+      ORDER BY Quarter, Year;
+
+  - id: "fin-002"
+    description: "Cost Analysis with Margins"
+    input: |
+      Calculate profit margin by product category
+      - Include cost, revenue, and margin percentage
+      - Rank by margin (highest first)
+    output: |
+      SELECT 
+          c.CategoryName,
+          SUM(od.UnitPrice * od.Quantity) AS Revenue,
+          SUM(od.UnitPrice * od.Quantity * p.CostRatio) AS EstCost,
+          SUM(od.UnitPrice * od.Quantity) - 
+              SUM(od.UnitPrice * od.Quantity * p.CostRatio) AS GrossProfit,
+          (SUM(od.UnitPrice * od.Quantity) - 
+              SUM(od.UnitPrice * od.Quantity * p.CostRatio)) * 100.0 / 
+              NULLIF(SUM(od.UnitPrice * od.Quantity), 0) AS MarginPercent,
+          RANK() OVER (ORDER BY 
+              (SUM(od.UnitPrice * od.Quantity) - 
+                  SUM(od.UnitPrice * od.Quantity * p.CostRatio)) * 100.0 / 
+                  NULLIF(SUM(od.UnitPrice * od.Quantity), 0) DESC
+          ) AS MarginRank
+      FROM OrderDetails od
+      JOIN Products p ON od.ProductID = p.ProductID
+      JOIN Categories c ON p.CategoryID = c.CategoryID
+      GROUP BY c.CategoryID, c.CategoryName
+      ORDER BY MarginPercent DESC;
+
+  - id: "fin-003"
+    description: "Rolling 12-Month Revenue"
+    input: |
+      Show rolling 12-month revenue trend
+      - Each month should show sum of last 12 months
+      - Include month-over-month change
+    output: |
+      WITH MonthlyRevenue AS (
+          SELECT 
+              YEAR(o.OrderDate) AS Year,
+              MONTH(o.OrderDate) AS Month,
+              SUM(od.UnitPrice * od.Quantity) AS MonthlyRevenue
+          FROM Orders o
+          JOIN OrderDetails od ON o.OrderID = od.OrderID
+          GROUP BY YEAR(o.OrderDate), MONTH(o.OrderDate)
+      )
+      SELECT 
+          m.Year,
+          m.Month,
+          m.MonthlyRevenue,
+          SUM(m2.MonthlyRevenue) OVER (
+              ORDER BY m.Year, m.Month
+              ROWS BETWEEN 11 PRECEDING AND CURRENT ROW
+          ) AS Rolling12M,
+          m.MonthlyRevenue - LAG(m.MonthlyRevenue) OVER (
+              ORDER BY m.Year, m.Month
+          ) AS MoMChange
+      FROM MonthlyRevenue m
+      JOIN MonthlyRevenue m2 ON m2.Year * 12 + m2.Month BETWEEN m.Year * 12 + m.Month - 11 AND m.Year * 12 + m.Month
+      GROUP BY m.Year, m.Month, m.MonthlyRevenue
+      ORDER BY m.Year, m.Month;
+
+  - id: "fin-004"
+    description: "Customer Lifetime Value"
+    input: |
+      Calculate customer lifetime value
+      - Total revenue per customer
+      - Order count and average order value
+      - Days since first and last order
+    output: |
+      SELECT 
+          c.CustomerID,
+          c.FullName,
+          COUNT(o.OrderID) AS TotalOrders,
+          SUM(o.TotalAmount) AS TotalRevenue,
+          AVG(o.TotalAmount) AS AOV,
+          MIN(o.OrderDate) AS FirstOrder,
+          MAX(o.OrderDate) AS LastOrder,
+          DATEDIFF(DAY, MIN(o.OrderDate), MAX(o.OrderDate)) AS CustomerTenureDays,
+          SUM(o.TotalAmount) * 1.0 / NULLIF(DATEDIFF(DAY, MIN(o.OrderDate), MAX(o.OrderDate)), 0) * 30 AS MonthlyValueEstimate
+      FROM Customers c
+      JOIN Orders o ON c.CustomerID = o.CustomerID
+      GROUP BY c.CustomerID, c.FullName
+      HAVING COUNT(o.OrderID) > 1
+      ORDER BY TotalRevenue DESC;
+
+  - id: "fin-005"
+    description: "Invoice Aging Analysis"
+    input: |
+      Show invoice aging by status
+      - Days outstanding from due date
+      - Group into buckets: 0-30, 31-60, 61-90, 90+
+    output: |
+      SELECT 
+          CASE 
+              WHEN DATEDIFF(DAY, i.DueDate, GETDATE()) <= 30 THEN '0-30 days'
+              WHEN DATEDIFF(DAY, i.DueDate, GETDATE()) <= 60 THEN '31-60 days'
+              WHEN DATEDIFF(DAY, i.DueDate, GETDATE()) <= 90 THEN '61-90 days'
+              ELSE '90+ days'
+          END AS AgingBucket,
+          COUNT(*) AS InvoiceCount,
+          SUM(i.Amount) AS TotalAmount,
+          AVG(DATEDIFF(DAY, i.DueDate, GETDATE())) AS AvgDaysOutstanding
+      FROM Invoices i
+      WHERE i.Status NOT IN ('Paid', 'Cancelled')
+      GROUP BY 
+          CASE 
+              WHEN DATEDIFF(DAY, i.DueDate, GETDATE()) <= 30 THEN '0-30 days'
+              WHEN DATEDIFF(DAY, i.DueDate, GETDATE()) <= 60 THEN '31-60 days'
+              WHEN DATEDIFF(DAY, i.DueDate, GETDATE()) <= 90 THEN '61-90 days'
+              ELSE '90+ days'
+          END
+      ORDER BY 
+          CASE AgingBucket
+              WHEN '0-30 days' THEN 1
+              WHEN '31-60 days' THEN 2
+              WHEN '61-90 days' THEN 3
+              WHEN '90+ days' THEN 4
+          END;
+
+  - id: "fin-006"
+    description: "Budget vs Actual Variance"
+    input: |
+      Compare budget vs actual by department
+      - Show variance amount and percentage
+      - Highlight over/under budget
+    output: |
+      SELECT 
+          d.DepartmentName,
+          b.BudgetAmount,
+          ISNULL(ACTUAL.TotalSpent, 0) AS ActualSpent,
+          b.BudgetAmount - ISNULL(ACTUAL.TotalSpent, 0) AS Variance,
+          CASE 
+              WHEN ISNULL(ACTUAL.TotalSpent, 0) > b.BudgetAmount THEN 'Over Budget'
+              ELSE 'Under Budget'
+          END AS BudgetStatus,
+          ISNULL(ACTUAL.TotalSpent, 0) * 100.0 / NULLIF(b.BudgetAmount, 0) AS UtilPercent
+      FROM Departments d
+      JOIN Budgets b ON d.DepartmentID = b.DepartmentID AND b.Year = 2024
+      LEFT JOIN (
+          SELECT DepartmentID, SUM(Amount) AS TotalSpent
+          FROM Expenses
+          WHERE YEAR(ExpenseDate) = 2024
+          GROUP BY DepartmentID
+      ) ACTUAL ON d.DepartmentID = ACTUAL.DepartmentID
+      ORDER BY Variance ASC;
+
+  - id: "fin-007"
+    description: "Cash Flow Statement Summary"
+    input: |
+      Generate cash flow summary
+      - Operating, investing, financing activities
+      - Net change in cash
+    output: |
+      WITH CashFlows AS (
+          SELECT 
+              CASE 
+                  WHEN Category IN ('Sales', 'Services', 'Other Operating') THEN 'Operating'
+                  WHEN Category IN ('Asset Sale', 'Investment Purchase') THEN 'Investing'
+                  WHEN Category IN ('Loan', 'Equity', 'Dividend') THEN 'Financing'
+              END AS FlowType,
+              Amount,
+              TransactionDate
+          FROM CashTransactions
+          WHERE YEAR(TransactionDate) = 2024
+      )
+      SELECT 
+          FlowType,
+          SUM(Amount) AS TotalAmount,
+          COUNT(*) AS TransactionCount
+      FROM CashFlows
+      GROUP BY FlowType
+      UNION ALL
+      SELECT 
+          'Net Cash Change' AS FlowType,
+          SUM(Amount) AS TotalAmount,
+          COUNT(*) AS TransactionCount
+      FROM CashFlows;
+
+  - id: "fin-008"
+    description: "AR/AP Reconciliation"
+    input: |
+      Show outstanding balances by customer/vendor
+      - Include aging buckets
+      - Sort by largest balance first
+    output: |
+      SELECT 
+          c.CustomerName,
+          SUM(CASE WHEN i.Status = 'Pending' THEN i.Amount ELSE 0 END) AS PendingAmount,
+          SUM(CASE WHEN i.Status = 'Overdue' THEN i.Amount ELSE 0 END) AS OverdueAmount,
+          SUM(i.Amount) AS TotalOutstanding,
+          MIN(i.DueDate) AS OldestDueDate,
+          DATEDIFF(DAY, MIN(i.DueDate), GETDATE()) AS MaxDaysOverdue
+      FROM Invoices i
+      JOIN Customers c ON i.CustomerID = c.CustomerID
+      WHERE i.Status IN ('Pending', 'Overdue')
+      GROUP BY c.CustomerID, c.CustomerName
+      ORDER BY TotalOutstanding DESC;

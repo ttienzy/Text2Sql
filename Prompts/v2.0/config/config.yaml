@@ -1,0 +1,120 @@
+# PROMPTS CONFIGURATION v2.0
+# Version: 2.0.0
+# Last Updated: 2026-04-21
+
+version: "2.0.0"
+description: "Modular prompt architecture for Text-to-SQL agent"
+
+# Global settings
+global:
+  default_model: "gpt-4o"
+  default_temperature: 0.1
+  max_tokens: 4096
+  output_format: "json"
+
+# Module configurations
+modules:
+  core:
+    path: "./core"
+    description: "Core system prompts and patterns"
+    templates:
+      - system-role
+      - sql-patterns
+
+  db-explorer:
+    path: "./db-explorer"
+    description: "Database exploration and schema analysis"
+    templates:
+      - schema-summary
+      - semantic-tagging
+      - column-analysis
+      - fk-detection
+
+  sql-generation:
+    path: "./sql-generation"
+    description: "SQL generation with patterns and examples"
+    templates:
+      - base
+      - with-suggestions
+    examples_path: "./few-shot-examples"
+
+  optimizer:
+    path: "./optimizer"
+    description: "Query optimization and performance"
+    templates:
+      - query-optimization
+
+# Security rules (shared across all prompts)
+security:
+  allowed_operations:
+    - SELECT
+    - WITH (CTE)
+  forbidden_keywords:
+    - DROP
+    - DELETE
+    - UPDATE
+    - INSERT
+    - TRUNCATE
+    - ALTER
+    - EXEC
+    - EXECUTE
+    - CREATE
+    - GRANT
+    - REVOKE
+    - DENY
+    - BACKUP
+    - RESTORE
+    - SHUTDOWN
+  safety_requirements:
+    - read_only_only: true
+    - use_square_brackets: true
+    - no_parameterized_queries: true
+    - add_top_clause: true
+    - escape_strings: true
+    - vietnamese_prefix: "N"
+
+# Ambiguity detection rules
+ambiguity:
+  enabled: true
+  threshold: 0.7
+  detection_patterns:
+    - "tim.*gi"  # tìm gì (what to find)
+    - "bao nhieu"  # bao nhiêu (how many)
+    - "top.*?"    # top without number
+    - "theo.*?"   # theo gì (by what)
+
+# Prompt chaining configuration
+chaining:
+  enabled: true
+  max_steps: 5
+  steps:
+    - name: "intent_classification"
+      description: "Classify user intent"
+      next_on_success: "schema_linking"
+    - name: "schema_linking"
+      description: "Link entities to schema"
+      next_on_success: "sql_generation"
+    - name: "sql_generation"
+      description: "Generate SQL query"
+      next_on_success: "validation"
+    - name: "validation"
+      description: "Validate SQL output"
+      next_on_success: null
+
+# Metrics collection
+metrics:
+  enabled: true
+  track:
+    - template_usage
+    - success_rate
+    - latency
+    - ambiguity_resolution_time
+
+# Version migration
+migration:
+  from_version: "1.0"
+  to_version: "2.0"
+  breaking_changes:
+    - "SqlGenerationPrompt.cs split into modules"
+    - "Prompts moved to Prompts/v2.0/"
+  backward_compatible: false

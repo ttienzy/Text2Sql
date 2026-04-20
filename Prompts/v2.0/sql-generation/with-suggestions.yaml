@@ -1,0 +1,136 @@
+# SQL GENERATION WITH SUGGESTIONS
+# Version: 2.0.0
+# Last Updated: 2026-04-21
+
+metadata:
+  name: sql-generation-with-suggestions
+  version: "2.0.0"
+  description: "SQL generation with follow-up query suggestions"
+  category: sql-generation
+  extends: "sql-generation-base"
+
+config:
+  model: "gpt-4o"
+  temperature: 0.1
+  max_tokens: 4096
+
+system:
+  load_from: "./core/system-role.txt"
+  additional_context: |
+    CRITICAL: OUTPUT FORMAT (strict JSON, no markdown):
+    
+    You MUST respond with ONLY a valid JSON object. No markdown, no explanation, no code blocks.
+    
+    REQUIRED JSON FORMAT (all fields mandatory):
+    {
+      "sql": "<your SQL query here>",
+      "suggested_queries": [
+        "<related question 1>",
+        "<related question 2>",
+        "<related question 3>"
+      ]
+    }
+
+user_template: |
+  {{#if structured_conversation_context}}
+  Structured Memory:
+  {{structured_conversation_context}}
+  
+  {{/if}}
+  {{#if conversation_history}}
+  📝 Previous Conversation Context:
+  ---
+  {{#each conversation_history}}
+  {{#ifCond role "===" "user"}}
+  User: {{content}}
+  {{else}}
+  Assistant: {{content}}
+    {{#if sql_query}}  SQL: {{sql_query}}{{/if}}
+  {{/ifCond}}
+  {{/each}}
+  ---
+  ⚠️ IMPORTANT: Use the conversation history above to understand context and references (like 'them', 'those', 'also', 'same table', etc.)
+  
+  {{/if}}
+  
+  {{#if original_question}}
+  User Question: "{{original_question}}"
+  
+  {{/if}}
+  Intent: {{intent}}
+  Target: {{target}}
+  
+  Schema Context:
+  {{schema_context}}
+  
+  {{#if select_columns}}
+  Desired Columns: {{select_columns}}
+  {{/if}}
+  
+  {{#if filters}}
+  Filters: {{filters}}
+  {{/if}}
+  
+  {{#if metrics}}
+  Metrics: {{metrics}}
+  {{/if}}
+  
+  Generate JSON response with SQL query and 3 suggested follow-up questions:
+  
+  RULES FOR sql:
+  - Only SELECT queries
+  - SQL Server syntax, use [] for identifiers
+  - Add TOP 100 unless user specifies limit
+  
+  RULES FOR suggested_queries:
+  - ALWAYS provide exactly 3 suggestions
+  - Natural language questions (not SQL)
+  - Must be directly related to the tables/data just queried
+  - Explore different angles: drill-down, filter, aggregate, compare, rank, trends
+  - Max 15 words each
+  - In the SAME language as the user's question (Vietnamese if user asks in Vietnamese)
+  - Make them ACTIONABLE and INTERESTING for business users
+  - Focus on business insights, not technical details
+  
+  IMPORTANT: Always include human-readable name/title columns for any entity being queried. Never return only ID columns as the sole identifier for an entity.
+  REQUIRED: Always include exactly 3 business-relevant suggested_queries.
+  CRITICAL: The suggested_queries field is MANDATORY - never omit it!
+
+output:
+  format: "json"
+  schema:
+    sql: "string"
+    suggested_queries: "string[]"
+  markdown: false
+  explanation: false
+
+suggestion_examples:
+  customer:
+    - "Khách hàng nào mua nhiều nhất?"
+    - "Phân tích khách hàng theo thành phố"
+    - "Khách hàng VIP có bao nhiêu?"
+  sales:
+    - "Doanh thu theo tháng như thế nào?"
+    - "Sản phẩm nào bán chạy nhất?"
+    - "So sánh doanh thu năm nay với năm trước"
+  product:
+    - "Sản phẩm nào có lợi nhuận cao nhất?"
+    - "Tồn kho hiện tại ra sao?"
+    - "Đánh giá sản phẩm theo danh mục"
+  order:
+    - "Đơn hàng nào có giá trị cao nhất?"
+    - "Xu hướng đặt hàng theo thời gian"
+    - "Phân tích đơn hàng theo khu vực"
+  employee:
+    - "Nhân viên nào có hiệu suất tốt nhất?"
+    - "Phân bố nhân viên theo phòng ban"
+    - "Lương trung bình theo vị trí"
+
+composition:
+  includes:
+    - "./core/system-role.txt"
+    - "./core/sql-patterns/window-functions.txt"
+    - "./core/sql-patterns/cte-patterns.txt"
+    - "./core/sql-patterns/date-handling.txt"
+    - "./core/language-guide/vietnamese-mapping.txt"
+  merge_strategy: "prepend"

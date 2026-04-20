@@ -1,0 +1,248 @@
+# INVENTORY FEW-SHOT EXAMPLES
+# Version: 2.0.0
+# Last Updated: 2026-04-21
+# Description: Inventory management and warehouse analytics examples
+
+metadata:
+  name: inventory-examples
+  version: "2.0.0"
+  category: few-shot
+  domain: Inventory
+  complexity: medium
+
+examples:
+
+  - id: "inv-001"
+    description: "Stock Level Summary"
+    input: |
+      Show current stock levels by product
+      - Include reorder point and status
+      - Flag low stock items
+    output: |
+      SELECT 
+          p.ProductName,
+          c.CategoryName,
+          i.QuantityOnHand,
+          i.ReorderPoint,
+          i.MaxStockLevel,
+          CASE 
+              WHEN i.QuantityOnHand <= 0 THEN '🔴 Out of Stock'
+              WHEN i.QuantityOnHand <= i.ReorderPoint THEN '🟡 Low Stock'
+              WHEN i.QuantityOnHand >= i.MaxStockLevel THEN '🟢 Overstocked'
+              ELSE '✓ Adequate'
+          END AS StockStatus,
+          i.QuantityOnHand * p.UnitCost AS StockValue
+      FROM Inventory i
+      JOIN Products p ON i.ProductID = p.ProductID
+      JOIN Categories c ON p.CategoryID = c.CategoryID
+      ORDER BY i.QuantityOnHand ASC;
+
+  - id: "inv-002"
+    description: "Inventory Turnover Analysis"
+    input: |
+      Calculate inventory turnover ratio
+      - Cost of goods sold / average inventory
+      - By category and month
+    output: |
+      WITH AvgInventory AS (
+          SELECT 
+              p.CategoryID,
+              MONTH(tx.TransactionDate) AS Month,
+              AVG(i.QuantityOnHand * p.UnitCost) AS AvgInventoryValue
+          FROM InventoryTransactions tx
+          JOIN Inventory i ON tx.ProductID = i.ProductID
+          JOIN Products p ON i.ProductID = p.ProductID
+          WHERE YEAR(tx.TransactionDate) = 2024
+          GROUP BY p.CategoryID, MONTH(tx.TransactionDate)
+      ),
+      COGS AS (
+          SELECT 
+              p.CategoryID,
+              MONTH(o.OrderDate) AS Month,
+              SUM(od.UnitPrice * od.Quantity * p.CostRatio) AS TotalCOGS
+          FROM OrderDetails od
+          JOIN Products p ON od.ProductID = p.ProductID
+          JOIN Orders o ON od.OrderID = o.OrderID
+          WHERE YEAR(o.OrderDate) = 2024
+          GROUP BY p.CategoryID, MONTH(o.OrderDate)
+      )
+      SELECT 
+          c.CategoryName,
+          m.Month,
+          ISNULL(cogs.TotalCOGS, 0) AS COGS,
+          ISNULL(avg.AvgInventoryValue, 0) AS AvgInventory,
+          ISNULL(cogs.TotalCOGS, 0) / NULLIF(ISNULL(avg.AvgInventoryValue, 0), 0) AS TurnoverRatio
+      FROM (SELECT DISTINCT CategoryID FROM Categories) cat
+      CROSS JOIN (SELECT 1 AS Month UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9 UNION SELECT 10 UNION SELECT 11 UNION SELECT 12) m
+      LEFT JOIN AvgInventory avg ON cat.CategoryID = avg.CategoryID AND m.Month = avg.Month
+      LEFT JOIN COGS cogs ON cat.CategoryID = cogs.CategoryID AND m.Month = cogs.Month
+      JOIN Categories c ON cat.CategoryID = c.CategoryID
+      WHERE ISNULL(cogs.TotalCOGS, 0) > 0 OR ISNULL(avg.AvgInventoryValue, 0) > 0
+      ORDER BY c.CategoryName, m.Month;
+
+  - id: "inv-003"
+    description: "Days Inventory Outstanding"
+    input: |
+      Calculate days inventory outstanding by product
+      - Average inventory / (COGS / 365)
+      - Flag slow-moving items (> 90 days)
+    output: |
+      SELECT 
+          p.ProductName,
+          c.CategoryName,
+          ISNULL(AVG(i.QuantityOnHand), 0) AS AvgOnHand,
+          ISNULL(SUM(od.UnitPrice * od.Quantity), 0) / NULLIF(COUNT(DISTINCT o.OrderID), 0) AS AvgDailySales,
+          CASE 
+              WHEN ISNULL(SUM(od.UnitPrice * od.Quantity), 0) = 0 THEN NULL
+              ELSE ISNULL(AVG(i.QuantityOnHand), 0) * 365.0 / 
+                  (ISNULL(SUM(od.UnitPrice * od.Quantity), 0) / NULLIF(COUNT(DISTINCT o.OrderID), 0))
+          END AS DIO
+      FROM Products p
+      LEFT JOIN Inventory i ON p.ProductID = i.ProductID
+      LEFT JOIN Categories c ON p.CategoryID = c.CategoryID
+      LEFT JOIN OrderDetails od ON p.ProductID = od.ProductID
+      LEFT JOIN Orders o ON od.OrderID = o.OrderID
+      WHERE YEAR(ISNULL(o.OrderDate, GETDATE())) = 2024 OR YEAR(ISNULL(o.OrderDate, GETDATE())) IS NULL
+      GROUP BY p.ProductID, p.ProductName, c.CategoryName
+      HAVING ISNULL(AVG(i.QuantityOnHand), 0) > 0
+      ORDER BY DIO DESC;
+
+  - id: "inv-004"
+    description: "Warehouse Utilization"
+    input: |
+      Show warehouse space utilization
+      - Current usage vs capacity
+      - By zone and product category
+    output: |
+      SELECT 
+          w.WarehouseName,
+          wz.ZoneName,
+          wz.MaxCapacity,
+          ISNULL(SUM(i.QuantityOnHand * p.UnitVolume), 0) AS UsedCapacity,
+          wz.MaxCapacity - ISNULL(SUM(i.QuantityOnHand * p.UnitVolume), 0) AS AvailableCapacity,
+          ISNULL(SUM(i.QuantityOnHand * p.UnitVolume), 0) * 100.0 / NULLIF(wz.MaxCapacity, 0) AS UtilizationPercent,
+          CASE 
+              WHEN ISNULL(SUM(i.QuantityOnHand * p.UnitVolume), 0) * 100.0 / NULLIF(wz.MaxCapacity, 0) > 90 THEN '🔴 Critical'
+              WHEN ISNULL(SUM(i.QuantityOnHand * p.UnitVolume), 0) * 100.0 / NULLIF(wz.MaxCapacity, 0) > 75 THEN '🟡 Warning'
+              ELSE '✓ Normal'
+          END AS Status
+      FROM Warehouses w
+      JOIN WarehouseZones wz ON w.WarehouseID = wz.WarehouseID
+      LEFT JOIN Inventory i ON wz.ZoneID = i.LocationZoneID
+      LEFT JOIN Products p ON i.ProductID = p.ProductID
+      GROUP BY w.WarehouseID, w.WarehouseName, wz.ZoneID, wz.ZoneName, wz.MaxCapacity
+      ORDER BY UtilizationPercent DESC;
+
+  - id: "inv-005"
+    description: "Reorder Recommendation"
+    input: |
+      Generate reorder recommendations
+      - Items below reorder point
+      - Suggest order quantity
+    output: |
+      SELECT 
+          p.ProductName,
+          s.SupplierName,
+          i.QuantityOnHand,
+          i.ReorderPoint,
+          i.MinOrderQty,
+          i.MaxOrderQty,
+          i.MinOrderQty + ISNULL(AVG(od.Quantity), 0) * 3 AS SuggestedOrderQty,
+          i.MinOrderQty * p.UnitCost AS EstimatedOrderCost,
+          SUM(od.Quantity) / NULLIF(COUNT(DISTINCT o.OrderID), 0) AS AvgMonthlyDemand
+      FROM Inventory i
+      JOIN Products p ON i.ProductID = p.ProductID
+      JOIN Suppliers s ON p.SupplierID = s.SupplierID
+      LEFT JOIN OrderDetails od ON p.ProductID = od.ProductID
+      LEFT JOIN Orders o ON od.OrderID = o.OrderID AND YEAR(o.OrderDate) = 2024
+      WHERE i.QuantityOnHand <= i.ReorderPoint
+      GROUP BY p.ProductID, p.ProductName, s.SupplierName, i.QuantityOnHand, i.ReorderPoint, i.MinOrderQty, i.MaxOrderQty, p.UnitCost
+      ORDER BY i.QuantityOnHand ASC;
+
+  - id: "inv-006"
+    description: "Inventory Aging Report"
+    input: |
+      Show inventory aging by batch
+      - Days in stock by receiving batch
+      - Flag stale inventory (> 180 days)
+    output: |
+      SELECT 
+          p.ProductName,
+          ib.BatchNumber,
+          ib.QuantityReceived,
+          ib.QuantityOnHand,
+          ib.ReceivingDate,
+          DATEDIFF(DAY, ib.ReceivingDate, GETDATE()) AS DaysInStock,
+          CASE 
+              WHEN DATEDIFF(DAY, ib.ReceivingDate, GETDATE()) > 180 THEN '🔴 Stale'
+              WHEN DATEDIFF(DAY, ib.ReceivingDate, GETDATE()) > 90 THEN '🟡 Aging'
+              ELSE '✓ Fresh'
+          END AS AgingStatus,
+          ib.QuantityOnHand * p.UnitCost AS BatchValue
+      FROM InventoryBatches ib
+      JOIN Products p ON ib.ProductID = p.ProductID
+      WHERE ib.QuantityOnHand > 0
+      ORDER BY DaysInStock DESC;
+
+  - id: "inv-007"
+    description: "ABC Analysis Classification"
+    input: |
+      Classify inventory using ABC analysis
+      - A: Top 20% items (80% of value)
+      - B: Middle items
+      - C: Bottom items
+    output: |
+      WITH ProductValue AS (
+          SELECT 
+              p.ProductID,
+              SUM(od.UnitPrice * od.Quantity) AS TotalValue
+          FROM OrderDetails od
+          JOIN Orders o ON od.OrderID = o.OrderID
+          JOIN Products p ON od.ProductID = p.ProductID
+          WHERE YEAR(o.OrderDate) = 2024
+          GROUP BY p.ProductID
+      ),
+      ABC AS (
+          SELECT 
+              pv.ProductID,
+              pv.TotalValue,
+              SUM(pv.TotalValue) OVER () AS GrandTotal,
+              pv.TotalValue * 100.0 / SUM(pv.TotalValue) OVER () AS ValuePercent,
+              SUM(pv.TotalValue * 100.0 / SUM(pv.TotalValue) OVER ()) OVER (ORDER BY pv.TotalValue DESC) AS CumulativePercent
+          FROM ProductValue pv
+      )
+      SELECT 
+          p.ProductName,
+          pv.TotalValue,
+          pv.ValuePercent,
+          pv.CumulativePercent,
+          CASE 
+              WHEN pv.CumulativePercent <= 80 THEN 'A'
+              WHEN pv.CumulativePercent <= 95 THEN 'B'
+              ELSE 'C'
+          END AS ABCClass
+      FROM ProductValue pv
+      JOIN Products p ON pv.ProductID = p.ProductID
+      ORDER BY pv.TotalValue DESC;
+
+  - id: "inv-008"
+    description: "Shrinkage Analysis"
+    input: |
+      Calculate inventory shrinkage by category
+      - Variance between system and physical count
+      - Cost of shrinkage
+    output: |
+      SELECT 
+          c.CategoryName,
+          SUM(sc.ExpectedQty) AS SystemQty,
+          SUM(sc.ActualQty) AS PhysicalQty,
+          SUM(sc.ExpectedQty) - SUM(sc.ActualQty) AS Variance,
+          (SUM(sc.ExpectedQty) - SUM(sc.ActualQty)) * 100.0 / NULLIF(SUM(sc.ExpectedQty), 0) AS ShrinkagePercent,
+          (SUM(sc.ExpectedQty) - SUM(sc.ActualQty)) * AVG(p.UnitCost) AS ShrinkageCost
+      FROM StockCounts sc
+      JOIN Products p ON sc.ProductID = p.ProductID
+      JOIN Categories c ON p.CategoryID = c.CategoryID
+      WHERE sc.CountDate >= DATEADD(MONTH, -6, GETDATE())
+      GROUP BY c.CategoryID, c.CategoryName
+      HAVING SUM(sc.ExpectedQty) - SUM(sc.ActualQty) > 0
+      ORDER BY ShrinkageCost DESC;

@@ -317,6 +317,7 @@ try
 
     // ✅ NEW: Query Routing
     builder.Services.AddSingleton<TextToSqlAgent.Application.Routing.IQueryRouter, TextToSqlAgent.Application.Routing.QueryRouter>();
+    builder.Services.AddTransient<TextToSqlAgent.Core.Interfaces.IIntentRoutingPromptService, TextToSqlAgent.Application.Routing.PromptRegistryIntentRoutingPromptService>();
 
     // ✅ NEW: Lazy Service Factory for Enhanced Agent (changed to Scoped)
     builder.Services.AddScoped<IAgentServiceFactory, LazyAgentServiceFactory>();
@@ -383,7 +384,6 @@ try
     // DB EXPLORER SERVICES
     // ============================================
     // Core infrastructure services
-    builder.Services.AddSingleton<PromptTemplateService>();
     builder.Services.AddSingleton<RuleEngine>();
 
     // Analysis and scanning services

@@ -9,6 +9,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
 using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Application.Services.QueryOptimizer.Models;
+using TextToSqlAgent.Infrastructure.Prompts;
 
 namespace TextToSqlAgent.Application.Services.QueryOptimizer;
 
@@ -27,6 +28,7 @@ public class QueryOptimizerService
     private readonly ContextBudgetManager _contextBudgetManager;
     private readonly IDistributedCache _cache;
     private readonly ILLMClient _llmClient;
+    private readonly PromptRegistry _promptRegistry;
     private readonly ILogger<QueryOptimizerService> _logger;
 
     public QueryOptimizerService(
@@ -39,6 +41,7 @@ public class QueryOptimizerService
         ContextBudgetManager contextBudgetManager,
         IDistributedCache cache,
         ILLMClient llmClient,
+        PromptRegistry promptRegistry,
         ILogger<QueryOptimizerService> logger)
     {
         _staticAnalyzer = staticAnalyzer;
@@ -50,41 +53,8 @@ public class QueryOptimizerService
         _contextBudgetManager = contextBudgetManager;
         _cache = cache;
         _llmClient = llmClient;
+        _promptRegistry = promptRegistry;
         _logger = logger;
-    }
-
-    /// <summary>
-    /// Resolve prompt file path by searching up the directory tree
-    /// </summary>
-    private string? ResolvePromptFilePath(string relativePath)
-    {
-        var possibleDirs = new[]
-        {
-            AppDomain.CurrentDomain.BaseDirectory,
-            Directory.GetCurrentDirectory()
-        };
-
-        foreach (var startDir in possibleDirs)
-        {
-            var currentDir = new DirectoryInfo(startDir);
-            while (currentDir != null)
-            {
-                var combinedPath = Path.Combine(currentDir.FullName, relativePath);
-                if (File.Exists(combinedPath))
-                {
-                    return Path.GetFullPath(combinedPath);
-                }
-                currentDir = currentDir.Parent;
-            }
-        }
-
-        // Direct fallback
-        if (File.Exists(relativePath))
-        {
-            return Path.GetFullPath(relativePath);
-        }
-
-        return null;
     }
 
     /// <summary>
@@ -251,29 +221,27 @@ public class QueryOptimizerService
         var contextSections = _contextBudgetManager.BuildPrioritizedContext(
             preFlightAnalysis, columnStats, metadata.DetectedIssues, schemaContext);
 
-        // Load prompt template
-        var promptPath = ResolvePromptFilePath("Prompts/QueryOptimizer/optimize-query.skprompt.txt");
-
-        if (promptPath == null)
+        var promptVariables = new Dictionary<string, object>
         {
-            _logger.LogError("Prompt template not found: Prompts/QueryOptimizer/optimize-query.skprompt.txt");
-            throw new FileNotFoundException("Query optimizer prompt template not found");
-        }
+            ["execution_plan_available"] = preFlightAnalysis.CanGetExecutionPlan,
+            ["execution_plan_cost"] = preFlightAnalysis.EstimatedCost,
+            ["execution_plan_rows"] = preFlightAnalysis.EstimatedRows,
+            ["context_sections"] = contextSections,
+            ["original_sql"] = sql,
+            ["compatibility_level"] = compatLevel,
+            ["psp_active"] = pspActive
+        };
 
-        var promptTemplate = await System.IO.File.ReadAllTextAsync(promptPath, cancellationToken);
+        var (systemPrompt, userPrompt) = _promptRegistry.GetSystemAndUserPrompts(
+            "optimizer/query-optimization",
+            new List<string>(),
+            promptVariables,
+            includeExamples: false);
 
-        // Replace placeholders
-        var prompt = promptTemplate
-            .Replace("{{$execution_plan_available}}", preFlightAnalysis.CanGetExecutionPlan.ToString())
-            .Replace("{{$execution_plan_cost}}", preFlightAnalysis.EstimatedCost.ToString("F2"))
-            .Replace("{{$execution_plan_rows}}", preFlightAnalysis.EstimatedRows.ToString("N0"))
-            .Replace("{{$context_sections}}", contextSections)
-            .Replace("{{$original_sql}}", sql)
-            .Replace("{{$compatibility_level}}", compatLevel.ToString())
-            .Replace("{{$psp_active}}", pspActive ? "Yes (SQL Server 2022)" : "No");
-
-        // Call LLM using ILLMClient
-        var responseText = await _llmClient.CompleteAsync(prompt, cancellationToken);
+        var responseText = await _llmClient.CompleteWithSystemPromptAsync(
+            systemPrompt,
+            userPrompt,
+            cancellationToken);
 
         // Clean and parse JSON response
         var cleanedResponse = CleanJsonResponse(responseText);

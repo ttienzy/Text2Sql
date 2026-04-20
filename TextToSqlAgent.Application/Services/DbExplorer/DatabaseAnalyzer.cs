@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Models.DbExplorer;
+using TextToSqlAgent.Infrastructure.Prompts;
 
 namespace TextToSqlAgent.Application.Services.DbExplorer;
 
@@ -14,7 +15,7 @@ public class DatabaseAnalyzer
     private readonly ILLMClient _llmClient;
     private readonly ILogger<DatabaseAnalyzer> _logger;
     private readonly RuleEngine _ruleEngine;
-    private readonly PromptTemplateService _promptService;
+    private readonly PromptRegistry _promptRegistry;
     private readonly ImplicitRelationshipDetector _implicitFkDetector;
     private readonly DbExplorerQdrantIndexer? _qdrantIndexer;
 
@@ -22,14 +23,14 @@ public class DatabaseAnalyzer
         ILLMClient llmClient,
         ILogger<DatabaseAnalyzer> logger,
         RuleEngine ruleEngine,
-        PromptTemplateService promptService,
+        PromptRegistry promptRegistry,
         ImplicitRelationshipDetector implicitFkDetector,
         DbExplorerQdrantIndexer? qdrantIndexer = null)
     {
         _llmClient = llmClient;
         _logger = logger;
         _ruleEngine = ruleEngine;
-        _promptService = promptService;
+        _promptRegistry = promptRegistry;
         _implicitFkDetector = implicitFkDetector;
         _qdrantIndexer = qdrantIndexer;
     }
@@ -52,27 +53,22 @@ public class DatabaseAnalyzer
             await _ruleEngine.LoadRulesAsync();
 
             // Build lightweight prompt (table names + relationships only)
-            var variables = new Dictionary<string, string>
+            var variables = new Dictionary<string, object>
             {
-                ["systemContext"] = systemContext ?? "No specific context provided.",
+                ["system_context"] = systemContext ?? "No specific context provided.",
                 ["domain"] = ExtractDomain(systemContext),
-                ["tableCount"] = schema.EnhancedTables.Count.ToString(),
-                ["tableNames"] = string.Join(", ", schema.EnhancedTables.Select(t => t.TableName)),
-                ["relationshipCount"] = schema.BaseSchema.Relationships.Count.ToString(),
+                ["table_count"] = schema.EnhancedTables.Count,
+                ["table_names"] = string.Join(", ", schema.EnhancedTables.Select(t => t.TableName)),
+                ["relationship_count"] = schema.BaseSchema.Relationships.Count,
                 ["relationships"] = string.Join("\n", schema.BaseSchema.Relationships
                     .Take(20) // Limit to first 20 relationships
                     .Select(r => $"{r.FromTable} → {r.ToTable}"))
             };
 
-            // Get prompt with config
-            var (prompt, config) = await _promptService.GetPromptWithConfigAsync(
-                "schema-summary",
-                variables);
-
-            // Call LLM with lightweight prompt
-            var response = await _llmClient.CompleteAsync(
-                prompt,
-                cancellationToken: cancellationToken);
+            var response = await CompletePromptAsync(
+                "db-explorer/schema-summary",
+                variables,
+                cancellationToken);
 
             // Parse response
             analysis = ParseOverviewResponse(response);
@@ -153,8 +149,12 @@ public class DatabaseAnalyzer
                     cancellationToken);
             }
 
-            // 2. Implicit FK Detection (metadata-only)
-            result.ImplicitRelationships = DetectImplicitForeignKeys(table, schema);
+            // 2. Implicit FK Detection (LLM-assisted validation over metadata candidates)
+            result.ImplicitRelationships = await DetectImplicitForeignKeysAsync(
+                table,
+                schema,
+                systemContext,
+                cancellationToken);
 
             // 3. Table-specific health issues
             result.HealthIssues = _ruleEngine.ExecuteRules(schema)
@@ -184,24 +184,21 @@ public class DatabaseAnalyzer
         string? namingConventionNotes,
         CancellationToken cancellationToken)
     {
-        var variables = new Dictionary<string, string>
+        var variables = new Dictionary<string, object>
         {
-            ["systemContext"] = systemContext ?? "No specific context provided.",
+            ["system_context"] = systemContext ?? "No specific context provided.",
             ["domain"] = ExtractDomain(systemContext),
-            ["namingConventionNotes"] = namingConventionNotes ?? "No naming convention notes provided.",
-            ["tableName"] = table.TableName,
-            ["tableDescription"] = "", // TODO: Get from analysis if available
+            ["naming_convention_notes"] = namingConventionNotes ?? string.Empty,
+            ["table_name"] = table.TableName,
+            ["table_description"] = string.Empty, // TODO: Get from analysis if available
             ["columns"] = string.Join("\n", table.Columns.Select(c =>
                 $"- {c.ColumnName} ({c.DataType}{(c.IsNullable ? " NULL" : " NOT NULL")}{(c.IsPrimaryKey ? " PK" : "")}{(c.IsForeignKey ? " FK" : "")}"))
         };
 
-        var (prompt, config) = await _promptService.GetPromptWithConfigAsync(
-            "column-interpretation",
-            variables);
-
-        var response = await _llmClient.CompleteAsync(
-            prompt,
-            cancellationToken: cancellationToken);
+        var response = await CompletePromptAsync(
+            "db-explorer/column-analysis",
+            variables,
+            cancellationToken);
 
         return ParseColumnInterpretations(response);
     }
@@ -209,11 +206,34 @@ public class DatabaseAnalyzer
     /// <summary>
     /// Detect implicit foreign keys (metadata-only, no data queries)
     /// </summary>
-    private List<ImplicitRelationship> DetectImplicitForeignKeys(
+    private async Task<List<ImplicitRelationship>> DetectImplicitForeignKeysAsync(
         EnhancedTableInfo table,
-        EnhancedDatabaseSchema schema)
+        EnhancedDatabaseSchema schema,
+        string? systemContext,
+        CancellationToken cancellationToken)
     {
-        return _implicitFkDetector.DetectImplicitForeignKeys(table, schema);
+        return await _implicitFkDetector.DetectImplicitForeignKeysAsync(
+            table,
+            schema,
+            systemContext,
+            cancellationToken);
+    }
+
+    private async Task<string> CompletePromptAsync(
+        string templateName,
+        Dictionary<string, object> variables,
+        CancellationToken cancellationToken)
+    {
+        var (systemPrompt, userPrompt) = _promptRegistry.GetSystemAndUserPrompts(
+            templateName,
+            new List<string>(),
+            variables,
+            includeExamples: false);
+
+        return await _llmClient.CompleteWithSystemPromptAsync(
+            systemPrompt,
+            userPrompt,
+            cancellationToken);
     }
 
     /// <summary>

@@ -1,0 +1,96 @@
+# IMPLICIT FOREIGN KEY DETECTION PROMPT
+# Version: 2.0.0
+# Last Updated: 2026-04-21
+
+metadata:
+  name: fk-detection
+  version: "2.0.0"
+  category: db-explorer
+  description: "Detect implicit foreign key relationships between tables"
+
+variables:
+  - name: system_context
+    type: string
+    required: true
+  - name: domain
+    type: string
+    required: true
+  - name: child_table
+    type: string
+    required: true
+  - name: child_column
+    type: string
+    required: true
+  - name: child_data_type
+    type: string
+    required: true
+  - name: parent_table
+    type: string
+    required: true
+  - name: parent_column
+    type: string
+    required: true
+  - name: parent_data_type
+    type: string
+    required: true
+  - name: child_rows
+    type: integer
+    required: false
+  - name: parent_rows
+    type: integer
+    required: false
+  - name: data_type_match
+    type: boolean
+    required: false
+  - name: naming_match
+    type: boolean
+    required: false
+
+system_template: |
+  {{system_context}}
+  
+  Bạn là chuyên gia database {{domain}}.
+
+prompt_template: |
+  Phân tích xem cột sau có phải là Foreign Key ẩn không:
+  
+  Bảng con: {{child_table}}
+  Cột: {{child_column}} ({{child_data_type}})
+  
+  Bảng cha tiềm năng: {{parent_table}}
+  Cột PK: {{parent_column}} ({{parent_data_type}})
+  
+  {{#if child_rows}}
+  Metadata:
+  - Child table rows: {{child_rows}}
+  - Parent table rows: {{parent_rows}}
+  - Data type match: {{data_type_match}}
+  - Naming pattern match: {{naming_match}}
+  {{/if}}
+
+output:
+  format: "json"
+  schema:
+    isImplicitFk: "boolean"
+    confidence: "number"
+    reason: "string"
+    recommendation: "string"
+  markdown: false
+
+validation:
+  confidence_range: [0.0, 1.0]
+  required_fields:
+    - isImplicitFk
+    - reason
+    - recommendation
+
+recommendation_values:
+  - "Nên thêm constraint FK"
+  - "Không nên thêm FK"
+  - "Cần kiểm tra thêm dữ liệu"
+
+version_history:
+  - version: "1.0"
+    changes: "Initial version"
+  - version: "2.0"
+    changes: "Added metadata context (row counts, data type match)"

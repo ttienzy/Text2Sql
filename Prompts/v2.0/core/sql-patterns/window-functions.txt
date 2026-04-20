@@ -1,0 +1,105 @@
+# WINDOW FUNCTIONS PATTERNS
+# Version: 2.0.0
+# Last Updated: 2026-04-21
+
+## RANKING FUNCTIONS
+
+### Row Number (Unique Sequential)
+```sql
+ROW_NUMBER() OVER (ORDER BY Sales DESC) AS RowNum
+```
+
+### Rank (Allows Ties, Gaps)
+```sql
+RANK() OVER (ORDER BY Sales DESC) AS Rank
+```
+
+### Dense Rank (No Gaps)
+```sql
+DENSE_RANK() OVER (ORDER BY Sales DESC) AS DenseRank
+```
+
+### Ranking Within Groups
+```sql
+ROW_NUMBER() OVER (
+    PARTITION BY CategoryId 
+    ORDER BY Sales DESC
+) AS RankInCategory
+```
+
+## AGGREGATE WINDOW FUNCTIONS
+
+### Running Total
+```sql
+SUM(Amount) OVER (
+    ORDER BY Date 
+    ROWS UNBOUNDED PRECEDING
+) AS RunningTotal
+```
+
+### Moving Average (7-day)
+```sql
+AVG(Amount) OVER (
+    ORDER BY Date 
+    ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+) AS MovingAvg7Days
+```
+
+### Percentage of Total
+```sql
+Revenue * 100.0 / SUM(Revenue) OVER () AS PercentOfTotal
+```
+
+### Percentage Within Group
+```sql
+Revenue * 100.0 / SUM(Revenue) OVER (PARTITION BY CategoryId) AS PercentInCategory
+```
+
+## LEAD/LAG FUNCTIONS
+
+### Previous Value
+```sql
+LAG(Sales, 1) OVER (ORDER BY Date) AS PreviousDaySales
+```
+
+### Next Value
+```sql
+LEAD(Sales, 1) OVER (ORDER BY Date) AS NextDaySales
+```
+
+### Growth Calculation
+```sql
+(Sales - LAG(Sales, 1) OVER (ORDER BY Date)) * 100.0 / 
+    NULLIF(LAG(Sales, 1) OVER (ORDER BY Date), 0) AS GrowthPercent
+```
+
+## FIRST/LAST VALUES
+
+### First Value in Partition
+```sql
+FIRST_VALUE(ProductName) OVER (
+    PARTITION BY CategoryId 
+    ORDER BY Price DESC
+) AS MostExpensiveProduct
+```
+
+### Last Value in Partition
+```sql
+LAST_VALUE(OrderDate) OVER (
+    PARTITION BY CustomerId 
+    ORDER BY OrderDate
+    ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+) AS LastOrderDate
+```
+
+## NTILE (Distribution)
+
+### Divide into Quartiles
+```sql
+NTILE(4) OVER (ORDER BY Revenue DESC) AS Quartile
+```
+
+### Divide into Tiles
+```sql
+NTILE(10) OVER (ORDER BY Score DESC) AS Decile
+```

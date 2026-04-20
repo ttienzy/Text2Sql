@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Models.DbExplorer;
+using TextToSqlAgent.Infrastructure.Prompts;
 
 namespace TextToSqlAgent.Application.Services.DbExplorer;
 
@@ -13,16 +14,16 @@ public class SemanticTagGenerator
 {
     private readonly ILLMClient _llmClient;
     private readonly ILogger<SemanticTagGenerator> _logger;
-    private readonly PromptTemplateService _promptService;
+    private readonly PromptRegistry _promptRegistry;
 
     public SemanticTagGenerator(
         ILLMClient llmClient,
         ILogger<SemanticTagGenerator> logger,
-        PromptTemplateService promptService)
+        PromptRegistry promptRegistry)
     {
         _llmClient = llmClient;
         _logger = logger;
-        _promptService = promptService;
+        _promptRegistry = promptRegistry;
     }
 
     /// <summary>
@@ -38,25 +39,26 @@ public class SemanticTagGenerator
         try
         {
             // Build variables for prompt
-            var variables = new Dictionary<string, string>
+            var variables = new Dictionary<string, object>
             {
-                ["systemContext"] = systemContext ?? "No specific context provided.",
+                ["system_context"] = systemContext ?? "No specific context provided.",
                 ["domain"] = ExtractDomain(systemContext),
-                ["tableName"] = table.TableName,
+                ["table_name"] = table.TableName,
                 ["description"] = GetTableDescription(table),
-                ["role"] = table.Role?.ToString() ?? "Unknown",
-                ["module"] = table.Module ?? "Unknown"
+                ["role"] = table.Role?.ToString() ?? string.Empty,
+                ["module"] = table.Module ?? string.Empty
             };
 
-            // Get prompt
-            var (prompt, config) = await _promptService.GetPromptWithConfigAsync(
-                "semantic-tags",
-                variables);
+            var (systemPrompt, userPrompt) = _promptRegistry.GetSystemAndUserPrompts(
+                "db-explorer/semantic-tagging",
+                new List<string>(),
+                variables,
+                includeExamples: false);
 
-            // Call LLM
-            var response = await _llmClient.CompleteAsync(
-                prompt,
-                cancellationToken: cancellationToken);
+            var response = await _llmClient.CompleteWithSystemPromptAsync(
+                systemPrompt,
+                userPrompt,
+                cancellationToken);
 
             // Parse response
             var tags = ParseSemanticTags(response, table.TableName);

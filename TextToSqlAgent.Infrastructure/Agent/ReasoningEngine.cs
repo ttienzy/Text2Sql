@@ -62,7 +62,7 @@ public class ReasoningEngine : IReasoningEngine
                 ["available_tools"] = _toolRegistry.GetToolDescriptions()
             };
 
-            return _promptRegistry.GetFullPrompt("agent_reasoning", variables);
+            return _promptRegistry.GetComposedPrompt("agent_reasoning", new List<string>(), variables);
         }
         catch (Exception ex)
         {

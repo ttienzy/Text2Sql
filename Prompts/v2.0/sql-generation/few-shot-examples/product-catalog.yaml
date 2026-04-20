@@ -1,0 +1,92 @@
+# PRODUCT CATALOG FEW-SHOT EXAMPLES
+# Version: 2.0.0
+# Last Updated: 2026-04-21
+
+metadata:
+  name: product-catalog-examples
+  version: "2.0.0"
+  category: few-shot-examples
+  domain: "product"
+
+examples:
+  - description: "List all products"
+    schema: "Products(ProductId, ProductName, CategoryId, Price, StockQuantity)"
+    question: "Liệt kê tất cả sản phẩm"
+    expected_sql: |
+      SELECT 
+          ProductId,
+          ProductName,
+          CategoryId,
+          Price,
+          StockQuantity
+      FROM Products
+      ORDER BY ProductName;
+
+  - description: "Products by category"
+    schema: "Products(ProductId, ProductName, CategoryId, Price), Categories(CategoryId, CategoryName)"
+    question: "Sản phẩm theo danh mục"
+    expected_sql: |
+      SELECT
+          c.CategoryName,
+          p.ProductName,
+          p.Price,
+          p.StockQuantity
+      FROM Products p
+      INNER JOIN Categories c ON p.CategoryId = c.CategoryId
+      ORDER BY c.CategoryName, p.ProductName;
+
+  - description: "Low stock products"
+    schema: "Products(ProductId, ProductName, CategoryId, StockQuantity)"
+    question: "Sản phẩm sắp hết hàng"
+    expected_sql: |
+      SELECT 
+          ProductId,
+          ProductName,
+          CategoryId,
+          StockQuantity
+      FROM Products
+      WHERE StockQuantity < 10
+      ORDER BY StockQuantity ASC;
+
+  - description: "Average price by category"
+    schema: "Products(ProductId, ProductName, CategoryId, Price), Categories(CategoryId, CategoryName)"
+    question: "Giá trung bình theo danh mục"
+    expected_sql: |
+      SELECT
+          c.CategoryId,
+          c.CategoryName,
+          COUNT(p.ProductId) AS ProductCount,
+          MIN(p.Price) AS MinPrice,
+          AVG(p.Price) AS AvgPrice,
+          MAX(p.Price) AS MaxPrice
+      FROM Categories c
+      LEFT JOIN Products p ON c.CategoryId = p.CategoryId
+      GROUP BY c.CategoryId, c.CategoryName
+      ORDER BY AvgPrice DESC;
+
+  - description: "Product ranking by price"
+    schema: "Products(ProductId, ProductName, CategoryId, Price)"
+    question: "Xếp hạng sản phẩm theo giá trong mỗi danh mục"
+    expected_sql: |
+      SELECT
+          CategoryId,
+          ProductName,
+          Price,
+          ROW_NUMBER() OVER (PARTITION BY CategoryId ORDER BY Price DESC) AS PriceRank
+      FROM Products
+      ORDER BY CategoryId, PriceRank;
+
+  - description: "Products without orders"
+    schema: "Products(ProductId, ProductName), OrderDetails(ProductId)"
+    question: "Sản phẩm chưa bán được"
+    expected_sql: |
+      SELECT 
+          p.ProductId,
+          p.ProductName
+      FROM Products p
+      WHERE NOT EXISTS (
+          SELECT 1 
+          FROM OrderDetails od 
+          WHERE od.ProductId = p.ProductId
+      )
+      ORDER BY p.ProductName;

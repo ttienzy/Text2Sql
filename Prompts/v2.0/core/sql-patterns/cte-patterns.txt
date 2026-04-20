@@ -1,0 +1,183 @@
+# CTE (Common Table Expression) PATTERNS
+# Version: 2.0.0
+# Last Updated: 2026-04-21
+
+## SINGLE CTE
+
+### Basic Template
+```sql
+WITH CTE_Name AS (
+    SELECT 
+        Column1,
+        Column2,
+        AggregateFunction(Column3) AS Metric
+    FROM TableName
+    WHERE Condition = 'value'
+    GROUP BY Column1, Column2
+)
+SELECT * FROM CTE_Name 
+WHERE Metric > threshold
+ORDER BY Metric DESC;
+```
+
+### Example: Customer Revenue
+```sql
+WITH CustomerRevenue AS (
+    SELECT 
+        CustomerId,
+        SUM(TotalAmount) AS Revenue
+    FROM Orders
+    WHERE Status = N'Completed'
+    GROUP BY CustomerId
+)
+SELECT * FROM CustomerRevenue 
+WHERE Revenue > 1000000
+ORDER BY Revenue DESC;
+```
+
+## MULTIPLE CTEs (Recommended for Complex Queries)
+
+### Template
+```sql
+WITH 
+CTE1 AS (
+    -- First transformation
+    SELECT ...
+    FROM ...
+    WHERE ...
+),
+CTE2 AS (
+    -- Second transformation
+    SELECT ...
+    FROM CTE1
+    WHERE ...
+),
+CTE3 AS (
+    -- Final aggregation
+    SELECT ...
+    FROM CTE1
+    JOIN CTE2 ON ...
+)
+SELECT * FROM CTE3
+ORDER BY ...;
+```
+
+### Example: Year-over-Year Comparison
+```sql
+WITH 
+CurrentYearSales AS (
+    SELECT 
+        MONTH(OrderDate) AS Month,
+        SUM(TotalAmount) AS Revenue
+    FROM Orders
+    WHERE YEAR(OrderDate) = YEAR(GETDATE())
+    GROUP BY MONTH(OrderDate)
+),
+PreviousYearSales AS (
+    SELECT 
+        MONTH(OrderDate) AS Month,
+        SUM(TotalAmount) AS Revenue
+    FROM Orders
+    WHERE YEAR(OrderDate) = YEAR(GETDATE()) - 1
+    GROUP BY MONTH(OrderDate)
+),
+Comparison AS (
+    SELECT
+        cy.Month,
+        cy.Revenue AS CurrentYear,
+        ISNULL(py.Revenue, 0) AS PreviousYear,
+        (cy.Revenue - ISNULL(py.Revenue, 0)) * 100.0 / 
+            NULLIF(py.Revenue, 0) AS GrowthPercent
+    FROM CurrentYearSales cy
+    LEFT JOIN PreviousYearSales py ON cy.Month = py.Month
+)
+SELECT * FROM Comparison
+ORDER BY Month;
+```
+
+## RECURSIVE CTE (Hierarchical Data)
+
+### Template
+```sql
+WITH CTE_Name AS (
+    -- Anchor: Root level
+    SELECT 
+        Id,
+        Name,
+        ParentId,
+        0 AS Level,
+        CAST(Name AS NVARCHAR(MAX)) AS Path
+    FROM TableName
+    WHERE ParentId IS NULL
+    
+    UNION ALL
+    
+    -- Recursive: Child levels
+    SELECT 
+        t.Id,
+        t.Name,
+        t.ParentId,
+        c.Level + 1,
+        CAST(c.Path + ' > ' + t.Name AS NVARCHAR(MAX))
+    FROM TableName t
+    INNER JOIN CTE_Name c ON t.ParentId = c.Id
+)
+SELECT * FROM CTE_Name
+ORDER BY Level, Name;
+```
+
+### Example: Category Hierarchy
+```sql
+WITH CategoryHierarchy AS (
+    SELECT 
+        Id,
+        CategoryName,
+        ParentId,
+        0 AS Level
+    FROM Categories
+    WHERE ParentId IS NULL
+    
+    UNION ALL
+    
+    SELECT 
+        c.Id,
+        c.CategoryName,
+        c.ParentId,
+        ch.Level + 1
+    FROM Categories c
+    INNER JOIN CategoryHierarchy ch ON c.ParentId = ch.Id
+)
+SELECT * FROM CategoryHierarchy
+ORDER BY Level, CategoryName;
+```
+
+## CTE WITH WINDOW FUNCTIONS
+
+### Example: Running Total with CTE
+```sql
+WITH DailySales AS (
+    SELECT
+        CAST(OrderDate AS DATE) AS SaleDate,
+        SUM(TotalAmount) AS DailyTotal
+    FROM Orders
+    WHERE OrderDate >= DATEADD(MONTH, -1, GETDATE())
+    GROUP BY CAST(OrderDate AS DATE)
+)
+SELECT
+    SaleDate,
+    DailyTotal,
+    SUM(DailyTotal) OVER (ORDER BY SaleDate) AS RunningTotal,
+    AVG(DailyTotal) OVER (ORDER BY SaleDate ROWS 6 PRECEDING) AS MovingAvg7Days
+FROM DailySales
+ORDER BY SaleDate;
+```
+
+## PERFORMANCE TIPS
+
+1. ✅ Use CTEs instead of nested subqueries for readability
+2. ✅ Name CTEs descriptively (CustomerRevenue, MonthlySales)
+3. ✅ Use multiple CTEs instead of one complex CTE
+4. ✅ Place most selective filters in early CTEs
+5. ✅ Use ROW_NUMBER for deduplication
+6. ⚠️ Avoid very deep recursion (may hit MAXRECURSION limit)
+7. ⚠️ Large CTEs may use significant tempdb space

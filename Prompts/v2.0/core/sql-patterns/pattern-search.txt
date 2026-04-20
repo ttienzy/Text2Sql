@@ -1,0 +1,359 @@
+# LIKE/PATTERN SEARCH PATTERNS
+# Version: 2.0.0
+# Last Updated: 2026-04-21
+# Description: Pattern matching and text search patterns for SQL Server
+
+## BASIC LIKE PATTERNS
+
+### Starts With (Prefix Match)
+```sql
+-- Find products starting with "Laptop"
+SELECT ProductName, UnitPrice
+FROM Products
+WHERE ProductName LIKE 'Laptop%'
+ORDER BY ProductName;
+```
+
+### Ends With (Suffix Match)
+```sql
+-- Find customers with email ending in .com
+SELECT FullName, Email
+FROM Customers
+WHERE Email LIKE '%.com';
+```
+
+### Contains (Substring Match)
+```sql
+-- Find products containing "wireless"
+SELECT ProductName, CategoryName
+FROM Products p
+JOIN Categories c ON p.CategoryID = c.CategoryID
+WHERE p.ProductName LIKE '%wireless%';
+```
+
+### Exact Match with Wildcards
+```sql
+-- Find products with 4-character product codes
+SELECT ProductCode, ProductName
+FROM Products
+WHERE ProductCode LIKE '____';  -- 4 underscores = 4 characters
+```
+
+## ADVANCED PATTERN MATCHING
+
+### Multiple Wildcards
+```sql
+-- Find names starting with "A", containing "n", ending with "s"
+SELECT FullName
+FROM Customers
+WHERE FullName LIKE 'A%n%s';
+```
+
+### Character Ranges
+```sql
+-- Find products with codes starting with letter followed by 3 digits
+SELECT ProductCode, ProductName
+FROM Products
+WHERE ProductCode LIKE '[A-Z][0-9][0-9][0-9]';
+```
+
+### NOT Like Patterns
+```sql
+-- Find products NOT containing "refurbished"
+SELECT ProductName, UnitPrice
+FROM Products
+WHERE ProductName NOT LIKE '%refurbished%'
+  AND ProductName NOT LIKE '%used%'
+  AND ProductName NOT LIKE '%second%';
+```
+
+### Like with Multiple OR Conditions
+```sql
+-- Find products in specific categories
+SELECT ProductName, CategoryName
+FROM Products p
+JOIN Categories c ON p.CategoryID = c.CategoryID
+WHERE c.CategoryName LIKE 'Electronics%'
+   OR c.CategoryName LIKE 'Computers%'
+   OR c.CategoryName LIKE 'Accessories%';
+```
+
+## CHARINDEX (Alternative to LIKE)
+
+### Basic Charindex
+```sql
+-- Find products containing "gaming" using CHARINDEX
+SELECT ProductName, UnitPrice
+FROM Products
+WHERE CHARINDEX('gaming', ProductName) > 0;
+```
+
+### Charindex with Position
+```sql
+-- Find where "pro" appears in product name
+SELECT 
+    ProductName,
+    CHARINDEX('pro', ProductName) AS Position,
+    SUBSTRING(ProductName, CHARINDEX('pro', ProductName), 3) AS FoundText
+FROM Products
+WHERE CHARINDEX('pro', ProductName) > 0;
+```
+
+### Case-Insensitive Charindex
+```sql
+-- Case-insensitive search
+SELECT ProductName, UnitPrice
+FROM Products
+WHERE CHARINDEX('laptop', LOWER(ProductName)) > 0;
+```
+
+## FULL-TEXT SEARCH
+
+### Basic FREETEXT (SQL Server Full-Text)
+```sql
+-- Simple full-text search
+SELECT ProductName, Description
+FROM Products
+WHERE FREETEXT(ProductName, 'wireless keyboard');
+```
+
+### CONTAINS (Precise Full-Text)
+```sql
+-- Find products containing exact phrase
+SELECT ProductName, Description
+FROM Products
+WHERE CONTAINS(ProductName, '"wireless mouse"');
+
+-- Find products containing "mouse" or "keyboard"
+SELECT ProductName, Description
+FROM Products
+WHERE CONTAINS(ProductName, 'mouse OR keyboard');
+
+-- Find products with prefix
+SELECT ProductName
+FROM Products
+WHERE CONTAINS(ProductName, '"desk*"');  -- desk, desktop, desks, etc.
+```
+
+### CONTAINS with NEAR
+```sql
+-- Find products with terms near each other
+SELECT ProductName, Description
+FROM Products
+WHERE CONTAINS(Description, 'long AND battery NEAR duration');
+```
+
+### FREETEXTTABLE for Ranking
+```sql
+SELECT 
+    p.ProductName,
+    r.RANK,
+    p.UnitPrice
+FROM Products p
+JOIN FREETEXTTABLE(Products, ProductName, 'wireless speaker') r 
+    ON p.ProductID = r.[KEY]
+ORDER BY r.RANK DESC;
+```
+
+## PATTERN EXTRACTION
+
+### SUBSTRING with CHARINDEX
+```sql
+-- Extract part of string between delimiters
+SELECT 
+    ProductName,
+    SUBSTRING(ProductName, 
+        CHARINDEX('(', ProductName) + 1,
+        CHARINDEX(')', ProductName) - CHARINDEX('(', ProductName) - 1
+    ) AS ExtractedPart
+FROM Products
+WHERE ProductName LIKE '%(%)%';
+```
+
+### STRING_SPLIT for Multiple Patterns
+```sql
+-- Search for multiple terms
+DECLARE @searchTerms NVARCHAR(100) = 'laptop,wireless,mouse';
+SELECT ProductName
+FROM Products
+WHERE EXISTS (
+    SELECT 1 
+    FROM STRING_SPLIT(@searchTerms, ',') AS term
+    WHERE ProductName LIKE '%' + LTRIM(RTRIM(term.value)) + '%'
+);
+```
+
+## COMBINED SEARCH PATTERNS
+
+### LIKE with WHERE Conditions
+```sql
+SELECT 
+    p.ProductName,
+    p.UnitPrice,
+    c.CategoryName
+FROM Products p
+JOIN Categories c ON p.CategoryID = c.CategoryID
+WHERE p.ProductName LIKE '%' + @searchTerm + '%'
+  AND p.UnitPrice BETWEEN @minPrice AND @maxPrice
+  AND p.IsActive = 1
+ORDER BY p.ProductName;
+```
+
+### LIKE with JOINs
+```sql
+SELECT 
+    c.CustomerName,
+    o.OrderNumber,
+    o.OrderDate
+FROM Customers c
+JOIN Orders o ON c.CustomerID = o.CustomerID
+WHERE o.OrderNumber LIKE '%2024%'  -- Orders from 2024
+  AND c.CustomerName LIKE '%' + @searchName + '%';
+```
+
+### Multiple LIKE Columns
+```sql
+SELECT 
+    ProductName,
+    Description,
+    Specification
+FROM Products
+WHERE ProductName LIKE '%' + @search + '%'
+   OR Description LIKE '%' + @search + '%'
+   OR Specification LIKE '%' + @search + '%';
+```
+
+## PERFORMANCE CONSIDERATIONS
+
+### Index-Friendly Patterns
+```sql
+-- ✅ Good: Leading wildcard not required
+WHERE ProductName LIKE 'Laptop%'  -- Can use index
+
+-- ❌ Bad: Leading wildcard prevents index use
+WHERE ProductName LIKE '%Laptop%'  -- Full scan
+
+-- Alternative for leading wildcard: Use CHARINDEX (still full scan, but more flexible)
+WHERE CHARINDEX('Laptop', ProductName) > 0
+```
+
+### Full-Text Index Recommendation
+```sql
+-- For frequent text searches, create full-text index
+CREATE FULLTEXT CATALOG ft_catalog;
+CREATE FULLTEXT INDEX ON Products(ProductName, Description) 
+KEY INDEX PK_Products ON ft_catalog;
+```
+
+## VIETNAMESE TEXT SEARCH
+
+### Vietnamese Characters Handling
+```sql
+-- Search with Vietnamese characters
+SELECT FullName, Address
+FROM Customers
+WHERE FullName LIKE N'%Nguyễn%';
+
+-- Search without diacritics (normalize first)
+SELECT FullName
+FROM Customers
+WHERE dbo.RemoveDiacritics(FullName) LIKE '%nguyen%';  -- Custom function
+```
+
+### Accent-Insensitive Search (SQL Server 2019+)
+```sql
+-- Using COLLATE for accent-insensitive search
+SELECT FullName
+FROM Customers
+WHERE FullName COLLATE Latin1_General_CI_AI LIKE '%nguyen%';
+```
+
+## REAL-WORLD EXAMPLES
+
+### Search with Fallback
+```sql
+-- Try exact match first, then partial match
+SELECT ProductName, UnitPrice
+FROM Products
+WHERE ProductName = @exactSearch  -- Exact match
+UNION ALL
+SELECT ProductName, UnitPrice
+FROM Products
+WHERE ProductName LIKE '%' + @searchTerm + '%'
+  AND ProductName <> @exactSearch;  -- Partial match, exclude exact
+```
+
+### Search with Sorting
+```sql
+-- Sort results by relevance (exact matches first)
+SELECT 
+    ProductName,
+    UnitPrice,
+    CASE 
+        WHEN ProductName = @searchTerm THEN 1
+        WHEN ProductName LIKE @searchTerm + '%' THEN 2
+        WHEN ProductName LIKE '%' + @searchTerm THEN 3
+        ELSE 4
+    END AS RelevanceRank
+FROM Products
+WHERE ProductName LIKE '%' + @searchTerm + '%'
+ORDER BY RelevanceRank, ProductName;
+```
+
+### Search with Category Filter
+```sql
+SELECT 
+    p.ProductName,
+    c.CategoryName,
+    p.UnitPrice
+FROM Products p
+JOIN Categories c ON p.CategoryID = c.CategoryID
+WHERE (
+    @searchTerm IS NULL 
+    OR p.ProductName LIKE '%' + @searchTerm + '%'
+    OR p.Description LIKE '%' + @searchTerm + '%'
+)
+AND (
+    @categoryId IS NULL 
+    OR c.CategoryID = @categoryId
+)
+ORDER BY 
+    CASE WHEN @searchTerm IS NOT NULL THEN 1 ELSE 2 END,
+    p.ProductName;
+```
+
+## REGEX-LIKE PATTERNS (PATINDEX)
+
+### Find Position of Pattern
+```sql
+-- Find where pattern starts
+SELECT 
+    ProductName,
+    PATINDEX('%[0-9]%', ProductName) AS FirstDigitPosition
+FROM Products
+WHERE PATINDEX('%[0-9]%', ProductName) > 0;
+```
+
+### Extract Numeric Part
+```sql
+-- Extract numbers from string using PATINDEX
+SELECT 
+    ProductCode,
+    SUBSTRING(
+        ProductCode,
+        PATINDEX('%[0-9]%', ProductCode),
+        PATINDEX('%[0-9][^0-9]%', ProductCode + ' ') - PATINDEX('%[0-9]%', ProductCode)
+    ) AS ExtractedNumber
+FROM Products
+WHERE PATINDEX('%[0-9]%', ProductCode) > 0;
+```
+
+## IMPORTANT REMINDERS
+
+1. **Performance**: Leading % in LIKE prevents index usage - use full-text search for large tables
+2. **SQL Injection**: Always validate and escape search terms before using in LIKE
+3. **Case Sensitivity**: Use COLLATE or LOWER/UPPER for case-insensitive matching
+4. **Unicode**: Use N prefix for Unicode strings (N'...')
+5. **NULL Handling**: LIKE returns NULL when input is NULL
+6. **Escape Special Chars**: Use ESCAPE for searching special characters like %, _
+7. **Full-Text**: For complex text search, use CONTAINS/FREETEXT with full-text index

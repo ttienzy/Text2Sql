@@ -1,0 +1,367 @@
+# PIVOT/UNPIVOT PATTERNS
+# Version: 2.0.0
+# Last Updated: 2026-04-21
+# Description: Advanced patterns for transposing rows to columns and vice versa
+
+## PIVOT - Row to Column Transformation
+
+### Basic PIVOT with Single Aggregate
+```sql
+SELECT *
+FROM (
+    SELECT 
+        CustomerID,
+        YEAR(OrderDate) AS OrderYear,
+        TotalAmount
+    FROM Orders
+) AS Source
+PIVOT (
+    SUM(TotalAmount)
+    FOR OrderYear IN ([2022], [2023], [2024])
+) AS PivotTable;
+```
+
+### PIVOT with Multiple Aggregates
+```sql
+SELECT *
+FROM (
+    SELECT 
+        CategoryName,
+        YEAR(OrderDate) AS OrderYear,
+        TotalAmount,
+        Quantity
+    FROM OrderDetails od
+    JOIN Products p ON od.ProductID = p.ProductID
+    JOIN Categories c ON p.CategoryID = c.CategoryID
+) AS Source
+PIVOT (
+    SUM(TotalAmount) FOR OrderYear IN ([2022], [2023], [2024])
+) AS AmountPivot
+PIVOT (
+    SUM(Quantity) FOR OrderYear IN ([2022], [2023], [2024])
+) AS QuantityPivot;
+```
+
+### PIVOT with Dynamic Column List (Comment for LLM)
+-- Note: For dynamic columns, use STUFF/FOR XML PATH or EXEC with sp_executesql
+```sql
+DECLARE @columns NVARCHAR(MAX);
+SELECT @columns = STUFF((
+    SELECT ',' + QUOTENAME(YEAR(OrderDate))
+    FROM Orders
+    GROUP BY YEAR(OrderDate)
+    ORDER BY YEAR(OrderDate)
+    FOR XML PATH(''), TYPE
+).value('.', 'NVARCHAR(MAX)'), 1, 1, '');
+
+DECLARE @sql NVARCHAR(MAX) = N'
+SELECT *
+FROM (SELECT CustomerID, YEAR(OrderDate) AS OrderYear, TotalAmount FROM Orders) AS src
+PIVOT (SUM(TotalAmount) FOR OrderYear IN (' + @columns + ')) AS pvt';
+
+EXEC sp_executesql @sql;
+```
+
+### PIVOT with Column Aliasing
+```sql
+SELECT 
+    CustomerID AS [Customer ID],
+    [2022] AS [Revenue 2022],
+    [2023] AS [Revenue 2023],
+    [2024] AS [Revenue 2024],
+    ISNULL([2022], 0) + ISNULL([2023], 0) + ISNULL([2024], 0) AS [Total 3Y]
+FROM (
+    SELECT CustomerID, YEAR(OrderDate) AS OrderYear, TotalAmount
+    FROM Orders
+) AS Source
+PIVOT (
+    SUM(TotalAmount)
+    FOR OrderYear IN ([2022], [2023], [2024])
+) AS PivotResult;
+```
+
+### PIVOT with Percentages
+```sql
+SELECT 
+    CategoryName,
+    ISNULL([2022], 0) AS Amount2022,
+    ISNULL([2023], 0) AS Amount2023,
+    ISNULL([2024], 0) AS Amount2024,
+    CASE 
+        WHEN ISNULL([2022], 0) + ISNULL([2023], 0) + ISNULL([2024], 0) = 0 
+        THEN 0 
+        ELSE ISNULL([2024], 0) * 100.0 / 
+            (ISNULL([2022], 0) + ISNULL([2023], 0) + ISNULL([2024], 0))
+    END AS [Growth %]
+FROM (
+    SELECT c.CategoryName, YEAR(o.OrderDate) AS OrderYear, od.UnitPrice * od.Quantity AS Amount
+    FROM OrderDetails od
+    JOIN Products p ON od.ProductID = p.ProductID
+    JOIN Categories c ON p.CategoryID = c.CategoryID
+    JOIN Orders o ON od.OrderID = o.OrderID
+) AS Source
+PIVOT (
+    SUM(Amount)
+    FOR OrderYear IN ([2022], [2023], [2024])
+) AS PivotResult
+ORDER BY [Total 3Y] DESC;
+```
+
+## UNPIVOT - Column to Row Transformation
+
+### Basic UNPIVOT
+```sql
+SELECT 
+    CustomerID,
+    OrderYear = REPLACE(Metric, 'Amount_', ''),
+    Revenue = CAST(Value AS DECIMAL(18,2))
+FROM (
+    SELECT CustomerID, Amount_2022, Amount_2023, Amount_2024
+    FROM CustomerRevenue
+) AS Source
+UNPIVOT (
+    Revenue FOR Metric IN (Amount_2022, Amount_2023, Amount_2024)
+) AS UnpivotResult;
+```
+
+### UNPIVOT with Multiple Value Columns
+```sql
+SELECT 
+    ProductID,
+    MetricType,
+    MetricValue = CAST(MetricValue AS DECIMAL(18,2))
+FROM (
+    SELECT 
+        ProductID,
+        Units_Sold,
+        Revenue,
+        Returns,
+        Units_Returned
+    FROM ProductMetrics
+) AS Source
+UNPIVOT (
+    MetricValue FOR MetricType IN (Units_Sold, Revenue, Returns, Units_Returned)
+) AS UnpivotResult;
+```
+
+### UNPIVOT with Filter
+```sql
+SELECT 
+    p.ProductName,
+    m.MetricType,
+    m.MetricValue
+FROM (
+    SELECT ProductID, Sales, Returns, Adjustments
+    FROM MonthlyProductMetrics
+    WHERE Month = '2024-01'
+) AS src
+UNPIVOT (
+    MetricValue FOR MetricType IN (Sales, Returns, Adjustments)
+) AS m
+JOIN Products p ON m.ProductID = p.ProductID
+WHERE MetricValue > 0;
+```
+
+## PIVOT with GROUP BY
+
+### PIVOT with Multiple Grouping Columns
+```sql
+SELECT 
+    Region,
+    SalesPerson,
+    [Q1] AS Q1Sales,
+    [Q2] AS Q2Sales,
+    [Q3] AS Q3Sales,
+    [Q4] AS Q4Sales
+FROM (
+    SELECT 
+        s.Region,
+        s.SalesPerson,
+        'Q' + CAST(DATEPART(QUARTER, OrderDate) AS VARCHAR(1)) AS Quarter,
+        TotalAmount
+    FROM Orders o
+    JOIN SalesStaff s ON o.SalesPersonID = s.SalesPersonID
+) AS Source
+PIVOT (
+    SUM(TotalAmount)
+    FOR Quarter IN ([Q1], [Q2], [Q3], [Q4])
+) AS PivotResult
+ORDER BY Region, SalesPerson;
+```
+
+### PIVOT with Calculated Fields
+```sql
+SELECT 
+    CategoryName,
+    ISNULL([2022], 0) AS Revenue2022,
+    ISNULL([2023], 0) AS Revenue2023,
+    ISNULL([2024], 0) AS Revenue2024,
+    ISNULL([2024], 0) - ISNULL([2022], 0) AS GrowthAbsolute,
+    CASE WHEN ISNULL([2022], 0) = 0 THEN 100
+         ELSE (ISNULL([2024], 0) - ISNULL([2022], 0)) * 100.0 / ISNULL([2022], 0)
+    END AS GrowthPercent
+FROM (
+    SELECT 
+        c.CategoryName,
+        YEAR(o.OrderDate) AS OrderYear,
+        od.UnitPrice * od.Quantity AS Revenue
+    FROM OrderDetails od
+    JOIN Products p ON od.ProductID = p.ProductID
+    JOIN Categories c ON p.CategoryID = c.CategoryID
+    JOIN Orders o ON od.OrderID = o.OrderID
+) AS Source
+PIVOT (
+    SUM(Revenue)
+    FOR OrderYear IN ([2022], [2023], [2024])
+) AS PivotResult
+ORDER BY Revenue2024 DESC;
+```
+
+## Complex PIVOT Patterns
+
+### PIVOT with Ranking Within
+```sql
+WITH PivotData AS (
+    SELECT 
+        CategoryName,
+        YEAR(OrderDate) AS OrderYear,
+        TotalAmount
+    FROM Orders o
+    JOIN OrderDetails od ON o.OrderID = od.OrderID
+    JOIN Products p ON od.ProductID = p.ProductID
+    JOIN Categories c ON p.CategoryID = c.CategoryID
+)
+,
+PivotResult AS (
+    SELECT *
+    FROM PivotData
+    PIVOT (
+        SUM(TotalAmount)
+        FOR OrderYear IN ([2022], [2023], [2024])
+    ) AS p
+)
+SELECT 
+    CategoryName,
+    [2022], [2023], [2024],
+    RANK() OVER (ORDER BY ISNULL([2024], 0) DESC) AS Rank2024,
+    RANK() OVER (ORDER BY ISNULL([2023], 0) DESC) AS Rank2023
+FROM PivotResult
+ORDER BY [2024] DESC;
+```
+
+### PIVOT with Running Total
+```sql
+WITH PivotData AS (
+    SELECT 
+        CustomerID,
+        MONTH(OrderDate) AS OrderMonth,
+        TotalAmount
+    FROM Orders
+    WHERE YEAR(OrderDate) = 2024
+)
+,
+MonthlyPivot AS (
+    SELECT *
+    FROM PivotData
+    PIVOT (
+        SUM(TotalAmount)
+        FOR OrderMonth IN ([1], [2], [3], [4], [5], [6], [7], [8], [9], [10], [11], [12])
+    ) AS p
+)
+SELECT 
+    CustomerID,
+    [1] AS Jan, [2] AS Feb, [3] AS Mar,
+    [1] + ISNULL([2], 0) AS Q1,
+    ISNULL([1], 0) + ISNULL([2], 0) + ISNULL([3], 0) + 
+    ISNULL([4], 0) + ISNULL([5], 0) + ISNULL([6], 0) AS H1,
+    SUM(ISNULL([1],0)) OVER (PARTITION BY CustomerID 
+        ORDER BY 1 ROWS UNBOUNDED PRECEDING) AS RunningTotal
+FROM MonthlyPivot
+ORDER BY CustomerID;
+```
+
+## CROSS TAB (Alternative to PIVOT)
+
+### Using CASE + GROUP BY (Manual Pivot)
+```sql
+SELECT 
+    CategoryName,
+    SUM(CASE WHEN YEAR(OrderDate) = 2022 THEN TotalAmount ELSE 0 END) AS [2022],
+    SUM(CASE WHEN YEAR(OrderDate) = 2023 THEN TotalAmount ELSE 0 END) AS [2023],
+    SUM(CASE WHEN YEAR(OrderDate) = 2024 THEN TotalAmount ELSE 0 END) AS [2024]
+FROM Orders o
+JOIN OrderDetails od ON o.OrderID = od.OrderID
+JOIN Products p ON od.ProductID = p.ProductID
+JOIN Categories c ON p.CategoryID = c.CategoryID
+GROUP BY CategoryName
+ORDER BY [2024] DESC;
+```
+
+### CROSS TAB with Multiple Metrics
+```sql
+SELECT 
+    CategoryName,
+    SUM(CASE WHEN YEAR(OrderDate) = 2024 THEN 1 ELSE 0 END) AS OrderCount2024,
+    SUM(CASE WHEN YEAR(OrderDate) = 2024 THEN TotalAmount ELSE 0 END) AS Revenue2024,
+    AVG(CASE WHEN YEAR(OrderDate) = 2024 THEN TotalAmount ELSE NULL END) AS AvgOrder2024,
+    COUNT(DISTINCT CASE WHEN YEAR(OrderDate) = 2024 THEN CustomerID END) AS UniqueCustomers2024
+FROM Orders o
+JOIN OrderDetails od ON o.OrderID = od.OrderID
+JOIN Products p ON od.ProductID = p.ProductID
+JOIN Categories c ON p.CategoryID = c.CategoryID
+GROUP BY CategoryName;
+```
+
+## Common PIVOT/UNPIVOT Use Cases
+
+### Monthly Sales Report
+```sql
+SELECT 
+    ProductName,
+    ISNULL([1], 0) AS Jan, ISNULL([2], 0) AS Feb, ISNULL([3], 0) AS Mar,
+    ISNULL([4], 0) AS Apr, ISNULL([5], 0) AS May, ISNULL([6], 0) AS Jun,
+    ISNULL([7], 0) AS Jul, ISNULL([8], 0) AS Aug, ISNULL([9], 0) AS Sep,
+    ISNULL([10], 0) AS Oct, ISNULL([11], 0) AS Nov, ISNULL([12], 0) AS Dec
+FROM (
+    SELECT ProductName, MONTH(OrderDate) AS OrderMonth, od.UnitPrice * od.Quantity AS Revenue
+    FROM Orders o
+    JOIN OrderDetails od ON o.OrderID = od.OrderID
+    JOIN Products p ON od.ProductID = p.ProductID
+    WHERE YEAR(OrderDate) = 2024
+) AS src
+PIVOT (SUM(Revenue) FOR OrderMonth IN ([1],[2],[3],[4],[5],[6],[7],[8],[9],[10],[11],[12])) AS p
+ORDER BY Jan + Feb + Mar + Apr + May + Jun + Jul + Aug + Sep + Oct + Nov + Dec DESC;
+```
+
+### Customer Activity Matrix
+```sql
+SELECT 
+    CustomerID,
+    CustomerName,
+    ISNULL([Order], 0) AS OrderCount,
+    ISNULL([Shipped], 0) AS ShippedCount,
+    ISNULL([Delivered], 0) AS DeliveredCount,
+    ISNULL([Cancelled], 0) AS CancelledCount,
+    CASE WHEN ISNULL([Delivered], 0) > 0 
+         THEN ISNULL([Delivered], 0) * 100.0 / ISNULL([Order], 1) 
+         ELSE 0 
+    END AS DeliveryRate
+FROM (
+    SELECT c.CustomerID, c.CustomerName, os.StatusName, COUNT(*) AS StatusCount
+    FROM Customers c
+    JOIN Orders o ON c.CustomerID = o.CustomerID
+    JOIN OrderStatus os ON o.StatusID = os.StatusID
+    WHERE YEAR(o.OrderDate) = 2024
+    GROUP BY c.CustomerID, c.CustomerName, os.StatusName
+) AS src
+PIVOT (SUM(StatusCount) FOR StatusName IN ([Order], [Shipped], [Delivered], [Cancelled])) AS p;
+```
+
+## IMPORTANT REMINDERS
+
+1. **NULL Handling**: Always use ISNULL() or COALESCE() to handle missing values in pivot results
+2. **Type Casting**: Pivot results are often VARCHAR - cast to appropriate type for calculations
+3. **Dynamic Columns**: For truly dynamic column lists, use STUFF/FOR XML PATH with sp_executesql
+4. **Performance**: PIVOT can be expensive - consider indexes on columns used for grouping
+5. **Aliases**: Always use meaningful aliases (p, src, pvt) for readability
+6. **Ordering**: Add ORDER BY with calculated totals for meaningful results
