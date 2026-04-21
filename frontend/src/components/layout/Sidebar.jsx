@@ -22,6 +22,7 @@ import {
   DeleteOutlined,
   EditOutlined,
   HolderOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
 import { ResponsiveConversationListSkeleton } from '../common';
 import NotificationBell from '../common/NotificationBell';
@@ -277,7 +278,7 @@ const Sidebar = ({ onConversationSelect, onNewConversation }) => {
       key: 'history',
       label: (
         <span>
-          📋 History
+          <HistoryOutlined /> History
         </span>
       ),
       children: (

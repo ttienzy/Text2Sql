@@ -1,0 +1,196 @@
+# HR FEW-SHOT EXAMPLES
+# Version: 2.0.0
+# Last Updated: 2026-04-21
+# Description: Human Resources analytics and reporting examples
+
+metadata:
+  name: hr-examples
+  version: "2.0.0"
+  category: few-shot
+  domain: Human Resources
+  complexity: medium
+
+examples:
+
+  - id: "hr-001"
+    description: "Headcount by Department"
+    input: |
+      Show current headcount by department
+      - Active employees only
+      - Include male/female breakdown
+    output: |
+      SELECT 
+          d.DepartmentName,
+          COUNT(e.EmployeeID) AS TotalHeadcount,
+          SUM(CASE WHEN e.Gender = 'M' THEN 1 ELSE 0 END) AS MaleCount,
+          SUM(CASE WHEN e.Gender = 'F' THEN 1 ELSE 0 END) AS FemaleCount
+      FROM Employees e
+      JOIN Departments d ON e.DepartmentID = d.DepartmentID
+      WHERE e.Status = 'Active'
+      GROUP BY d.DepartmentID, d.DepartmentName
+      ORDER BY TotalHeadcount DESC;
+
+  - id: "hr-002"
+    description: "Turnover Rate Analysis"
+    input: |
+      Calculate monthly turnover rate
+      - Terminated employees / average headcount
+      - Compare current month vs previous
+    output: |
+      WITH MonthlyHeadcount AS (
+          SELECT 
+              YEAR(h.TransactionDate) AS Year,
+              MONTH(h.TransactionDate) AS Month,
+              SUM(CASE WHEN h.ActionType = 'Hire' THEN 1 ELSE 0 END) AS Hires,
+              SUM(CASE WHEN h.ActionType = 'Terminate' THEN 1 ELSE 0 END) AS Terminations,
+              COUNT(DISTINCT e.EmployeeID) AS Headcount
+          FROM HRTransactions h
+          LEFT JOIN Employees e ON h.EmployeeID = e.EmployeeID
+          GROUP BY YEAR(h.TransactionDate), MONTH(h.TransactionDate)
+      )
+      SELECT 
+          Year,
+          Month,
+          Headcount,
+          Hires,
+          Terminations,
+          LAG(Headcount) OVER (ORDER BY Year, Month) AS PrevMonthHeadcount,
+          CAST(Terminations AS FLOAT) * 100.0 / 
+              NULLIF((Headcount + LAG(Headcount) OVER (ORDER BY Year, Month)) / 2.0, 0) AS TurnoverRate
+      FROM MonthlyHeadcount
+      ORDER BY Year DESC, Month DESC;
+
+  - id: "hr-003"
+    description: "Salary Distribution by Role"
+    input: |
+      Show salary distribution by job title
+      - Include min, max, avg, median
+      - Filter for active employees only
+    output: |
+      SELECT 
+          j.JobTitle,
+          COUNT(*) AS EmployeeCount,
+          MIN(e.Salary) AS MinSalary,
+          AVG(e.Salary) AS AvgSalary,
+          MAX(e.Salary) AS MaxSalary,
+          PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY e.Salary) OVER (PARTITION BY j.JobTitle) AS MedianSalary
+      FROM Employees e
+      JOIN JobTitles j ON e.JobTitleID = j.JobTitleID
+      WHERE e.Status = 'Active'
+      GROUP BY j.JobTitleID, j.JobTitle
+      HAVING COUNT(*) >= 3
+      ORDER BY AvgSalary DESC;
+
+  - id: "hr-004"
+    description: "Tenure Analysis"
+    input: |
+      Analyze employee tenure distribution
+      - Group by tenure buckets (0-1yr, 1-3yr, 3-5yr, 5-10yr, 10+yr)
+      - Show distribution by department
+    output: |
+      SELECT 
+          d.DepartmentName,
+          SUM(CASE WHEN DATEDIFF(YEAR, e.HireDate, GETDATE()) < 1 THEN 1 ELSE 0 END) AS [0-1 Year],
+          SUM(CASE WHEN DATEDIFF(YEAR, e.HireDate, GETDATE()) BETWEEN 1 AND 3 THEN 1 ELSE 0 END) AS [1-3 Years],
+          SUM(CASE WHEN DATEDIFF(YEAR, e.HireDate, GETDATE()) BETWEEN 3 AND 5 THEN 1 ELSE 0 END) AS [3-5 Years],
+          SUM(CASE WHEN DATEDIFF(YEAR, e.HireDate, GETDATE()) BETWEEN 5 AND 10 THEN 1 ELSE 0 END) AS [5-10 Years],
+          SUM(CASE WHEN DATEDIFF(YEAR, e.HireDate, GETDATE()) > 10 THEN 1 ELSE 0 END) AS [10+ Years]
+      FROM Employees e
+      JOIN Departments d ON e.DepartmentID = d.DepartmentID
+      WHERE e.Status = 'Active'
+      GROUP BY d.DepartmentID, d.DepartmentName
+      ORDER BY d.DepartmentName;
+
+  - id: "hr-005"
+    description: "Performance Rating Distribution"
+    input: |
+      Show performance rating distribution
+      - Count of employees per rating
+      - Average rating by department
+    output: |
+      SELECT 
+          pr.RatingName,
+          COUNT(*) AS EmployeeCount,
+          CAST(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER () AS DECIMAL(5,2)) AS Percentage,
+          AVG(p.Score) AS AvgScore
+      FROM PerformanceReviews pr
+      JOIN Employees e ON pr.EmployeeID = e.EmployeeID
+      JOIN Departments d ON e.DepartmentID = d.DepartmentID
+      WHERE pr.ReviewPeriod = '2024-Annual'
+      GROUP BY pr.RatingName
+      ORDER BY pr.SortOrder;
+
+  - id: "hr-006"
+    description: "Leave Balance Report"
+    input: |
+      Show leave balance by employee
+      - Include all leave types
+      - Highlight low balances (< 3 days)
+    output: |
+      SELECT 
+          e.EmployeeID,
+          e.FullName,
+          lt.LeaveTypeName,
+          lt.EntitledDays,
+          ISNULL(USED.UsedDays, 0) AS UsedDays,
+          lt.EntitledDays - ISNULL(USED.UsedDays, 0) AS RemainingDays,
+          CASE 
+              WHEN lt.EntitledDays - ISNULL(USED.UsedDays, 0) < 3 THEN '⚠️ Low Balance'
+              ELSE '✓ OK'
+          END AS Status
+      FROM Employees e
+      CROSS JOIN LeaveTypes lt
+      LEFT JOIN (
+          SELECT EmployeeID, LeaveTypeID, SUM(Days) AS UsedDays
+          FROM LeaveRequests
+          WHERE Status = 'Approved'
+          GROUP BY EmployeeID, LeaveTypeID
+      ) USED ON e.EmployeeID = USED.EmployeeID AND lt.LeaveTypeID = USED.LeaveTypeID
+      WHERE e.Status = 'Active'
+      ORDER BY e.FullName, lt.LeaveTypeName;
+
+  - id: "hr-007"
+    description: "Hiring Pipeline Analysis"
+    input: |
+      Track hiring pipeline by stage
+      - Applications to offers conversion
+      - Time to fill by department
+    output: |
+      SELECT 
+          d.DepartmentName,
+          SUM(CASE WHEN hs.StageName = 'Applied' THEN 1 ELSE 0 END) AS Applications,
+          SUM(CASE WHEN hs.StageName = 'Screened' THEN 1 ELSE 0 END) AS Screened,
+          SUM(CASE WHEN hs.StageName = 'Interviewed' THEN 1 ELSE 0 END) AS Interviewed,
+          SUM(CASE WHEN hs.StageName = 'Offered' THEN 1 ELSE 0 END) AS Offered,
+          SUM(CASE WHEN hs.StageName = 'Hired' THEN 1 ELSE 0 END) AS Hired,
+          AVG(DATEDIFF(DAY, hs.CreatedDate, hs.ClosedDate)) AS AvgDaysToFill
+      FROM HiringPipeline hp
+      JOIN HiringStages hs ON hp.ApplicationID = hs.ApplicationID
+      JOIN Positions p ON hp.PositionID = p.PositionID
+      JOIN Departments d ON p.DepartmentID = d.DepartmentID
+      WHERE YEAR(hp.CreatedDate) = 2024
+      GROUP BY d.DepartmentID, d.DepartmentName
+      ORDER BY Hired DESC;
+
+  - id: "hr-008"
+    description: "Training Completion Analysis"
+    input: |
+      Show training completion by department
+      - Required vs optional courses
+      - Completion rate
+    output: |
+      SELECT 
+          d.DepartmentName,
+          tc.CourseName,
+          COUNT(DISTINCT e.EmployeeID) AS TotalAssigned,
+          SUM(CASE WHEN tc.IsRequired = 1 AND tc.Status = 'Completed' THEN 1 ELSE 0 END) AS RequiredCompleted,
+          SUM(CASE WHEN tc.IsRequired = 0 AND tc.Status = 'Completed' THEN 1 ELSE 0 END) AS OptionalCompleted,
+          CAST(SUM(CASE WHEN tc.Status = 'Completed' THEN 1 ELSE 0 END) * 100.0 / 
+              NULLIF(COUNT(*), 0) AS DECIMAL(5,2)) AS CompletionRate,
+          AVG(DATEDIFF(DAY, tc.AssignedDate, tc.CompletedDate)) AS AvgDaysToComplete
+      FROM TrainingCourses tc
+      JOIN Employees e ON tc.EmployeeID = e.EmployeeID
+      JOIN Departments d ON e.DepartmentID = d.DepartmentID
+      WHERE YEAR(tc.AssignedDate) = 2024
+      GROUP BY d.DepartmentID, d.DepartmentName, tc.CourseID, tc.CourseName
+      ORDER BY d.DepartmentName, CompletionRate ASC;

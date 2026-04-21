@@ -78,6 +78,24 @@ public class KeywordSchemaRetriever
         {
             context.RelevantTables.Add(table);
             context.TableColumns[table.TableName] = table.Columns;
+
+            var score = tableScores.TryGetValue(table, out var tableScore)
+                ? tableScore
+                : 1;
+
+            var match = new SchemaMatch
+            {
+                Type = "table",
+                ElementType = "table",
+                TableName = table.TableName,
+                ElementName = table.TableName,
+                Score = score,
+                Content = $"Table: {table.TableName}"
+            };
+
+            context.Matches.Add(match);
+            context.SchemaMatches.Add(match);
+            context.ElementScores[$"table:{table.TableName}"] = score;
         }
 
         // Add relationships between relevant tables
@@ -91,6 +109,24 @@ public class KeywordSchemaRetriever
             if (relevantTableNames.Contains(fromTable) && relevantTableNames.Contains(toTable))
             {
                 context.RelevantRelationships.Add(rel);
+
+                var relationshipKey = $"{rel.FromTable}.{rel.FromColumn}->{rel.ToTable}.{rel.ToColumn}";
+                if (!context.Matches.Any(m => m.ElementType == "relationship" && m.ElementName == relationshipKey))
+                {
+                    var match = new SchemaMatch
+                    {
+                        Type = "relationship",
+                        ElementType = "relationship",
+                        TableName = rel.FromTable,
+                        ElementName = relationshipKey,
+                        Score = 1,
+                        Content = relationshipKey
+                    };
+
+                    context.Matches.Add(match);
+                    context.SchemaMatches.Add(match);
+                    context.ElementScores[$"relationship:{relationshipKey}"] = 1;
+                }
             }
         }
 

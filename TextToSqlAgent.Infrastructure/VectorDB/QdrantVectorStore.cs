@@ -25,6 +25,13 @@ public class QdrantVectorStore : IVectorStore
     {
         try
         {
+            var collectionExists = await _qdrantService.CollectionExistsAsync(cancellationToken);
+            if (!collectionExists)
+            {
+                _logger.LogDebug("[QdrantVectorStore] Collection '{Collection}' does not exist", _qdrantService.GetCurrentCollectionName());
+                return false;
+            }
+
             // Try to get point count as health check
             await _qdrantService.GetPointCountAsync(cancellationToken);
             return true;

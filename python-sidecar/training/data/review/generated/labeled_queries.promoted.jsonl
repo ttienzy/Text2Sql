@@ -1,0 +1,374 @@
+{"query": "average delivery time last week", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "average order value", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "average time to process orders", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "bao nhiêu sản phẩm đang active", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "bao nhiêu đơn hàng chưa giao", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "calculate total expenses", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "chi phí trung bình mỗi đơn hàng", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "cho tôi xem top 10 khách hàng có số tiền mua hàng lớn nhất", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "conversion rate this month", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "count all active customers", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "count distinct cities in customer base", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "count orders by status", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "cumulative revenue", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "có bao nhiêu nhân viên", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "doanh thu cao nhất ngày nào", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "doanh thu theo quý", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "doanh thu theo tháng", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "doanh thu trung bình mỗi ngày", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "group by category and count", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "growth rate month over month", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "how many products do we have", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "lấy ra 5 sản phẩm bán ít nhất quý này", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "max salary in the company", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "median order value", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "minimum price product", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "monthly sales comparison", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "mỗi tháng có bao nhiêu đơn hàng mới", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "net profit this year", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "percentage of completed orders", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "phân tích xu hướng bán hàng", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "phần trăm đơn hàng hoàn trả", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "profit margin by product category", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "report on quarterly performance", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "revenue breakdown by city", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "revenue this quarter compared to last quarter", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "so sánh doanh thu 2 quý gần nhất", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "so sánh doanh thu giữa 2 cửa hàng", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "standard deviation of prices", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "sum of sales by region", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "số lượng sản phẩm theo danh mục", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "số lượng sản phẩm tồn kho", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "thống kê doanh số theo nhân viên", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "thống kê số đơn hàng theo trạng thái", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "thống kê theo tháng năm 2025", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "top 5 best selling products", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "top customers by lifetime value", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "total discount given", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "total number of unique customers per month", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "total revenue for Q1 2025", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "total units sold by brand", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "trung bình giá sản phẩm", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "trung bình số ngày giao hàng", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "trung bình đánh giá sản phẩm", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tính tổng chi phí nhân sự tháng 3", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tỉ lệ chuyển đổi đơn hàng", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tổng chi phí vận chuyển tháng trước", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tổng cộng giá trị nhập kho", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tổng doanh thu tháng này", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tổng giá trị hàng tồn kho", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tổng hợp doanh thu mỗi chi nhánh", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tổng hợp số liệu bán hàng", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tổng số tiền khách hàng nợ", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tổng số đơn hàng trong năm", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tổng tiền thanh toán hôm nay", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "what percentage of orders were returned", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "year over year growth", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "đếm số khách hàng mới", "intent": "AGGREGATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "báo cáo", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "bảng hàng", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "can you help", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "check", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "cái gì vậy", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "cập nhật", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "data", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "do something with orders", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "dữ liệu", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "gì", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "help", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "help me with this", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "hãy giúp tôi với bảng này", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "I need some data", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "liên quan đến sản phẩm", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "làm gì đó với khách hàng", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "order stuff", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "process this", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "show me something", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "something about customers", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "sản phẩm gì đó", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "thông tin", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "thử xem", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tôi cần", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tôi muốn xem dữ liệu gì đó", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "về đơn hàng", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "what", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xem", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xử lý", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xử lý đơn hàng", "intent": "AMBIGUOUS", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "add foreign key constraint", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "add partition to table", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "alter column price to decimal", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "alter database set recovery full", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "alter table add constraint", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "alter table drop column old_field", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "alter table products add column weight", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "create function to calculate tax", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "create index on orders table", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "create schema analytics", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "create table new_reports", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "create trigger for audit logging", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "create unique index on email column", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "create view for monthly report", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "drop all tables", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "drop column deprecated_field", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "drop database test_db", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "drop function old_calculate", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "drop index idx_customer_name", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "drop schema test", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "drop table customers", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "drop view sales_summary", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "grant permissions on table", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "modify column data type", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "modify table structure", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "remove primary key from table", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "rename table old_name to new_name", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "revoke access from user", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "thay đổi collation của database", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "thay đổi cấu trúc bảng", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "thay đổi kiểu dữ liệu cột price", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "thêm cột mới vào bảng orders", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "truncate all data", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "truncate table logs", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tạo bảng mới cho báo cáo", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tạo index cho bảng orders", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tạo stored procedure mới", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xóa bảng customers", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xóa trigger cũ", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xóa view báo cáo cũ", "intent": "DDL", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "bảng gì lưu thông tin nhân viên", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "bảng nào chứa thông tin khách hàng", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "bảng nào có nhiều record nhất", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "bảng nào có trường email", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "bảng nào liên quan đến sản phẩm", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "bảng nào lưu trữ log hệ thống", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "column types in orders table", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "có những bảng nào trong database", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "cấu trúc bảng đơn hàng", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "cột nào trong bảng customers", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "database có bao nhiêu bảng", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "describe columns of inventory table", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "describe the orders table", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "ERD diagram of the database", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "explain the table structure", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "foreign key của bảng orders", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "giải thích cấu trúc database", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "giải thích mối quan hệ các bảng", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "how are tables connected", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "how is the employee table structured", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "index nào đang có trên bảng customers", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "kiểu dữ liệu các cột trong bảng products", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "list all tables", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "liên kết giữa bảng products và categories", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "liệt kê tất cả constraint trên bảng products", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "mô tả bảng orders", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "nullable columns in customers table", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "primary key của bảng nào", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "quan hệ giữa bảng khách hàng và đơn hàng", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "show foreign key relationships", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "show me table names and their row counts", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "show me the database diagram", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "show me the schema", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "stored procedures trong database", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "table structure for users", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "what are the relationships between tables", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "what columns does the products table have", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "what constraints exist on orders table", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "what is the data type of column price", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "what tables are in the database", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "what views are available", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "which tables reference the users table", "intent": "SCHEMA_QUERY", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "chi tiết giao dịch thanh toán", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "chi tiết sản phẩm kèm thông tin nhà cung cấp", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "cho tôi danh sách đơn hàng hôm nay", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "cho tôi thông tin khuyến mãi đang chạy", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "cho tôi xem thông tin kho hàng", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "cho xem danh sách category", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "customer purchase history with amounts", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "customers who haven't ordered in 30 days", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "các sản phẩm có khuyến mãi", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "danh sách nhân viên phòng kế toán", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "danh sách phiếu nhập kho", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "danh sách phòng ban", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "display all active accounts", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "display inactive users", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "employee list with department names", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "employees on leave today", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "fetch all orders placed yesterday", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "find duplicate customer records", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "find employees who joined in 2024", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "find orders with issues", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "find products with low stock", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "get all suppliers from Vietnam", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "get employee attendance records", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "get order details for order 5678", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "get payment history", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "get supplier contact information", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "get user profile for admin", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "hiển thị thông tin sản phẩm có mã SP001", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "hóa đơn chưa xuất", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "invoices with payment status", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "khách hàng nào đặt hàng nhiều nhất", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "khách hàng VIP", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "khách hàng đăng ký tháng này", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "khách hàng ở TP.HCM", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "list all categories and subcategories", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "list all products with price greater than 100", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "list all returns this month", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "list pending deliveries", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "liệt kê tất cả khách hàng", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "lấy danh sách coupon đang hoạt động", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "lấy danh sách review sản phẩm", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "lấy danh sách đơn hàng cùng với tên khách hàng", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "lấy thông tin hóa đơn tháng 3", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "lịch sử đặt hàng khách hàng id 15", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "nhân viên có lương cao nhất", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "nhân viên có thâm niên trên 5 năm", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "nhân viên mới tuyển tháng trước", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "nhân viên nào quản lý phòng ban nào", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "order tracking details", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "orders along with customer details", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "orders shipped to Da Nang", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "orders with discount applied", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "pending approval requests", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "products by brand Apple", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "products never purchased", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "products with rating above 4 stars", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "products with their category names", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "recent customer registrations", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "retrieve product catalog", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "select customers where city is Hanoi", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "show all customers", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "show all transactions for account 123", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "show customers with outstanding balance", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "show me orders from last week", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "show me the latest invoices", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "show warehouse inventory", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "supplier list with product count", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "sản phẩm bán chạy", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "sản phẩm hết hàng", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "sản phẩm mới nhập", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "sản phẩm trong danh mục điện tử", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "thông tin chi nhánh Hà Nội", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tìm khách hàng tên Nguyễn Văn A", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tìm kiếm nhà cung cấp theo tên", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tìm sản phẩm giá trên 500 nghìn", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tìm đơn hàng có giá trị lớn hơn 10 triệu", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "view shipping addresses", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "view tax invoices", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "what orders are in processing", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "which products are on sale", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "who are the top sellers", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xem bảng giá hiện tại", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xem chi tiết đơn hàng số 1234", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xem lịch sử mua hàng của khách hàng id 42", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xem thông tin vận chuyển đơn hàng 789", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "đơn hàng bị hủy", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "đơn hàng chưa thanh toán", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "đơn hàng của khách hàng VIP kèm tổng tiền", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "đơn hàng tuần này", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "đơn hàng đang giao", "intent": "SELECT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "clean up temporary data", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "delete all records older than 2 years", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "delete blacklisted users", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "delete customer with id 10", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "delete duplicate records", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "delete old log entries", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "delete order number 5678", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "delete supplier who no longer works with us", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "delete đơn hàng số 5678", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "erase all test data", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "hủy đơn hàng đang chờ xử lý", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "loại bỏ nhân viên đã nghỉ việc", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "loại bỏ sản phẩm lỗi khỏi danh sách", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "remove cancelled orders", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "remove expired products", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "remove expired promotions", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "remove expired sessions", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "remove inactive employees", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "remove product from catalog", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "remove test accounts from production", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xoá comment spam", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xoá dữ liệu log cũ", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xoá sản phẩm hết hạn", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xoá sản phẩm đã ngừng kinh doanh", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xoá địa chỉ giao hàng cũ", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xóa bỏ khách hàng không còn hoạt động", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xóa bỏ phiếu nhập cũ", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xóa coupon hết hạn", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xóa các bản ghi trùng lặp", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xóa danh mục trống", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xóa khách hàng id 10", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xóa lịch sử chat cũ hơn 30 ngày", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xóa tài khoản không hoạt động", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xóa tất cả đơn hàng test", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "xóa đánh giá vi phạm", "intent": "WRITE_DELETE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "add a new shipping address for customer 7", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "add a review for product 42", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "add employee to sales department", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "add new branch office in Da Nang", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "add new category electronics", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "add new customer named John", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "add new payment record", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "chèn dữ liệu vào bảng categories", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "create a new discount code", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "create new order for customer 10", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "insert a new product with price 500", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "insert into orders values", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "insert new record into suppliers", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "insert new warehouse location", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "insert payment method credit card", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "insert sản phẩm mới vào bảng products", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "nhập kho 100 sản phẩm mới", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "nhập thêm sản phẩm mới", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "register a new warehouse location", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "register new customer with email user@example.com", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "register new supplier from Japan", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "thêm danh mục điện thoại", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "thêm khách hàng mới tên Trần Văn B", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "thêm mới chi nhánh tại Đà Nẵng", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "thêm mới khuyến mãi 50% cho sản phẩm A", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "thêm mới một nhà cung cấp", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "thêm nhân viên mới vào phòng kinh doanh", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "thêm review 5 sao cho sản phẩm id 99", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "thêm vào bảng hóa đơn", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tạo mới tài khoản admin", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tạo mới đơn hàng cho khách hàng id 5", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tạo phiếu nhập kho mới", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tạo tài khoản nhân viên mới", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "tạo đơn hàng mới với 3 sản phẩm", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "đăng ký sản phẩm mới vào hệ thống", "intent": "WRITE_INSERT", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "change category name", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "change product price to 999", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "change shipping method to express", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "chuyển trạng thái khách hàng sang VIP", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "chỉnh sửa thông tin địa chỉ khách hàng", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "cập nhật email khách hàng id 5", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "cập nhật giảm giá 20% cho tất cả sản phẩm", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "cập nhật lương nhân viên", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "cập nhật thông tin công ty nhà cung cấp", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "cập nhật thông tin liên hệ", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "edit supplier contact info", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "giúp tôi sửa địa chỉ khách hàng", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "hãy cập nhật email", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "hãy sửa lại giá trị đơn hàng này", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "mark order as delivered", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "merge these two customer records", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "modify order status to shipped", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "please change the password for user admin", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "please update the shipping address", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "set all inactive products to archived", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "set employee salary to 15000", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "set order priority to high", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "sửa giá sản phẩm SP001 thành 500000", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "sửa lại ngày hết hạn coupon", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "sửa số lượng tồn kho sản phẩm", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "thay đổi phương thức thanh toán", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "thay đổi trạng thái đơn hàng thành đã giao", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "update customer email to new@email.com", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "update customer tier to Gold", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "update inventory count for warehouse A", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "update mật khẩu tài khoản", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "update product stock quantity", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "update số điện thoại nhân viên NV003", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "đánh dấu đơn hàng này là đã hoàn thành", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}
+{"query": "đổi tên danh mục thành Công nghệ", "intent": "WRITE_UPDATE", "conversation_context": null, "database_context": null, "previous_intent": null, "context_turn": null}

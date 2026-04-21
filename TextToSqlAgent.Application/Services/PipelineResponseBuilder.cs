@@ -48,6 +48,8 @@ public class PipelineResponseBuilder
                 ContextEntities = agentResponse.ContextEntities,
                 PrimaryEntity = agentResponse.PrimaryEntity,
                 PronounsResolved = agentResponse.PronounsResolved,
+                ChartImageBase64 = agentResponse.ChartImageBase64,
+                ChartType = agentResponse.ChartType,
                 ResultId = resultId,  // ✅ For pagination
                 HasMore = hasMore     // ✅ For lazy loading
             },

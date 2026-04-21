@@ -46,4 +46,11 @@
     <ProjectReference Include="..\TextToSqlAgent.Plugins\TextToSqlAgent.Plugins.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\Prompts\v2.0\**\*">
+      <Link>Prompts\v2.0\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

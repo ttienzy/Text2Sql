@@ -5,7 +5,6 @@ using Microsoft.Extensions.Logging;
 using TextToSqlAgent.Core.Enums;
 using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Models;
-using TextToSqlAgent.Infrastructure.Prompts;
 
 namespace TextToSqlAgent.Infrastructure.Database.Adapters.SqlServer;
 
@@ -76,16 +75,6 @@ public class SqlServerAdapter : IDatabaseAdapter
     public string GetSafeIdentifier(string identifier)
     {
         return $"[{identifier}]";
-    }
-
-    public string GetSystemPrompt()
-    {
-        return SqlGenerationPrompt.SystemPrompt;
-    }
-
-    public string GetCorrectionSystemPrompt()
-    {
-        return SqlCorrectionPrompt.SystemPrompt;
     }
 
     public string ApplyLimit(string sql, int limit)

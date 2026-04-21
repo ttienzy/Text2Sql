@@ -1,0 +1,45 @@
+{
+  "review_dir": "D:\\DACN1\\TextToSqlAgent\\python-sidecar\\training\\data\\review",
+  "files_checked": 2,
+  "overall_valid": true,
+  "results": [
+    {
+      "file": "contextual_followups_v1.jsonl",
+      "total_records": 20,
+      "counts_by_intent": {
+        "AGGREGATE": 4,
+        "AMBIGUOUS": 4,
+        "DDL": 2,
+        "SELECT": 4,
+        "WRITE_DELETE": 3,
+        "WRITE_UPDATE": 3
+      },
+      "counts_by_status": {
+        "pending_review": 20
+      },
+      "duplicates": [],
+      "canonical_conflicts": [],
+      "internal_conflicts": [],
+      "errors": [],
+      "valid": true
+    },
+    {
+      "file": "enterprise_risky_intents_v1.jsonl",
+      "total_records": 42,
+      "counts_by_intent": {
+        "AMBIGUOUS": 12,
+        "DDL": 10,
+        "WRITE_DELETE": 10,
+        "WRITE_UPDATE": 10
+      },
+      "counts_by_status": {
+        "pending_review": 42
+      },
+      "duplicates": [],
+      "canonical_conflicts": [],
+      "internal_conflicts": [],
+      "errors": [],
+      "valid": true
+    }
+  ]
+}

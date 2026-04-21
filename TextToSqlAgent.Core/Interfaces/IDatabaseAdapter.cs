@@ -18,9 +18,5 @@ public interface IDatabaseAdapter
     
     string GetSafeIdentifier(string identifier);
 
-    string GetSystemPrompt();
-
-    string GetCorrectionSystemPrompt();
-
     string ApplyLimit(string sql, int limit);
 }

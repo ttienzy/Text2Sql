@@ -1,0 +1,136 @@
+# QUERY OPTIMIZATION PROMPT
+# Version: 2.0.0
+# Last Updated: 2026-04-21
+
+metadata:
+  name: query-optimization
+  version: "2.0.0"
+  category: optimizer
+  description: "Optimize SQL Server queries based on execution plan analysis"
+
+variables:
+  - name: execution_plan_available
+    type: boolean
+    required: true
+  - name: execution_plan_cost
+    type: number
+    required: false
+  - name: execution_plan_rows
+    type: number
+    required: false
+  - name: context_sections
+    type: string
+    required: false
+  - name: original_sql
+    type: string
+    required: true
+  - name: compatibility_level
+    type: integer
+    required: false
+  - name: psp_active
+    type: boolean
+    required: false
+
+system_template: |
+  SYSTEM: Bạn là chuyên gia tối ưu hóa T-SQL với kiến thức DBA senior-level. 
+  Luôn phân tích dựa trên DATA THỰC từ execution plan và column statistics, 
+  KHÔNG đưa ra recommendations mơ hồ.
+
+prompt_template: |
+  ========================================
+  📊 EXECUTION PLAN ANALYSIS (ORIGINAL QUERY)
+  
+  Plan available: {{execution_plan_available}}
+  Estimated Cost: {{execution_plan_cost}}
+  Estimated Rows: {{execution_plan_rows}}
+  
+  {{#if context_sections}}
+  {{context_sections}}
+  {{/if}}
+  
+  ========================================
+  📝 QUERY GỐC
+  
+  {{original_sql}}
+  
+  ========================================
+  🗄️ DATABASE CONTEXT
+  
+  {{#if compatibility_level}}
+  SQL Server Compatibility Level: {{compatibility_level}}
+  PSP Optimization Active: {{psp_active}}
+  {{/if}}
+  
+  ========================================
+  🎯 NHIỆM VỤ
+  
+  Tối ưu hóa query theo thứ tự ưu tiên:
+  
+  1. **EXECUTION PLAN WARNINGS** (cao nhất):
+     - Resolve tất cả Critical/High warnings trước
+     - Fix implicit conversions (allow index seek)
+     - Implement missing index recommendations nếu Impact > 20%
+  
+  2. **SARGABILITY** (Critical):
+     - Rewrite WHERE clause để dùng index seek
+     - Không dùng function trên indexed columns
+  
+  3. **DATA SKEW** (nếu applicable):
+     - Nếu compat_level >= 160: PSP đã handle, chỉ ensure Query Store enabled
+     - Nếu compat_level < 160: Recommend OPTION(OPTIMIZE FOR UNKNOWN)
+     - Filtered index cho minority values
+  
+  4. **JOIN OPTIMIZATION**:
+     - Replace scalar subquery với JOIN
+     - OR chain → IN clause
+  
+  5. **CODE QUALITY**:
+     - SELECT * → explicit columns
+     - Missing schema prefix → dbo.TableName
+
+output:
+  format: "json"
+  schema:
+    optimized_sql: "string"
+    is_changed: "boolean"
+    severity: "string"  # critical|warning|ok
+    issues_fixed: "string[]"
+    explanation: "string"
+    estimated_improvement: "string"
+    index_suggestions: "string[]"
+    data_skew_notes: "string"
+    psp_recommendation: "string"
+  markdown: false
+
+rules:
+  - name: "semantic_preservation"
+    description: "Không thay đổi query semantics — kết quả phải identical"
+  - name: "no_unnecessary_changes"
+    description: "Nếu không cần optimize: is_changed = false"
+  - name: "evidence_based"
+    description: "Estimates phải dựa trên execution plan metrics thực tế"
+  - name: "priority_order"
+    description: "Ưu tiên fixes có impact cao nhất trước"
+
+severity_values:
+  - "critical"  # Major performance issues, must fix
+  - "warning"  # Minor issues, recommend fix
+  - "ok"       # No changes needed
+
+validation:
+  required_fields:
+    - optimized_sql
+    - is_changed
+    - severity
+  severity_values: ["critical", "warning", "ok"]
+  max_sql_length: 50000
+
+version_history:
+  - version: "1.0"
+    changes: "Initial version with basic optimization rules"
+  - version: "2.0"
+    changes:
+      - "Added PSP awareness for SQL Server 2022+"
+      - "Dynamic priority-based optimization"
+      - "Evidence-based improvement estimation"
+      - "Better context sections structure"

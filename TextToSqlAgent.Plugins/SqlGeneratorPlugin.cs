@@ -13,15 +13,18 @@ public class SqlGeneratorPlugin
 {
     private readonly ILLMClient _llmClient;
     private readonly IDatabaseAdapter _adapter;
+    private readonly PromptRegistry _promptRegistry;
     private readonly ILogger<SqlGeneratorPlugin> _logger;
 
     public SqlGeneratorPlugin(
         ILLMClient llmClient,
         IDatabaseAdapter adapter,
+        PromptRegistry promptRegistry,
         ILogger<SqlGeneratorPlugin> logger)
     {
         _llmClient = llmClient;
         _adapter = adapter;
+        _promptRegistry = promptRegistry;
         _logger = logger;
     }
 
@@ -37,17 +40,21 @@ public class SqlGeneratorPlugin
 
         var schemaContext = BuildSchemaContext(intent.Target, schema);
 
-        var userPrompt = SqlGenerationPrompt.BuildUserPrompt(
-            intent.Intent.ToString(),
-            intent.Target,
-            schemaContext,
-            intent.Filters.Select(f => $"{f.Field} {f.Operator} {ConvertFilterValue(f.Value)}").ToList(),
-            intent.Metrics.Select(m => $"{m.Alias}: {m.Calculation}").ToList(),
-            originalQuestion,
-            intent.SelectColumns);
+        var extraVariables = new Dictionary<string, object>
+        {
+            { "original_question", originalQuestion ?? "" },
+            { "intent", intent.Intent.ToString() },
+            { "target", intent.Target },
+            { "filters", string.Join("\n", intent.Filters.Select(f => $"- {f.Field} {f.Operator} {ConvertFilterValue(f.Value)}")) },
+            { "metrics", string.Join("\n", intent.Metrics.Select(m => $"- {m.Alias}: {m.Calculation}")) },
+            { "select_columns", string.Join(", ", intent.SelectColumns) }
+        };
 
-        // Use adapter's database-specific system prompt
-        var systemPrompt = _adapter.GetSystemPrompt();
+        var (systemPrompt, userPrompt) = _promptRegistry.BuildSqlGenerationPrompt(
+            originalQuestion ?? "",
+            schemaContext,
+            new List<string>(),
+            extraVariables);
 
         var sql = await _llmClient.CompleteWithSystemPromptAsync(
             systemPrompt,
@@ -302,19 +309,30 @@ public class SqlGeneratorPlugin
 
         var schemaContextText = BuildEnhancedSchemaContext(schemaContext);
 
-        var userPrompt = SqlGenerationPrompt.BuildUserPromptWithSuggestions(
-            intent.Intent.ToString(),
-            intent.Target,
-            schemaContextText,
-            intent.Filters.Select(f => $"{f.Field} {f.Operator} {ConvertFilterValue(f.Value)}").ToList(),
-            intent.Metrics.Select(m => $"{m.Alias}: {m.Calculation}").ToList(),
-            originalQuestion,
-            intent.SelectColumns,
-            conversationHistory,
-            structuredConversationContext);
+        var extraVariables = new Dictionary<string, object>
+        {
+            { "original_question", originalQuestion ?? "" },
+            { "intent", intent.Intent.ToString() },
+            { "target", intent.Target },
+            { "filters", string.Join("\n", intent.Filters.Select(f => $"- {f.Field} {f.Operator} {ConvertFilterValue(f.Value)}")) },
+            { "metrics", string.Join("\n", intent.Metrics.Select(m => $"- {m.Alias}: {m.Calculation}")) },
+            { "select_columns", string.Join(", ", intent.SelectColumns) }
+        };
 
-        // Use enhanced system prompt for JSON output
-        var systemPrompt = SqlGenerationPrompt.SystemPromptWithSuggestions;
+        if (conversationHistory != null)
+        {
+            extraVariables["conversation_history"] = conversationHistory;
+        }
+        if (!string.IsNullOrEmpty(structuredConversationContext))
+        {
+            extraVariables["structured_conversation_context"] = structuredConversationContext;
+        }
+
+        var (systemPrompt, userPrompt) = _promptRegistry.BuildSqlGenerationPromptWithSuggestions(
+            originalQuestion ?? "",
+            schemaContextText,
+            new List<string>(),
+            extraVariables);
 
         var response = await _llmClient.CompleteWithSystemPromptAsync(
             systemPrompt,
@@ -365,18 +383,30 @@ public class SqlGeneratorPlugin
 
         var schemaContextText = BuildEnhancedSchemaContext(schemaContext);
 
-        var userPrompt = SqlGenerationPrompt.BuildUserPromptWithSuggestions(
-            intent.Intent.ToString(),
-            intent.Target,
-            schemaContextText,
-            intent.Filters.Select(f => $"{f.Field} {f.Operator} {ConvertFilterValue(f.Value)}").ToList(),
-            intent.Metrics.Select(m => $"{m.Alias}: {m.Calculation}").ToList(),
-            originalQuestion,
-            intent.SelectColumns,
-            conversationHistory,
-            structuredConversationContext);
+        var extraVariables = new Dictionary<string, object>
+        {
+            { "original_question", originalQuestion ?? "" },
+            { "intent", intent.Intent.ToString() },
+            { "target", intent.Target },
+            { "filters", string.Join("\n", intent.Filters.Select(f => $"- {f.Field} {f.Operator} {ConvertFilterValue(f.Value)}")) },
+            { "metrics", string.Join("\n", intent.Metrics.Select(m => $"- {m.Alias}: {m.Calculation}")) },
+            { "select_columns", string.Join(", ", intent.SelectColumns) }
+        };
 
-        var systemPrompt = SqlGenerationPrompt.SystemPromptWithSuggestions;
+        if (conversationHistory != null)
+        {
+            extraVariables["conversation_history"] = conversationHistory;
+        }
+        if (!string.IsNullOrEmpty(structuredConversationContext))
+        {
+            extraVariables["structured_conversation_context"] = structuredConversationContext;
+        }
+
+        var (systemPrompt, userPrompt) = _promptRegistry.BuildSqlGenerationPromptWithSuggestions(
+            originalQuestion ?? "",
+            schemaContextText,
+            new List<string>(),
+            extraVariables);
 
         // ✅ Use streaming API with token callback
         var response = await _llmClient.CompleteWithSystemPromptStreamAsync(

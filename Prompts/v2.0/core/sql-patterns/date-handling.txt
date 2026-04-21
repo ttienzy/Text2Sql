@@ -1,0 +1,240 @@
+# DATE/TIME HANDLING PATTERNS
+# Version: 2.0.0
+# Last Updated: 2026-04-21
+
+## BASIC DATE FUNCTIONS
+
+### Today (Date Only, No Time)
+```sql
+CAST(GETDATE() AS DATE)
+```
+
+### Start of Current Month
+```sql
+DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE()), 0)
+-- Alternative (SQL Server 2012+)
+DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1)
+```
+
+### End of Current Month
+```sql
+DATEADD(DAY, -1, DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE()) + 1, 0))
+-- Alternative
+EOMONTH(GETDATE())
+```
+
+### Start of Current Year
+```sql
+DATEFROMPARTS(YEAR(GETDATE()), 1, 1)
+```
+
+### End of Current Year
+```sql
+DATEFROMPARTS(YEAR(GETDATE()), 12, 31)
+```
+
+## RELATIVE DATE PATTERNS
+
+### Last N Days
+```sql
+DATEADD(DAY, -30, GETDATE())  -- Last 30 days
+DATEADD(DAY, -7, GETDATE())   -- Last 7 days
+```
+
+### Last N Months (Rolling)
+```sql
+DATEADD(MONTH, -12, GETDATE())  -- Last 12 months
+```
+
+### Same Day Last Year
+```sql
+DATEADD(YEAR, -1, GETDATE())
+```
+
+### Week Boundaries
+```sql
+-- Start of current week (Monday)
+DATEADD(DAY, - (DATEPART(WEEKDAY, GETDATE()) - 1), CAST(GETDATE() AS DATE))
+
+-- End of current week (Sunday)
+DATEADD(DAY, 7 - DATEPART(WEEKDAY, GETDATE()), CAST(GETDATE() AS DATE))
+```
+
+## FISCAL YEAR PATTERNS
+
+### Fiscal Year Starting April
+```sql
+CASE 
+    WHEN MONTH(GETDATE()) >= 4 
+    THEN DATEFROMPARTS(YEAR(GETDATE()), 4, 1)
+    ELSE DATEFROMPARTS(YEAR(GETDATE())-1, 4, 1)
+END
+```
+
+### Fiscal Quarter
+```sql
+CASE 
+    WHEN MONTH(GETDATE()) BETWEEN 4 AND 6 THEN 1
+    WHEN MONTH(GETDATE()) BETWEEN 7 AND 9 THEN 2
+    WHEN MONTH(GETDATE()) BETWEEN 10 AND 12 THEN 3
+    ELSE 4
+END
+```
+
+### Fiscal Quarter from Date
+```sql
+CASE 
+    WHEN MONTH(OrderDate) BETWEEN 4 AND 6 THEN 1
+    WHEN MONTH(OrderDate) BETWEEN 7 AND 9 THEN 2
+    WHEN MONTH(OrderDate) BETWEEN 10 AND 12 THEN 3
+    ELSE 4
+END AS FiscalQuarter
+```
+
+## DATE COMPONENTS
+
+### Year
+```sql
+YEAR(GETDATE())
+YEAR(OrderDate) AS OrderYear
+```
+
+### Month
+```sql
+MONTH(GETDATE())
+MONTH(OrderDate) AS OrderMonth
+```
+
+### Quarter
+```sql
+DATEPART(QUARTER, GETDATE())
+DATEPART(QUARTER, OrderDate) AS OrderQuarter
+```
+
+### Week
+```sql
+DATEPART(WEEK, GETDATE())
+DATEPART(ISOWEEK, GETDATE())  -- ISO Week (SQL Server 2012+)
+```
+
+### Day of Week (1=Sunday, 7=Saturday)
+```sql
+DATEPART(WEEKDAY, GETDATE())
+```
+
+### Day of Year
+```sql
+DATEPART(DAYOFYEAR, GETDATE())
+```
+
+## DATE DIFFERENCES
+
+### Days Between Dates
+```sql
+DATEDIFF(DAY, StartDate, EndDate)
+DATEDIFF(DAY, OrderDate, GETDATE()) AS DaysSinceOrder
+```
+
+### Months Between Dates
+```sql
+DATEDIFF(MONTH, StartDate, EndDate)
+```
+
+### Years Between Dates
+```sql
+DATEDIFF(YEAR, BirthDate, GETDATE()) AS Age
+```
+
+### Age Calculation
+```sql
+DATEDIFF(YEAR, BirthDate, GETDATE()) - 
+    CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, BirthDate, GETDATE()), BirthDate) > GETDATE() THEN 1 ELSE 0 END AS Age
+```
+
+## DATE RANGES
+
+### Current Period Filters
+```sql
+-- This month
+WHERE OrderDate >= DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE()), 0)
+  AND OrderDate < DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE()) + 1, 0)
+
+-- This quarter
+WHERE YEAR(OrderDate) = YEAR(GETDATE())
+  AND DATEPART(QUARTER, OrderDate) = DATEPART(QUARTER, GETDATE())
+
+-- This year
+WHERE YEAR(OrderDate) = YEAR(GETDATE())
+
+-- Last 12 months
+WHERE OrderDate >= DATEADD(MONTH, -12, GETDATE())
+```
+
+### Year-to-Date (YTD)
+```sql
+WHERE OrderDate >= DATEFROMPARTS(YEAR(GETDATE()), 1, 1)
+  AND OrderDate <= GETDATE()
+```
+
+### Month-to-Date (MTD)
+```sql
+WHERE OrderDate >= DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE()), 0)
+  AND OrderDate <= GETDATE()
+```
+
+## SPECIAL DATE PATTERNS
+
+### Business Days (Exclude Weekends)
+```sql
+WHERE DateColumn >= DATEADD(DAY, -10, GETDATE())
+  AND DATEPART(WEEKDAY, DateColumn) NOT IN (1, 7)  -- Exclude Sunday, Saturday
+```
+
+### Working Days Ago (Approximate)
+```sql
+DATEADD(DAY, -14, GETDATE())  -- Approximately 10 business days
+```
+
+### First Day of Week (Monday)
+```sql
+DATEADD(DAY, -((DATEPART(WEEKDAY, GETDATE()) + 5) % 7), CAST(GETDATE() AS DATE))
+```
+
+### Last N Business Days
+```sql
+-- Complex version using CTE
+WITH BusinessDays AS (
+    SELECT TOP 30 
+        CAST(DATEADD(DAY, -ROW_NUMBER() OVER (ORDER BY (SELECT NULL)), GETDATE()) AS DATE) AS BusinessDate
+    FROM sys.objects
+)
+SELECT TOP 10 BusinessDate FROM BusinessDays
+WHERE DATEPART(WEEKDAY, BusinessDate) NOT IN (1, 7)
+ORDER BY BusinessDate DESC;
+```
+
+## DATETIME CONVERSION
+
+### Date to String
+```sql
+FORMAT(OrderDate, 'yyyy-MM-dd')           -- 2024-01-15
+FORMAT(OrderDate, 'MM/dd/yyyy')            -- 01/15/2024
+FORMAT(OrderDate, 'yyyyMMdd')              -- 20240115
+FORMAT(OrderDate, 'MMMM dd, yyyy')          -- January 15, 2024
+```
+
+### String to Date
+```sql
+CAST('2024-01-15' AS DATE)
+CONVERT(DATE, '2024-01-15', 120)
+PARSE('2024-01-15' AS DATE)  -- SQL Server 2012+
+TRY_CAST('2024-01-15' AS DATE)  -- SQL Server 2012+, returns NULL on failure
+```
+
+### Time Extraction
+```sql
+CAST(OrderDate AS TIME)
+FORMAT(OrderDate, 'HH:mm:ss')
+DATEPART(HOUR, OrderDate)
+DATEPART(MINUTE, OrderDate)
+```

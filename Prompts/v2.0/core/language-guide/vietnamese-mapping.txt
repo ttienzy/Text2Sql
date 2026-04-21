@@ -1,0 +1,217 @@
+# VIETNAMESE TO SQL LANGUAGE MAPPING
+# Version: 2.0.0
+# Last Updated: 2026-04-21
+
+## TEMPORAL KEYWORDS
+
+| Vietnamese | English | SQL Equivalent |
+|------------|---------|---------------|
+| tháng này | this month | MONTH(GETDATE()) |
+| tháng trước | last month | MONTH(DATEADD(MONTH, -1, GETDATE())) |
+| tháng sau | next month | MONTH(DATEADD(MONTH, 1, GETDATE())) |
+| năm nay | this year | YEAR(GETDATE()) |
+| năm trước | last year | YEAR(DATEADD(YEAR, -1, GETDATE())) |
+| năm sau | next year | YEAR(DATEADD(YEAR, 1, GETDATE())) |
+| hôm nay | today | CAST(GETDATE() AS DATE) |
+| hôm qua | yesterday | CAST(DATEADD(DAY, -1, GETDATE()) AS DATE) |
+| ngày mai | tomorrow | CAST(DATEADD(DAY, 1, GETDATE()) AS DATE) |
+| tuần này | this week | DATEPART(WEEK, GETDATE()) |
+| quý này | this quarter | DATEPART(QUARTER, GETDATE()) |
+| 30 ngày qua | last 30 days | DATEADD(DAY, -30, GETDATE()) |
+| 7 ngày qua | last 7 days | DATEADD(DAY, -7, GETDATE()) |
+| 12 tháng qua | last 12 months | DATEADD(MONTH, -12, GETDATE()) |
+| cùng kỳ năm trước | same period last year | DATEADD(YEAR, -1, GETDATE()) |
+| từ đầu năm | year-to-date | DATEFROMPARTS(YEAR(GETDATE()), 1, 1) |
+
+## AGGREGATION KEYWORDS
+
+| Vietnamese | English | SQL Equivalent |
+|------------|---------|---------------|
+| tổng | total, sum | SUM(...) |
+| trung bình | average | AVG(...) |
+| đếm | count | COUNT(...) |
+| đếm bao nhiêu | how many | COUNT(*) |
+| số lượng | quantity | COUNT(column) |
+| tối đa | maximum | MAX(...) |
+| tối thiểu | minimum | MIN(...) |
+| cao nhất | highest | ORDER BY ... DESC |
+| thấp nhất | lowest | ORDER BY ... ASC |
+| phần trăm/% | percent | * 100.0 / total |
+| tỷ lệ | ratio | CAST(... AS DECIMAL) / total |
+
+## OPERATORS & COMPARISON
+
+| Vietnamese | English | SQL |
+|------------|---------|-----|
+| bằng | equal | = |
+| lớn hơn | greater than | > |
+| nhỏ hơn | less than | < |
+| lớn hơn hoặc bằng | greater than or equal | >= |
+| nhỏ hơn hoặc bằng | less than or equal | <= |
+| khác | not equal | <> or != |
+| giữa | between | BETWEEN ... AND |
+| trong | in | IN (...) |
+| không trong | not in | NOT IN (...) |
+| chứa | contains | LIKE '%...%' |
+| bắt đầu bằng | starts with | LIKE '...%' |
+| kết thúc bằng | ends with | LIKE '%...' |
+| là | is | = or IS |
+| không là | is not | <> or IS NOT |
+| có | has/exists | EXISTS |
+| không có | doesn't have | NOT EXISTS |
+
+## LOGICAL KEYWORDS
+
+| Vietnamese | English | SQL |
+|------------|---------|-----|
+| và | and | AND |
+| hoặc | or | OR |
+| không | not | NOT |
+| nhưng | but/however | AND (with nuance) |
+| ngoài ra | moreover | AND |
+| tất cả | all/every | ALL |
+| bất kỳ | any/some | ANY/SOME |
+
+## QUANTITY & RANKING
+
+| Vietnamese | English | SQL |
+|------------|---------|-----|
+| top N | top N | TOP N |
+| đầu tiên | first | TOP 1 hoặc ROW_NUMBER() = 1 |
+| cuối cùng | last | ROW_NUMBER() = MAX hoặc ORDER BY DESC |
+| thứ N | rank N | RANK() = N |
+| hạng | rank | RANK() OVER (...) |
+| xếp hạng | ranking | ROW_NUMBER() OVER (ORDER BY ...) |
+| đầu bảng | top performer | ORDER BY ... DESC |
+| chót bảng | bottom performer | ORDER BY ... ASC |
+| cao nhất | highest | MAX() |
+| thấp nhất | lowest | MIN() |
+
+## ANALYSIS PATTERNS
+
+### Growth & Change
+| Vietnamese | SQL Pattern |
+|------------|-------------|
+| tăng trưởng | (Current - Previous) / Previous * 100 |
+| giảm | (Previous - Current) / Previous * 100 |
+| so sánh với | CASE WHEN or JOIN with comparison |
+| khác biệt | ABS(Current - Previous) |
+| thay đổi | Current - Previous |
+
+### Ranking & Comparison
+| Vietnamese | SQL Pattern |
+|------------|-------------|
+| hơn | > or >= |
+| kém | < or <= |
+| ngang nhau | = or <=> |
+| xếp hạng | ROW_NUMBER() OVER (ORDER BY ...) |
+| hơn bao nhiêu | Current - Previous |
+| phần trăm | Current * 100.0 / Total |
+
+### Filtering & Segmentation
+| Vietnamese | SQL Pattern |
+|------------|-------------|
+| chỉ | WHERE or INNER JOIN |
+| trừ | WHERE NOT or EXCEPT |
+| bao gồm | WHERE IN or INNER JOIN |
+| loại trừ | WHERE NOT IN or LEFT JOIN + IS NULL |
+| chia theo | GROUP BY |
+| lọc | WHERE |
+| giới hạn | TOP hoặc FETCH |
+
+## ENTITY MAPPING
+
+### Common Business Terms
+| Vietnamese | English | SQL Context |
+|------------|---------|-------------|
+| khách hàng | customer | Customers table |
+| đơn hàng | order | Orders table |
+| sản phẩm | product | Products table |
+| danh mục | category | Categories table |
+| nhà cung cấp | supplier | Suppliers table |
+| nhân viên | employee | Employees table |
+| doanh thu | revenue | Revenue, TotalAmount |
+| lợi nhuận | profit | Profit, Margin |
+| chi phí | cost | Cost, Expense |
+| lượng tồn kho | inventory | Stock, Quantity |
+
+## SPECIAL HANDLING
+
+### Vietnamese Character Requirements
+```sql
+-- ALWAYS use N prefix for Vietnamese strings
+WHERE CustomerName = N'Nguyễn Văn A'
+WHERE Status = N'Đã hoàn thành'
+WHERE CategoryName = N'Thời trang'
+
+-- For pattern matching
+WHERE ProductName LIKE N'%áo%'
+WHERE Description LIKE N'%khuyến mãi%'
+```
+
+### Abbreviation Expansion
+```sql
+-- Common Vietnamese abbreviations
+'KH' = 'Khách hàng' = 'Customer'
+'DH' = 'Đơn hàng' = 'Order'
+'SP' = 'Sản phẩm' = 'Product'
+'DT' = 'Doanh thu' = 'Revenue'
+'SL' = 'Số lượng' = 'Quantity'
+'TT' = 'Thanh toán' = 'Payment'
+'VC' = 'Vận chuyển' = 'Shipping'
+'NC' = 'Ngày cập nhật' = 'Updated date'
+'TG' = 'Thời gian' = 'Time'
+```
+
+### Number Formatting in Vietnamese
+```sql
+-- Vietnamese uses dot as thousand separator in display
+-- But in SQL, use standard decimal format
+WHERE Price > 1000000  -- 1 triệu (1 million)
+
+-- For percentage
+WHERE Margin * 100 > 20  -- 20% margin
+
+-- For currency
+WHERE TotalAmount >= 500000  -- 500 nghìn (500 thousand)
+```
+
+## CONTEXT PATTERNS
+
+### Time-based Queries
+```sql
+-- "trong tháng này" = this month
+WHERE OrderDate >= DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE()), 0)
+  AND OrderDate < DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE()) + 1, 0)
+
+-- "từ đầu năm đến nay" = YTD
+WHERE OrderDate >= DATEFROMPARTS(YEAR(GETDATE()), 1, 1)
+
+-- "cùng kỳ năm ngoái" = same period last year
+WHERE YEAR(OrderDate) = YEAR(DATEADD(YEAR, -1, GETDATE()))
+  AND MONTH(OrderDate) = MONTH(GETDATE())
+```
+
+### Aggregation Context
+```sql
+-- "theo tháng" = by month
+GROUP BY YEAR(OrderDate), MONTH(OrderDate)
+
+-- "theo quý" = by quarter
+GROUP BY YEAR(OrderDate), DATEPART(QUARTER, OrderDate)
+
+-- "theo năm" = by year
+GROUP BY YEAR(OrderDate)
+```
+
+### Ranking Context
+```sql
+-- "top 5" = top 5
+SELECT TOP 5
+
+-- "hàng đầu" = top/first
+SELECT TOP 1
+
+-- "3 sản phẩm bán chạy nhất" = 3 best selling products
+SELECT TOP 3
+```

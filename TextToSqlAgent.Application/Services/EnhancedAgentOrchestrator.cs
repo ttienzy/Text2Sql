@@ -497,6 +497,8 @@ public class EnhancedAgentOrchestrator
                 Detail = "Using vector search to identify relevant schema"
             });
 
+            ConfigureQdrantCollectionName(connectionId);
+
             var schemaRetriever = _serviceFactory.GetSchemaRetriever();
             var relevantSchema = await schemaRetriever.RetrieveAsync(
                 normalized.NormalizedText,
@@ -719,12 +721,36 @@ public class EnhancedAgentOrchestrator
                 corrections,
                 context,
                 cancellationToken);
-
             response.Success = true;
             response.Answer = answer;
             response.SqlGenerated = finalSql;
             response.QueryResult = executionResult;
             response.ProcessingSteps = steps;
+
+            // ====================================
+            // STEP 10.5: Data Visualization (Phase 2)
+            // ====================================
+            if (executionResult.Rows != null &&
+                executionResult.Rows.Count > 1 &&
+                executionResult.Rows.Count <= 100)
+            {
+                steps.Add("Step 10.5: Generate data visualization");
+                try
+                {
+                    var visualizer = _serviceFactory.GetPythonVisualizer();
+                    var chartResult = await visualizer.GenerateChartAsync(userQuestion, executionResult.Rows, cancellationToken);
+                    if (chartResult.ShouldDisplay)
+                    {
+                        response.ChartImageBase64 = chartResult.ImageBase64;
+                        response.ChartType = chartResult.ChartType;
+                        _logger.LogInformation("[EnhancedAgent] Generated {ChartType} chart for query results.", chartResult.ChartType);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[EnhancedAgent] Failed to generate data visualization. Proceeding without chart.");
+                }
+            }
 
             // ====================================
             // STEP 11: Generate Contextual Suggestions (NEW!)
@@ -939,12 +965,13 @@ public class EnhancedAgentOrchestrator
         }
 
         var cachedSchema = await _schemaCache.GetAsync(connectionId, cancellationToken);
-        if (cachedSchema != null)
-        {
-            steps.Add("Step 1.1: Use connection-scoped schema cache");
-            await TryEnsureSchemaIndexedAsync(cachedSchema, connectionId, cancellationToken);
-            return cachedSchema;
-        }
+            if (cachedSchema != null)
+            {
+                steps.Add("Step 1.1: Use connection-scoped schema cache");
+                ConfigureQdrantCollectionName(connectionId);
+                await TryEnsureSchemaIndexedAsync(cachedSchema, connectionId, cancellationToken);
+                return cachedSchema;
+            }
 
         var schemaLock = _schemaScanLocksByConnection.GetOrAdd(
             connectionId,
@@ -957,6 +984,7 @@ public class EnhancedAgentOrchestrator
             if (cachedSchema != null)
             {
                 steps.Add("Step 1.1: Use connection-scoped schema cache (acquired after lock)");
+                ConfigureQdrantCollectionName(connectionId);
                 await TryEnsureSchemaIndexedAsync(cachedSchema, connectionId, cancellationToken);
                 return cachedSchema;
             }
@@ -967,6 +995,7 @@ public class EnhancedAgentOrchestrator
             var schema = await schemaScanner.ScanAsync(cancellationToken);
             await _schemaCache.SetAsync(connectionId, schema, cancellationToken);
 
+            ConfigureQdrantCollectionName(connectionId);
             await TryEnsureSchemaIndexedAsync(schema, connectionId, cancellationToken);
             return schema;
         }
@@ -1012,6 +1041,32 @@ public class EnhancedAgentOrchestrator
 
         var host = GetValue(parts, "Server", "Host", "Data Source", "DataSource");
         return host;
+    }
+
+    private void ConfigureQdrantCollectionName(string? connectionId = null)
+    {
+        try
+        {
+            var collectionKey = ExtractDatabaseName(_dbConfig);
+            if (string.IsNullOrWhiteSpace(collectionKey))
+            {
+                collectionKey = connectionId;
+            }
+
+            if (string.IsNullOrWhiteSpace(collectionKey))
+            {
+                _logger.LogDebug("[EnhancedAgent] No collection key available, keeping current Qdrant collection");
+                return;
+            }
+
+            var qdrantService = _serviceFactory.GetQdrantService();
+            qdrantService.SetCollectionName(collectionKey);
+            _logger.LogDebug("[EnhancedAgent] Qdrant collection configured for key: {CollectionKey}", collectionKey);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[EnhancedAgent] Failed to configure Qdrant collection name");
+        }
     }
 
     private RetrievedSchemaContext BuildFallbackSchema(string targetTable, DatabaseSchema fullSchema)
@@ -1465,14 +1520,17 @@ public class EnhancedAgentOrchestrator
         try
         {
             _logger.LogInformation("[EnhancedAgent] Checking Qdrant collection...");
+            ConfigureQdrantCollectionName(connectionId);
 
             var qdrantService = _serviceFactory.GetQdrantService();
             var schemaIndexer = _serviceFactory.GetSchemaIndexer();
             var fingerprint = CreateSimpleFingerprint(schema);
             var fingerprintCacheKey = connectionId ?? "__legacy__";
+            var collectionExists = await qdrantService.CollectionExistsAsync(cancellationToken);
 
             if (_indexedSchemaHashesByConnection.TryGetValue(fingerprintCacheKey, out var cachedHash) &&
-                string.Equals(cachedHash, fingerprint.Hash, StringComparison.Ordinal))
+                string.Equals(cachedHash, fingerprint.Hash, StringComparison.Ordinal) &&
+                collectionExists)
             {
                 return true;
             }

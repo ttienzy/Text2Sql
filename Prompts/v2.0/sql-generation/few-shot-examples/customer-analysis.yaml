@@ -1,0 +1,85 @@
+# CUSTOMER ANALYSIS FEW-SHOT EXAMPLES
+# Version: 2.0.0
+# Last Updated: 2026-04-21
+
+metadata:
+  name: customer-analysis-examples
+  version: "2.0.0"
+  category: few-shot-examples
+  domain: "customer"
+
+examples:
+  - description: "Count customers"
+    schema: "Customers(CustomerId, FullName, Email, Phone)"
+    question: "Có bao nhiêu khách hàng?"
+    expected_sql: |
+      SELECT COUNT(*) AS TotalCustomers
+      FROM Customers;
+
+  - description: "List top customers by revenue"
+    schema: "Customers(CustomerId, FullName), Orders(OrderId, CustomerId, TotalAmount, OrderDate)"
+    question: "Top 10 khách hàng theo doanh thu"
+    expected_sql: |
+      SELECT TOP 10
+          c.CustomerId,
+          c.FullName,
+          SUM(o.TotalAmount) AS TotalRevenue
+      FROM Customers c
+      INNER JOIN Orders o ON c.CustomerId = o.CustomerId
+      GROUP BY c.CustomerId, c.FullName
+      ORDER BY TotalRevenue DESC;
+
+  - description: "Customer growth analysis"
+    schema: "Customers(CustomerId, FullName, CreatedDate)"
+    question: "Số khách hàng mới theo tháng"
+    expected_sql: |
+      SELECT
+          YEAR(CreatedDate) AS Year,
+          MONTH(CreatedDate) AS Month,
+          COUNT(*) AS NewCustomers
+      FROM Customers
+      WHERE YEAR(CreatedDate) >= YEAR(DATEADD(YEAR, -1, GETDATE()))
+      GROUP BY YEAR(CreatedDate), MONTH(CreatedDate)
+      ORDER BY Year, Month;
+
+  - description: "Customer retention"
+    schema: "Customers(CustomerId, FullName), Orders(OrderId, CustomerId, OrderDate, TotalAmount)"
+    question: "Khách hàng mua nhiều lần"
+    expected_sql: |
+      SELECT
+          c.CustomerId,
+          c.FullName,
+          COUNT(o.OrderId) AS OrderCount,
+          SUM(o.TotalAmount) AS TotalSpent
+      FROM Customers c
+      INNER JOIN Orders o ON c.CustomerId = o.CustomerId
+      GROUP BY c.CustomerId, c.FullName
+      HAVING COUNT(o.OrderId) > 1
+      ORDER BY OrderCount DESC;
+
+  - description: "VIP customer identification"
+    schema: "Customers(CustomerId, FullName), Orders(OrderId, CustomerId, TotalAmount)"
+    question: "Khách hàng VIP (top 5%)"
+    expected_sql: |
+      WITH CustomerRevenue AS (
+          SELECT 
+              CustomerId,
+              SUM(TotalAmount) AS TotalSpent
+          FROM Orders
+          GROUP BY CustomerId
+      ),
+      Percentile AS (
+          SELECT 
+              CustomerId,
+              TotalSpent,
+              PERCENT_RANK() OVER (ORDER BY TotalSpent DESC) AS PercentileRank
+          FROM CustomerRevenue
+      )
+      SELECT 
+          c.CustomerId,
+          c.FullName,
+          p.TotalSpent
+      FROM Percentile p
+      INNER JOIN Customers c ON p.CustomerId = c.CustomerId
+      WHERE p.PercentileRank <= 0.05
+      ORDER BY p.TotalSpent DESC;

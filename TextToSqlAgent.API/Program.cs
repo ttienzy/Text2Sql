@@ -317,6 +317,7 @@ try
 
     // ✅ NEW: Query Routing
     builder.Services.AddSingleton<TextToSqlAgent.Application.Routing.IQueryRouter, TextToSqlAgent.Application.Routing.QueryRouter>();
+    builder.Services.AddTransient<TextToSqlAgent.Core.Interfaces.IIntentRoutingPromptService, TextToSqlAgent.Application.Routing.PromptRegistryIntentRoutingPromptService>();
 
     // ✅ NEW: Lazy Service Factory for Enhanced Agent (changed to Scoped)
     builder.Services.AddScoped<IAgentServiceFactory, LazyAgentServiceFactory>();
@@ -368,8 +369,11 @@ try
     builder.Services.AddScoped<ISchemaCache, SchemaCache>();
     builder.Services.AddScoped<ISqlExecutor, SqlExecutorAdapter>();
 
+    // Register Phase 2: Python Data Visualizer
+    builder.Services.AddScoped<TextToSqlAgent.Application.Services.Visualization.IPythonVisualizer, TextToSqlAgent.Application.Services.Visualization.PythonVisualizer>();
+
     // Register intent-based pipelines
-    builder.Services.AddIntentBasedPipelines();
+    builder.Services.AddIntentBasedPipelines(builder.Configuration);
     logger.Information("✅ Intent-based pipelines registered (WRITE/DDL/FORBIDDEN)");
 
     // ✅ SERIOUS-8 FIX: Override PipelineResponseBuilder registration with isDevelopment flag
@@ -383,7 +387,6 @@ try
     // DB EXPLORER SERVICES
     // ============================================
     // Core infrastructure services
-    builder.Services.AddSingleton<PromptTemplateService>();
     builder.Services.AddSingleton<RuleEngine>();
 
     // Analysis and scanning services

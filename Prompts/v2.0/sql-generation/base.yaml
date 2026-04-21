@@ -1,0 +1,75 @@
+# SQL GENERATION BASE PROMPT
+# Version: 2.0.0
+# Last Updated: 2026-04-21
+
+metadata:
+  name: sql-generation-base
+  version: "2.0.0"
+  description: "Base SQL generation prompt without suggestions"
+  category: sql-generation
+
+config:
+  model: "gpt-4o"
+  temperature: 0.1
+  max_tokens: 4096
+
+system:
+  load_from: "./core/system-role.txt"
+  additional_context: |
+    Your response will be combined with user-provided schema and question.
+
+user_template: |
+  {{#if conversation_history}}
+  📝 Previous Conversation Context:
+  ---
+  {{#each conversation_history}}
+  {{#ifCond role "===" "user"}}
+  User: {{content}}
+  {{else}}
+  Assistant: {{content}}
+    {{#if sql_query}}  SQL: {{sql_query}}{{/if}}
+  {{/ifCond}}
+  {{/each}}
+  ---
+  ⚠️ IMPORTANT: Use the conversation history above to understand context and references (like 'them', 'those', 'also', 'same table', etc.)
+  
+  {{/if}}
+  
+  {{#if original_question}}
+  User Question: "{{original_question}}"
+  
+  {{/if}}
+  Intent: {{intent}}
+  Target: {{target}}
+  
+  Schema Context:
+  {{schema_context}}
+  
+  {{#if select_columns}}
+  Desired Columns: {{select_columns}}
+  {{/if}}
+  
+  {{#if filters}}
+  Filters: {{filters}}
+  {{/if}}
+  
+  {{#if metrics}}
+  Metrics: {{metrics}}
+  {{/if}}
+  
+  Generate SQL query (query only, no explanation, NO PARAMETERS):
+  IMPORTANT: Always include human-readable name/title columns for any entity being queried (ProductName, CustomerName, etc.), even if not explicitly listed in Desired Columns. Never return only ID columns as the sole identifier for an entity.
+
+output:
+  format: "sql"
+  markdown: false
+  explanation: false
+
+composition:
+  includes:
+    - "./core/system-role.txt"
+    - "./core/sql-patterns/window-functions.txt"
+    - "./core/sql-patterns/cte-patterns.txt"
+    - "./core/sql-patterns/date-handling.txt"
+    - "./core/language-guide/vietnamese-mapping.txt"
+  merge_strategy: "prepend"  # system context first, then patterns

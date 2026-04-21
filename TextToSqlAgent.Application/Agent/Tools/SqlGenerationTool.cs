@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using TextToSqlAgent.Core.Interfaces;
+using TextToSqlAgent.Infrastructure.Prompts;
 
 namespace TextToSqlAgent.Application.Agent.Tools;
 
@@ -10,7 +11,7 @@ namespace TextToSqlAgent.Application.Agent.Tools;
 public class SqlGenerationTool : IAgentTool
 {
     private readonly ILLMClient _llmClient;
-    private readonly IDatabaseAdapter _databaseAdapter;
+    private readonly PromptRegistry _promptRegistry;
     private readonly ILogger<SqlGenerationTool> _logger;
 
     public string Name => "SqlGeneration";
@@ -21,11 +22,11 @@ public class SqlGenerationTool : IAgentTool
 
     public SqlGenerationTool(
         ILLMClient llmClient,
-        IDatabaseAdapter databaseAdapter,
+        PromptRegistry promptRegistry,
         ILogger<SqlGenerationTool> logger)
     {
         _llmClient = llmClient;
-        _databaseAdapter = databaseAdapter;
+        _promptRegistry = promptRegistry;
         _logger = logger;
     }
 
@@ -41,21 +42,13 @@ public class SqlGenerationTool : IAgentTool
             // Build schema description for LLM
             var schemaDescription = BuildSchemaDescription(memory);
 
-            var systemPrompt = _databaseAdapter.GetSystemPrompt() + @"
-
-You are a SQL query generator. Given a user question and database schema, generate ONLY the SQL query.
-Return ONLY the raw SQL, no explanations, no markdown code blocks.
-Always use SELECT only. Never use INSERT, UPDATE, DELETE, DROP.
-Add TOP 100 or LIMIT 100 if not specified.";
-
-            var userPrompt = $"""
-                Schema:
-                {schemaDescription}
-
-                Question: {input.Query}
-
-                Generate the SQL query:
-                """;
+            var extraVariables = new Dictionary<string, object>();
+            
+            var (systemPrompt, userPrompt) = _promptRegistry.BuildSqlGenerationPrompt(
+                input.Query,
+                schemaDescription,
+                new List<string>(),
+                extraVariables);
 
             string sql;
             if (memory.SqlTokenCallback != null)

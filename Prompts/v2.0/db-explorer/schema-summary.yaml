@@ -1,0 +1,85 @@
+# DATABASE SCHEMA SUMMARY PROMPT
+# Version: 2.0.0
+# Last Updated: 2026-04-21
+
+metadata:
+  name: schema-summary
+  version: "2.0.0"
+  category: db-explorer
+  description: "Generate executive summary for database schema"
+
+variables:
+  - name: system_context
+    type: string
+    required: true
+  - name: domain
+    type: string
+    required: true
+  - name: table_count
+    type: integer
+    required: true
+  - name: table_names
+    type: string
+    required: true
+  - name: relationship_count
+    type: integer
+    required: true
+  - name: relationships
+    type: string
+    required: true
+
+system_template: |
+  {{system_context}}
+  
+  Bạn là chuyên gia phân tích database {{domain}}.
+
+prompt_template: |
+  Phân tích database này và tạo executive summary:
+  
+  TABLES ({{table_count}} total):
+  {{table_names}}
+  
+  RELATIONSHIPS ({{relationship_count}} total):
+  {{relationships}}
+  
+  Yêu cầu phân tích:
+  1. **Domain classification**: Xác định loại hệ thống (E-commerce, CRM, ERP, Healthcare, etc.)
+  2. **Executive summary**: Mô tả tổng quan 1-2 câu về mục đích và cấu trúc database
+  3. **Key tables**: Xác định 3-5 bảng quan trọng nhất (dựa vào số lượng relationships và tên bảng)
+  4. **Modules**: Nhóm các bảng thành modules logic (ví dụ: User Management, Product Catalog, Order Processing)
+  5. **Data flow pattern**: Mô tả luồng dữ liệu chính (ví dụ: "Transaction-heavy với audit trail đầy đủ")
+  6. **Technical debt**: Phát hiện các vấn đề tiềm ẩn:
+     - Bảng có tên tương tự (có thể duplicate hoặc legacy migration)
+     - Module thiếu audit trail
+     - Naming convention không nhất quán
+     - Bảng orphan (không có relationship)
+
+output:
+  format: "json"
+  schema:
+    domain: "string"
+    summary: "string"
+    keyTables: "string[]"
+    dataFlowPattern: "string"
+    modules:
+      - name: "string"
+        description: "string"
+        tables: "string[]"
+    technicalDebt: "string[]"
+    confidence: "number"
+  markdown: false
+
+validation:
+  required_fields:
+    - domain
+    - summary
+    - keyTables
+    - modules
+  confidence_range: [0.0, 1.0]
+  max_key_tables: 10
+
+version_history:
+  - version: "1.0"
+    changes: "Initial version"
+  - version: "2.0"
+    changes: "Added technical debt analysis, confidence score"

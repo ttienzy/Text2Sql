@@ -116,6 +116,20 @@ public class SchemaRetriever
                 var keywordContext = _keywordRetriever.RetrieveByKeywords(
                     question, fullSchema, _ragConfig.MaxContextTables);
                 keywordResults = keywordContext.Matches;
+                if (keywordResults.Count == 0 && keywordContext.RelevantTables.Count > 0)
+                {
+                    keywordResults = keywordContext.RelevantTables
+                        .Select(table => new SchemaMatch
+                        {
+                            Type = "table",
+                            ElementType = "table",
+                            TableName = table.TableName,
+                            ElementName = table.TableName,
+                            Score = 1,
+                            Content = $"Table: {table.TableName}"
+                        })
+                        .ToList();
+                }
                 retrievalStrategies.Add("keyword");
                 _logger.LogDebug("[SchemaRetriever] Keyword search: {Count} results", keywordResults.Count);
             }

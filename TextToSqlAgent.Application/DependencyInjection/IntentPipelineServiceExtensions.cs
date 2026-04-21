@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using TextToSqlAgent.Application.Pipelines.DDL;
 using TextToSqlAgent.Application.Pipelines.Forbidden;
@@ -18,11 +19,30 @@ public static class IntentPipelineServiceExtensions
 {
     /// <summary>
     /// Register all intent-based pipeline services (Phase 1)
+    /// Supports config-switchable intent classifier: Python ML or C# Regex
     /// </summary>
-    public static IServiceCollection AddIntentBasedPipelines(this IServiceCollection services)
+    public static IServiceCollection AddIntentBasedPipelines(
+        this IServiceCollection services,
+        IConfiguration? configuration = null)
     {
-        // Intent Classification
-        services.AddScoped<IIntentClassifier, IntentClassifier>();
+        // Always register C# IntentClassifier (used as fallback for Python)
+        services.AddScoped<IntentClassifier>();
+
+        // Intent Classification — config-switchable provider
+        var provider = configuration?["INTENT_CLASSIFIER_PROVIDER"]
+            ?? Environment.GetEnvironmentVariable("INTENT_CLASSIFIER_PROVIDER")
+            ?? "CSharp";
+
+        if (string.Equals(provider, "Python", StringComparison.OrdinalIgnoreCase))
+        {
+            // Python ML classifier with C# fallback
+            services.AddScoped<IIntentClassifier, PythonIntentClassifier>();
+        }
+        else
+        {
+            // Default: C# rule-based classifier
+            services.AddScoped<IIntentClassifier, IntentClassifier>();
+        }
 
         // Query Complexity Analyzer (NEW - Phase 1)
         services.AddScoped<QueryComplexityAnalyzer>();

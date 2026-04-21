@@ -58,8 +58,8 @@ const useAuthStore = create((set, get) => ({
       const response = await axiosInstance.post(API_ENDPOINTS.AUTH.LOGIN, credentials);
       const data = response.data;
 
-      // API returns camelCase: accessToken, refreshToken
-      const { accessToken, refreshToken, email: user } = data;
+      // API returns camelCase: accessToken, refreshToken, email, fullName, avatarUrl
+      const { accessToken, refreshToken, ...user } = data;
 
       // Store both tokens in localStorage
       get().setToken(accessToken, refreshToken);
@@ -79,7 +79,7 @@ const useAuthStore = create((set, get) => ({
     try {
       const response = await axiosInstance.post(API_ENDPOINTS.AUTH.GOOGLE_LOGIN, { idToken });
       const data = response.data;
-      const { accessToken, refreshToken, email: user } = data;
+      const { accessToken, refreshToken, ...user } = data;
 
       // Store both tokens in localStorage
       get().setToken(accessToken, refreshToken);
@@ -177,6 +177,14 @@ const useAuthStore = create((set, get) => ({
         refreshToken,
         isAuthenticated: true,
       });
+
+      // Hydrate user info from API
+      try {
+        const userProfile = await get().fetchProfile();
+        set({ user: userProfile });
+      } catch (error) {
+        console.error('Failed to restore user session:', error);
+      }
     } else {
       // Clear any partial tokens
       localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);

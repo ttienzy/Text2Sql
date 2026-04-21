@@ -2,13 +2,14 @@ using Microsoft.Extensions.Logging;
 using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Models;
 using TextToSqlAgent.Core.Tools;
+using TextToSqlAgent.Infrastructure.Prompts;
 
 namespace TextToSqlAgent.Infrastructure.Tools;
 
 public class SqlGeneratorTool : ITool
 {
     private readonly ILLMClient _llm;
-    private readonly IDatabaseAdapter _adapter;
+    private readonly PromptRegistry _promptRegistry;
     private readonly ILogger<SqlGeneratorTool> _logger;
 
     public string Name => "generate_sql";
@@ -22,10 +23,10 @@ public class SqlGeneratorTool : ITool
         }
     };
 
-    public SqlGeneratorTool(ILLMClient llm, IDatabaseAdapter adapter, ILogger<SqlGeneratorTool> logger)
+    public SqlGeneratorTool(ILLMClient llm, PromptRegistry promptRegistry, ILogger<SqlGeneratorTool> logger)
     {
         _llm = llm;
-        _adapter = adapter;
+        _promptRegistry = promptRegistry;
         _logger = logger;
     }
 
@@ -37,8 +38,11 @@ public class SqlGeneratorTool : ITool
             var schemaContext = input.Get<RetrievedSchemaContext>("schema_context");
 
             var schemaText = BuildSchemaContext(schemaContext);
-            var systemPrompt = _adapter.GetSystemPrompt();
-            var userPrompt = $"Question: {question}\n\nSchema:\n{schemaText}\n\nGenerate SQL:";
+            var (systemPrompt, userPrompt) = _promptRegistry.BuildSqlGenerationPrompt(
+                question,
+                schemaText,
+                new List<string>(),
+                new Dictionary<string, object>());
 
             var sql = await _llm.CompleteWithSystemPromptAsync(systemPrompt, userPrompt, ct);
             sql = sql.Replace("```sql", "").Replace("```", "").Trim();

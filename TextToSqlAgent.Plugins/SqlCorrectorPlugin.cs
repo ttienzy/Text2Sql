@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
 using System.ComponentModel;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Models;
@@ -15,28 +14,31 @@ public class SqlCorrectorPlugin
     private readonly ILLMClient _llmClient;
     private readonly SqlErrorAnalyzer _errorAnalyzer;
     private readonly IDatabaseAdapter _adapter;
+    private readonly PromptRegistry _promptRegistry;
     private readonly ILogger<SqlCorrectorPlugin> _logger;
 
     public SqlCorrectorPlugin(
         ILLMClient llmClient,
         SqlErrorAnalyzer errorAnalyzer,
         IDatabaseAdapter adapter,
+        PromptRegistry promptRegistry,
         ILogger<SqlCorrectorPlugin> logger)
     {
         _llmClient = llmClient;
         _errorAnalyzer = errorAnalyzer;
         _adapter = adapter;
+        _promptRegistry = promptRegistry;
         _logger = logger;
     }
 
     [KernelFunction, Description("Automatically correct SQL errors based on error message and schema")]
     public async Task<CorrectionAttempt> CorrectSqlAsync(
-    string originalSql,
-    string errorMessage,
-    RetrievedSchemaContext schemaContext,
-    IntentAnalysis intent,  // ← ADD to get filter values
-    int attemptNumber,
-    CancellationToken cancellationToken = default)
+        string originalSql,
+        string errorMessage,
+        RetrievedSchemaContext schemaContext,
+        IntentAnalysis intent,
+        int attemptNumber,
+        CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("[SQL Corrector] Attempting correction (Attempt {Attempt})", attemptNumber);
 
@@ -49,14 +51,14 @@ public class SqlCorrectorPlugin
 
         try
         {
-            // 1. Analyze error
             var error = _errorAnalyzer.AnalyzeError(errorMessage, originalSql);
             attempt.Error = error;
 
-            _logger.LogInformation("[SQL Corrector] Error type: {Type}, Recoverable: {Recoverable}",
-                error.Type, error.IsRecoverable);
+            _logger.LogInformation(
+                "[SQL Corrector] Error type: {Type}, Recoverable: {Recoverable}",
+                error.Type,
+                error.IsRecoverable);
 
-            // 2. Check if recoverable
             if (!error.IsRecoverable)
             {
                 _logger.LogWarning("[SQL Corrector] Error is not auto-correctable");
@@ -65,29 +67,31 @@ public class SqlCorrectorPlugin
                 return attempt;
             }
 
-            // 3. Build schema context for correction
             var schemaContextText = BuildSchemaContextForCorrection(schemaContext, error);
-
-            // 4. Extract filter value from intent (for parameter replacement)
             var filterValue = intent.Filters.FirstOrDefault()?.Value;
 
+            var promptVariables = new Dictionary<string, object>
+            {
+                ["provider"] = _adapter.Provider.ToString(),
+                ["original_sql"] = originalSql,
+                ["error_message"] = errorMessage,
+                ["error_type"] = error.Type.ToString(),
+                ["invalid_element"] = error.InvalidElement ?? string.Empty,
+                ["schema_context"] = schemaContextText,
+                ["filter_value"] = filterValue ?? string.Empty
+            };
 
-
-            // 5. Generate corrected SQL
-            var userPrompt = SqlCorrectionPrompt.BuildUserPrompt(
-                originalSql,
-                errorMessage,
-                error.Type.ToString(),
-                error.InvalidElement,
-                schemaContextText,
-                filterValue);  // ← PASS filter value
+            var (systemPrompt, userPrompt) = _promptRegistry.GetSystemAndUserPrompts(
+                "sql-generation/correction",
+                new List<string>(),
+                promptVariables,
+                includeExamples: false);
 
             var correctedSql = await _llmClient.CompleteWithSystemPromptAsync(
-                _adapter.GetCorrectionSystemPrompt(),
+                systemPrompt,
                 userPrompt,
                 cancellationToken);
 
-            // 6. Clean response
             correctedSql = CleanSqlResponse(correctedSql);
 
             attempt.CorrectedSql = correctedSql;
@@ -104,42 +108,38 @@ public class SqlCorrectorPlugin
             _logger.LogError(ex, "[SQL Corrector] Error correcting SQL");
 
             attempt.Success = false;
-            attempt.Reasoning = $"Lỗi khi sửa: {ex.Message}";
+            attempt.Reasoning = $"Correction failed: {ex.Message}";
             return attempt;
         }
     }
 
     private string BuildSchemaContextForCorrection(RetrievedSchemaContext context, SqlError error)
     {
-        var schemaText = "";
+        var schemaText = string.Empty;
 
-        // Build COMPLETE schema info with EXACT column names
         foreach (var table in context.RelevantTables)
         {
-            schemaText += $"\n========================================\n";
+            schemaText += "\n========================================\n";
             var safeSchema = _adapter.GetSafeIdentifier(table.Schema);
             var safeTable = _adapter.GetSafeIdentifier(table.TableName);
 
-            schemaText += $"\n========================================\n";
             schemaText += $"Table: {safeSchema}.{safeTable}\n";
-            schemaText += $"========================================\n";
+            schemaText += "========================================\n";
             schemaText += "Columns (USE THESE EXACT NAMES):\n";
 
             foreach (var col in table.Columns)
             {
-                var pk = col.IsPrimaryKey ? " ← PRIMARY KEY" : "";
-                var fk = col.IsForeignKey ? " ← FOREIGN KEY" : "";
+                var pk = col.IsPrimaryKey ? " <- PRIMARY KEY" : string.Empty;
+                var fk = col.IsForeignKey ? " <- FOREIGN KEY" : string.Empty;
                 var nullable = col.IsNullable ? " NULL" : " NOT NULL";
                 var safeCol = _adapter.GetSafeIdentifier(col.ColumnName);
 
-                // Make it very explicit
-                schemaText += $"  {safeCol}  ({col.DataType}{nullable}){pk}{fk}\n";
+                schemaText += $"  {safeCol} ({col.DataType}{nullable}){pk}{fk}\n";
             }
 
             schemaText += "\n";
         }
 
-        // Add relationships with EXACT column names
         if (context.RelevantRelationships.Any())
         {
             schemaText += "========================================\n";
@@ -148,12 +148,12 @@ public class SqlCorrectorPlugin
 
             foreach (var rel in context.RelevantRelationships)
             {
-                schemaText += $"  {rel.FromTable}.{rel.FromColumn} → {rel.ToTable}.{rel.ToColumn}\n";
+                schemaText += $"  {rel.FromTable}.{rel.FromColumn} -> {rel.ToTable}.{rel.ToColumn}\n";
             }
+
             schemaText += "\n";
         }
 
-        // Add specific hints based on error
         if (error.Type == SqlErrorType.InvalidColumnName && !string.IsNullOrEmpty(error.InvalidElement))
         {
             schemaText += "========================================\n";
@@ -163,16 +163,15 @@ public class SqlCorrectorPlugin
             schemaText += "You MUST use one of the EXACT column names listed above.\n";
             schemaText += "Check the column list carefully and use the EXACT spelling.\n\n";
 
-            // Try to suggest similar columns
             var suggestions = FindSimilarColumns(error.InvalidElement, context);
             if (suggestions.Any())
             {
                 schemaText += "Did you mean one of these?\n";
                 foreach (var (table, column) in suggestions)
                 {
-                    var safeT = _adapter.GetSafeIdentifier(table);
-                    var safeC = _adapter.GetSafeIdentifier(column);
-                    schemaText += $"  - {safeT}.{safeC}\n";
+                    var safeTable = _adapter.GetSafeIdentifier(table);
+                    var safeColumn = _adapter.GetSafeIdentifier(column);
+                    schemaText += $"  - {safeTable}.{safeColumn}\n";
                 }
             }
         }
@@ -185,15 +184,13 @@ public class SqlCorrectorPlugin
         RetrievedSchemaContext context)
     {
         var suggestions = new List<(string, string)>();
-        var lowerInvalid = invalidColumn.ToLower().Replace("_", "");
+        var lowerInvalid = invalidColumn.ToLowerInvariant().Replace("_", string.Empty);
 
         foreach (var table in context.RelevantTables)
         {
             foreach (var col in table.Columns)
             {
-                var lowerCol = col.ColumnName.ToLower().Replace("_", "");
-
-                // Check if similar
+                var lowerCol = col.ColumnName.ToLowerInvariant().Replace("_", string.Empty);
                 if (lowerCol.Contains(lowerInvalid) || lowerInvalid.Contains(lowerCol))
                 {
                     suggestions.Add((table.TableName, col.ColumnName));
@@ -215,8 +212,7 @@ public class SqlCorrectorPlugin
 
         message += $"Fix: {error.SuggestedFix}\n";
 
-        // Show what changed
-        if (originalSql != correctedSql)
+        if (!string.Equals(originalSql, correctedSql, StringComparison.Ordinal))
         {
             var changes = FindChanges(originalSql, correctedSql);
             if (changes.Any())
@@ -236,30 +232,26 @@ public class SqlCorrectorPlugin
     {
         var changes = new List<string>();
 
-        // Simple word-level diff
         var originalWords = original.Split(new[] { ' ', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries);
         var correctedWords = corrected.Split(new[] { ' ', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries);
 
-        for (int i = 0; i < Math.Min(originalWords.Length, correctedWords.Length); i++)
+        for (var i = 0; i < Math.Min(originalWords.Length, correctedWords.Length); i++)
         {
-            if (originalWords[i] != correctedWords[i])
+            if (!string.Equals(originalWords[i], correctedWords[i], StringComparison.Ordinal))
             {
-                changes.Add($"'{originalWords[i]}' → '{correctedWords[i]}'");
+                changes.Add($"'{originalWords[i]}' -> '{correctedWords[i]}'");
             }
         }
 
-        return changes.Take(5).ToList(); // Limit to 5 changes
+        return changes.Take(5).ToList();
     }
 
     private string CleanSqlResponse(string sql)
     {
-        // Remove markdown
-        sql = Regex.Replace(sql, @"```sql\s*", "", RegexOptions.IgnoreCase);
-        sql = Regex.Replace(sql, @"```\s*", "", RegexOptions.IgnoreCase);
-
-        // Remove common prefixes
-        sql = Regex.Replace(sql, @"^SQL:\s*", "", RegexOptions.IgnoreCase | RegexOptions.Multiline);
-        sql = Regex.Replace(sql, @"^Corrected SQL:\s*", "", RegexOptions.IgnoreCase | RegexOptions.Multiline);
+        sql = Regex.Replace(sql, @"```sql\s*", string.Empty, RegexOptions.IgnoreCase);
+        sql = Regex.Replace(sql, @"```\s*", string.Empty, RegexOptions.IgnoreCase);
+        sql = Regex.Replace(sql, @"^SQL:\s*", string.Empty, RegexOptions.IgnoreCase | RegexOptions.Multiline);
+        sql = Regex.Replace(sql, @"^Corrected SQL:\s*", string.Empty, RegexOptions.IgnoreCase | RegexOptions.Multiline);
 
         sql = sql.Trim();
         sql = sql.TrimEnd(';');
@@ -281,14 +273,12 @@ public class SqlCorrectorPlugin
             return true;
         }
 
-        // Don't retry if error is not recoverable
         if (!lastAttempt.Error.IsRecoverable)
         {
             _logger.LogWarning("[SQL Corrector] Error not recoverable, stopping retry");
             return false;
         }
 
-        // Don't retry if we're producing the same SQL
         if (attempts.Count >= 2)
         {
             var lastTwo = attempts.TakeLast(2).ToList();
@@ -302,4 +292,3 @@ public class SqlCorrectorPlugin
         return true;
     }
 }
-

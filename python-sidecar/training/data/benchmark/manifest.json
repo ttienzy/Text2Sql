@@ -1,0 +1,31 @@
+{
+  "benchmark_name": "intent-classification-enterprise-baseline",
+  "created_at_utc": "2026-04-21T02:10:10.050698+00:00",
+  "source_dataset": "training/data/review/generated/labeled_queries.promoted.jsonl",
+  "source_dataset_fingerprint": "73f4bc56ef848bea242c675f5bed8592e56e61e4c7b8bd4401d4a415a759a044",
+  "source_dataset_samples": 374,
+  "random_seed": 42,
+  "eval_ratio": 0.2,
+  "train_samples": 300,
+  "eval_samples": 74,
+  "train_distribution": {
+    "AGGREGATE": 54,
+    "AMBIGUOUS": 24,
+    "DDL": 32,
+    "SCHEMA_QUERY": 34,
+    "SELECT": 72,
+    "WRITE_DELETE": 28,
+    "WRITE_INSERT": 28,
+    "WRITE_UPDATE": 28
+  },
+  "eval_distribution": {
+    "AGGREGATE": 13,
+    "AMBIGUOUS": 6,
+    "DDL": 8,
+    "SCHEMA_QUERY": 8,
+    "SELECT": 18,
+    "WRITE_DELETE": 7,
+    "WRITE_INSERT": 7,
+    "WRITE_UPDATE": 7
+  }
+}

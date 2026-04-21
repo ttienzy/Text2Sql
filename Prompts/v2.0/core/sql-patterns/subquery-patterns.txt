@@ -1,0 +1,237 @@
+# SUBQUERY PATTERNS
+# Version: 2.0.0
+# Last Updated: 2026-04-21
+
+## SCALAR SUBQUERY (In SELECT)
+
+### Template
+```sql
+SELECT 
+    Column1,
+    Column2,
+    (SELECT AggregateFunction(Column) 
+     FROM TableName 
+     WHERE Condition = value) AS Metric
+FROM MainTable
+```
+
+### Example: Category Average Price
+```sql
+SELECT 
+    p.ProductName,
+    p.Price,
+    (SELECT AVG(Price) 
+     FROM Products 
+     WHERE CategoryId = p.CategoryId) AS CategoryAvgPrice,
+    p.Price - (SELECT AVG(Price) 
+               FROM Products 
+               WHERE CategoryId = p.CategoryId) AS PriceDiff
+FROM Products p;
+```
+
+### Multiple Scalar Subqueries
+```sql
+SELECT 
+    ProductName,
+    Price,
+    (SELECT COUNT(*) FROM Orders WHERE ProductId = p.Id) AS OrderCount,
+    (SELECT MAX(OrderDate) FROM Orders WHERE ProductId = p.Id) AS LastOrderDate,
+    (SELECT AVG(Quantity) FROM OrderDetails WHERE ProductId = p.Id) AS AvgQuantity
+FROM Products p;
+```
+
+## CORRELATED SUBQUERY (In WHERE)
+
+### Template
+```sql
+SELECT * FROM Table1 t1
+WHERE Column > (
+    SELECT AggregateFunction(Column)
+    FROM Table2 t2
+    WHERE t2.ForeignKey = t1.PrimaryKey
+)
+```
+
+### Example: Above Average Products
+```sql
+SELECT *
+FROM Products p
+WHERE Price > (
+    SELECT AVG(Price)
+    FROM Products
+    WHERE CategoryId = p.CategoryId
+);
+```
+
+### Example: Top Per Group
+```sql
+SELECT *
+FROM Sales s
+WHERE SalesAmount = (
+    SELECT MAX(SalesAmount)
+    FROM Sales
+    WHERE EmployeeId = s.EmployeeId
+      AND YEAR(SaleDate) = YEAR(s.SaleDate)
+);
+```
+
+### Example: Not In List
+```sql
+SELECT *
+FROM Customers c
+WHERE CustomerId NOT IN (
+    SELECT DISTINCT CustomerId
+    FROM Orders
+    WHERE OrderDate >= DATEADD(YEAR, -1, GETDATE())
+);
+```
+
+### Example: Exists Pattern
+```sql
+SELECT *
+FROM Customers c
+WHERE EXISTS (
+    SELECT 1 
+    FROM Orders o 
+    WHERE o.CustomerId = c.CustomerId 
+      AND o.TotalAmount > 1000000
+);
+```
+
+## DERIVED TABLE (In FROM)
+
+### Template
+```sql
+SELECT 
+    Derived.Column1,
+    MainTable.Column2
+FROM MainTable
+INNER JOIN (
+    SELECT Column1, AggregateFunction(Column2) AS Metric
+    FROM SourceTable
+    WHERE Condition
+    GROUP BY Column1
+) AS Derived ON MainTable.FK = Derived.Column1
+```
+
+### Example: Category Statistics
+```sql
+SELECT 
+    Category,
+    AVG(ProductCount) AS AvgProductsPerCategory
+FROM (
+    SELECT 
+        CategoryId AS Category,
+        COUNT(*) AS ProductCount
+    FROM Products
+    GROUP BY CategoryId
+) AS CategoryStats
+GROUP BY Category;
+```
+
+### Example: Complex Derived Table
+```sql
+SELECT 
+    c.CustomerName,
+    o.OrderCount,
+    ISNULL(t.TotalSpent, 0) AS TotalSpent
+FROM Customers c
+LEFT JOIN (
+    SELECT 
+        CustomerId,
+        COUNT(*) AS OrderCount,
+        SUM(TotalAmount) AS TotalSpent
+    FROM Orders
+    WHERE YEAR(OrderDate) = YEAR(GETDATE())
+    GROUP BY CustomerId
+) AS o ON c.CustomerId = o.CustomerId
+LEFT JOIN (
+    SELECT 
+        CustomerId,
+        SUM(TotalAmount) AS TotalSpent
+    FROM Orders
+    GROUP BY CustomerId
+) AS t ON c.CustomerId = t.CustomerId
+WHERE c.Status = N'Active'
+ORDER BY o.OrderCount DESC;
+```
+
+## SUBQUERY WITH AGGREGATES
+
+### HAVING with Subquery
+```sql
+SELECT 
+    CategoryId,
+    COUNT(*) AS ProductCount
+FROM Products
+GROUP BY CategoryId
+HAVING COUNT(*) > (
+    SELECT AVG(ProductCount)
+    FROM (
+        SELECT COUNT(*) AS ProductCount
+        FROM Products
+        GROUP BY CategoryId
+    ) AS CategoryCounts
+)
+```
+
+### TOP N Per Group Using Subquery
+```sql
+SELECT *
+FROM (
+    SELECT 
+        *,
+        ROW_NUMBER() OVER (PARTITION BY CategoryId ORDER BY Price DESC) AS RowNum
+    FROM Products
+) AS RankedProducts
+WHERE RowNum <= 3;
+```
+
+## ANTI-PATTERNS TO AVOID
+
+### ❌ DON'T: Use IN with Large Subquery
+```sql
+-- Slow with large datasets
+SELECT * FROM Products 
+WHERE CategoryId IN (
+    SELECT CategoryId FROM Categories WHERE Status = 'Active'
+)
+```
+
+### ✅ DO: Use JOIN or EXISTS Instead
+```sql
+SELECT DISTINCT p.*
+FROM Products p
+INNER JOIN Categories c ON p.CategoryId = c.Id
+WHERE c.Status = 'Active'
+```
+
+### ❌ DON'T: Nested Subqueries (Hard to Read)
+```sql
+SELECT * FROM (
+    SELECT * FROM (
+        SELECT * FROM Table1 WHERE col1 = 'value'
+    ) AS t1 WHERE col2 = 'value2'
+) AS t2 WHERE col3 = 'value3'
+```
+
+### ✅ DO: Use CTEs Instead
+```sql
+WITH Step1 AS (
+    SELECT * FROM Table1 WHERE col1 = 'value'
+),
+Step2 AS (
+    SELECT * FROM Step1 WHERE col2 = 'value2'
+)
+SELECT * FROM Step2 WHERE col3 = 'value3';
+```
+
+## PERFORMANCE TIPS
+
+1. ✅ Use EXISTS instead of IN for large datasets
+2. ✅ Use JOINs instead of subqueries when possible
+3. ✅ Place subqueries in HAVING for aggregated filtering
+4. ✅ Use CTEs for complex multi-level subqueries
+5. ⚠️ Avoid correlated subqueries in SELECT (use JOINs instead)
+6. ⚠️ Scalar subqueries run for each row (consider CTEs)
+7. ⚠️ Large IN lists can be slow - consider using JOIN or temporary tables

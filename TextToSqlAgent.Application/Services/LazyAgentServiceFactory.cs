@@ -26,6 +26,7 @@ public interface IAgentServiceFactory
     QueryExplainerPlugin GetQueryExplainer();
     SqlExecutor GetSqlExecutor();
     ConversationManager GetConversationManager();
+    TextToSqlAgent.Application.Services.Visualization.IPythonVisualizer GetPythonVisualizer();
 
     // Generic method for other services
     T GetOrCreate<T>() where T : class;
@@ -76,4 +77,5 @@ public class LazyAgentServiceFactory : IAgentServiceFactory
     public QueryExplainerPlugin GetQueryExplainer() => GetOrCreate<QueryExplainerPlugin>();
     public SqlExecutor GetSqlExecutor() => GetOrCreate<SqlExecutor>();
     public ConversationManager GetConversationManager() => GetOrCreate<ConversationManager>();
+    public TextToSqlAgent.Application.Services.Visualization.IPythonVisualizer GetPythonVisualizer() => GetOrCreate<TextToSqlAgent.Application.Services.Visualization.IPythonVisualizer>();
 }

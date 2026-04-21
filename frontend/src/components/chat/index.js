@@ -12,6 +12,8 @@ export { default as TokenInfo } from './TokenInfo';
 export { default as EnhancedMessageInfo } from './EnhancedMessageInfo';
 export { default as TableSchemaButton } from './TableSchemaButton';
 export { default as StageProgressBar } from './StageProgressBar';
+export { default as ThinkingIndicator } from './ThinkingIndicator';
+export { default as DynamicChart } from './DynamicChart';
 export { default as ErrorRecovery } from './ErrorRecovery';
 
 // Conversation components
