@@ -62,7 +62,9 @@ public class PythonIntentClassifier : IIntentClassifier
             var request = new PythonClassifyRequest
             {
                 Question = question,
-                Language = "auto"
+                Language = "auto",
+                ConversationContext = conversationHistory,
+                DatabaseContext = databaseContext
             };
 
             var response = await _httpClient.PostAsJsonAsync("/api/classify", request, cts.Token);
@@ -214,6 +216,12 @@ public class PythonIntentClassifier : IIntentClassifier
 
         [JsonPropertyName("language")]
         public string Language { get; set; } = "auto";
+
+        [JsonPropertyName("conversation_context")]
+        public string? ConversationContext { get; set; }
+
+        [JsonPropertyName("database_context")]
+        public string? DatabaseContext { get; set; }
     }
 
     private class PythonClassifyResponse

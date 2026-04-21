@@ -1,69 +1,150 @@
-import React, { useState } from 'react';
-import {
-  Typography,
-  Space,
-  Tooltip,
-  Button,
-} from 'antd';
+import React, { useState, useMemo } from 'react';
+import { Typography, Space, Tooltip, Button } from 'antd';
 import {
   CopyOutlined,
   CheckOutlined,
   AlignLeftOutlined,
   CodeOutlined,
 } from '@ant-design/icons';
-import { escapeHtml } from '../../utils/security';
+import Editor from '@monaco-editor/react';
 
 const { Text } = Typography;
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ * SQL Formatter — indent-aware, string-literal safe
+ *
+ * Hierarchy:
+ *   Level 0: top-level statements (WITH, SELECT …)
+ *   +1 per open paren / CTE body / subquery
+ *   Sub-clauses (AND, OR, ON) get +1 within their parent clause
+ * ═══════════════════════════════════════════════════════════════════════════ */
+const INDENT = '    '; // 4 spaces per level
+
 const formatSql = (sql) => {
-  let formatted = sql
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/\s*SELECT\s*/gi, '\nSELECT ')
-    .replace(/\s*FROM\s*/gi, '\nFROM ')
-    .replace(/\s*WHERE\s*/gi, '\nWHERE ')
-    .replace(/\s*AND\s*/gi, '\n  AND ')
-    .replace(/\s*OR\s*/gi, '\n  OR ')
-    .replace(/\s*JOIN\s*/gi, '\nJOIN ')
-    .replace(/\s*LEFT\s+JOIN\s*/gi, '\nLEFT JOIN ')
-    .replace(/\s*RIGHT\s+JOIN\s*/gi, '\nRIGHT JOIN ')
-    .replace(/\s*INNER\s+JOIN\s*/gi, '\nINNER JOIN ')
-    .replace(/\s*OUTER\s+JOIN\s*/gi, '\nOUTER JOIN ')
-    .replace(/\s*ON\s*/gi, '\n  ON ')
-    .replace(/\s*GROUP\s+BY\s*/gi, '\nGROUP BY ')
-    .replace(/\s*ORDER\s+BY\s*/gi, '\nORDER BY ')
-    .replace(/\s*HAVING\s*/gi, '\nHAVING ')
-    .replace(/\s*LIMIT\s*/gi, '\nLIMIT ')
-    .replace(/\s*OFFSET\s*/gi, '\nOFFSET ')
-    .replace(/\s*UNION\s*/gi, '\nUNION ')
-    .replace(/\s*INSERT\s+INTO\s*/gi, '\nINSERT INTO ')
-    .replace(/\s*VALUES\s*/gi, '\nVALUES ')
-    .replace(/\s*UPDATE\s*/gi, '\nUPDATE ')
-    .replace(/\s*SET\s*/gi, '\nSET ')
-    .replace(/\s*DELETE\s+FROM\s*/gi, '\nDELETE FROM ')
-    .replace(/\s*CREATE\s+TABLE\s*/gi, '\nCREATE TABLE ')
-    .replace(/\s*ALTER\s+TABLE\s*/gi, '\nALTER TABLE ')
-    .replace(/\s*DROP\s+TABLE\s*/gi, '\nDROP TABLE ')
-    .replace(/\s*CASE\s*/gi, '\nCASE ')
-    .replace(/\s*WHEN\s*/gi, '\n  WHEN ')
-    .replace(/\s*THEN\s*/gi, '\n  THEN ')
-    .replace(/\s*ELSE\s*/gi, '\n  ELSE ')
-    .replace(/\s*END\s*/gi, '\nEND ')
-    .replace(/\s*WITH\s*/gi, '\nWITH ')
-    .trim();
-  
-  return formatted;
+  if (!sql || !sql.trim()) return sql;
+
+  // 1. Collapse whitespace
+  let s = sql.replace(/\s+/g, ' ').trim();
+
+  // 2. Protect string literals
+  const literals = [];
+  s = s.replace(/'[^']*'/g, (m) => {
+    literals.push(m);
+    return `__LIT${literals.length - 1}__`;
+  });
+
+  // 3. Inject markers before keywords (only when preceded by a space)
+  //    Order matters — longer compound keywords first to prevent partial matches
+
+  // Compound keywords (must come before single-word)
+  const compounds = [
+    'LEFT OUTER JOIN', 'RIGHT OUTER JOIN', 'FULL OUTER JOIN',
+    'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'CROSS JOIN', 'FULL JOIN',
+    'GROUP BY', 'ORDER BY', 'PARTITION BY',
+    'INSERT INTO', 'DELETE FROM',
+    'CREATE TABLE', 'ALTER TABLE', 'DROP TABLE',
+    'UNION ALL',
+  ];
+  for (const kw of compounds) {
+    const p = new RegExp(`\\s+(${kw.replace(/\s+/g, '\\s+')})\\s+`, 'gi');
+    s = s.replace(p, ` \n${kw.toUpperCase()} `);
+  }
+
+  // Single top-level keywords
+  const topKeywords = [
+    'WITH', 'SELECT', 'FROM', 'WHERE', 'HAVING', 'LIMIT', 'OFFSET',
+    'UPDATE', 'SET', 'VALUES', 'UNION', 'INTERSECT', 'EXCEPT',
+    'JOIN', 'CASE', 'END',
+  ];
+  for (const kw of topKeywords) {
+    const p = new RegExp(`\\s+(${kw})\\b`, 'gi');
+    s = s.replace(p, ` \n${kw} `);
+  }
+
+  // Sub-clause keywords — mark with a special prefix so we indent them extra
+  const subKeywords = ['AND', 'OR', 'ON'];
+  for (const kw of subKeywords) {
+    const p = new RegExp(`\\s+(${kw})\\s+`, 'gi');
+    s = s.replace(p, ` \n__SUB__${kw} `);
+  }
+
+  // WHEN / ELSE in CASE blocks
+  s = s.replace(/\s+(WHEN)\s+/gi, ' \n__SUB__WHEN ');
+  s = s.replace(/\s+(ELSE)\s+/gi, ' \n__SUB__ELSE ');
+
+  // 4. Split into lines and compute indent based on parentheses nesting
+  const rawLines = s.split('\n').map((l) => l.trim()).filter(Boolean);
+  const result = [];
+  let depth = 0;
+
+  for (let line of rawLines) {
+    const isSub = line.startsWith('__SUB__');
+    if (isSub) {
+      line = line.replace('__SUB__', '');
+    }
+
+    // Count open/close parens to track nesting depth changes
+    // Adjust depth BEFORE rendering for closing-paren lines
+    const opensInLine  = (line.match(/\(/g) || []).length;
+    const closesInLine = (line.match(/\)/g) || []).length;
+
+    // If line starts with ) or contains only ), decrease depth first
+    const startsWithClose = /^\)/.test(line);
+    if (startsWithClose && depth > 0) {
+      depth -= 1;
+    }
+
+    const indentLevel = isSub ? depth + 1 : depth;
+    const prefix = INDENT.repeat(Math.max(0, indentLevel));
+    result.push(prefix + line);
+
+    // Update depth based on net paren change
+    const net = opensInLine - closesInLine - (startsWithClose ? -1 : 0);
+    // only the net-opens inside the line matter (the leading close was already handled)
+    if (!startsWithClose) {
+      depth += net;
+    } else {
+      depth += (opensInLine - (closesInLine - 1));
+    }
+    if (depth < 0) depth = 0;
+  }
+
+  // 5. Restore string literals
+  let out = result.join('\n');
+  out = out.replace(/__LIT(\d+)__/g, (_, i) => literals[Number(i)]);
+
+  return out;
 };
 
-const SqlBlock = ({ sql, compact = false }) => {
-  const [copied, setCopied] = useState(false);
-  const [expanded, setExpanded] = useState(false);
 
-  const shouldFormat = expanded && sql.length > 200;
+/* ── Constants ─────────────────────────────────────────────────────────── */
+const LINE_HEIGHT    = 19;
+const EDITOR_PADDING = 16;
+const MAX_HEIGHT     = 520;
+const COLLAPSED_MAX  = 100;
+
+/* ── Component ─────────────────────────────────────────────────────────── */
+const SqlBlock = ({ sql, compact = false }) => {
+  const [copied, setCopied]       = useState(false);
+  const [expanded, setExpanded]   = useState(false);
 
   if (!sql) return null;
 
-  const sqlToShow = shouldFormat ? formatSql(sql) : sql;
+  const shouldFormat = expanded && sql.length > 200;
+  const sqlToShow = useMemo(
+    () => (shouldFormat ? formatSql(sql) : sql),
+    [sql, shouldFormat],
+  );
+
+  const lineCount    = useMemo(() => sqlToShow.split('\n').length, [sqlToShow]);
+  const naturalHeight = lineCount * LINE_HEIGHT + EDITOR_PADDING;
+
+  const editorHeight = (() => {
+    if (!expanded && sql.length > 200) {
+      return Math.min(naturalHeight, COLLAPSED_MAX);
+    }
+    return Math.min(naturalHeight, MAX_HEIGHT);
+  })();
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(sql);
@@ -71,90 +152,72 @@ const SqlBlock = ({ sql, compact = false }) => {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const highlightSql = (query) => {
-    let safeQuery = escapeHtml(query);
-
-    const keywords = [
-      'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'NOT', 'IN', 'LIKE', 'BETWEEN',
-      'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'FULL', 'CROSS', 'ON',
-      'GROUP', 'BY', 'HAVING', 'ORDER', 'ASC', 'DESC', 'LIMIT', 'OFFSET',
-      'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE', 'CREATE', 'TABLE',
-      'ALTER', 'DROP', 'INDEX', 'PRIMARY', 'KEY', 'FOREIGN', 'REFERENCES',
-      'NULL', 'IS', 'AS', 'DISTINCT', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
-      'UNION', 'ALL', 'EXISTS', 'WITH', 'RECURSIVE',
-    ];
-
-    const dataTypes = [
-      'INT', 'INTEGER', 'BIGINT', 'SMALLINT', 'TINYINT',
-      'VARCHAR', 'CHAR', 'TEXT', 'NVARCHAR', 'NCHAR',
-      'DECIMAL', 'NUMERIC', 'FLOAT', 'REAL', 'MONEY',
-      'DATE', 'TIME', 'DATETIME', 'TIMESTAMP',
-      'BIT', 'BOOLEAN', 'BINARY', 'VARBINARY', 'BLOB',
-      'UUID', 'JSON', 'XML',
-    ];
-
-    const functions = [
-      'COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'COALESCE', 'NULLIF',
-      'CONCAT', 'LENGTH', 'SUBSTRING', 'TRIM', 'UPPER', 'LOWER',
-      'CAST', 'CONVERT', 'ROUND', 'FLOOR', 'CEIL',
-      'ROW_NUMBER', 'RANK', 'DENSE_RANK', 'NTILE',
-      'LAG', 'LEAD', 'FIRST_VALUE', 'LAST_VALUE',
-      'OVER', 'PARTITION', 'ROWS', 'RANGE',
-    ];
-
-    let highlighted = safeQuery;
-
-    highlighted = highlighted.replace(/&#x27;([^&#]*?)&#x27;/g, '<span class="sql-string">&#x27;$1&#x27;</span>');
-    highlighted = highlighted.replace(/(--.*$)/gm, '<span class="sql-comment">$1</span>');
-    highlighted = highlighted.replace(/(\/\*[\s\S]*?\*\/)/g, '<span class="sql-comment">$1</span>');
-    highlighted = highlighted.replace(/\b(\d+\.?\d*)\b/g, '<span class="sql-number">$1</span>');
-
-    keywords.forEach(keyword => {
-      const regex = new RegExp(`\\b(${keyword})\\b`, 'gi');
-      highlighted = highlighted.replace(regex, '<span class="sql-keyword">$1</span>');
-    });
-
-    dataTypes.forEach(type => {
-      const regex = new RegExp(`\\b(${type})\\b`, 'gi');
-      highlighted = highlighted.replace(regex, '<span class="sql-datatype">$1</span>');
-    });
-
-    functions.forEach(func => {
-      const regex = new RegExp(`\\b(${func})\\s*\\(`, 'gi');
-      highlighted = highlighted.replace(regex, '<span class="sql-function">$1</span>(');
-    });
-
-    return highlighted;
+  /** Monaco options — read-only, original monospace font */
+  const baseOptions = {
+    readOnly:               true,
+    domReadOnly:            true,
+    minimap:                { enabled: false },
+    scrollBeyondLastLine:   false,
+    automaticLayout:        true,
+    wordWrap:               expanded ? 'off' : 'on',
+    lineNumbers:            expanded ? 'on' : 'off',
+    folding:                expanded,
+    glyphMargin:            false,
+    lineDecorationsWidth:   expanded ? 4 : 0,
+    lineNumbersMinChars:    expanded ? 3 : 0,
+    renderLineHighlight:    'none',
+    overviewRulerLanes:     0,
+    hideCursorInOverviewRuler: true,
+    overviewRulerBorder:    false,
+    scrollbar: {
+      vertical:             expanded ? 'auto' : 'hidden',
+      horizontal:           'auto',
+      useShadows:           false,
+      verticalScrollbarSize: 6,
+      horizontalScrollbarSize: 6,
+    },
+    contextmenu:            false,
+    tabSize:                4,
+    fontFamily:             "'Monaco', 'Menlo', 'Ubuntu Mono', monospace",
+    cursorBlinking:         'solid',
+    selectionHighlight:     false,
+    occurrencesHighlight:   'off',
+    matchBrackets:          'near',
   };
 
+  /* ── Compact mode ──────────────────────────────────────────────────── */
   if (compact) {
     return (
-      <code style={{
-        backgroundColor: '#f5f5f5',
-        padding: '6px 10px',
-        borderRadius: 4,
-        fontSize: 12,
-        fontFamily: 'Monaco, Consolas, monospace',
-        border: '1px solid #e8e8e8',
-        display: 'block',
-        overflowX: 'auto',
-        whiteSpace: 'pre-wrap',
-        wordBreak: 'break-word',
-      }}>
-        {sql}
-      </code>
+      <div style={{ borderRadius: 4, overflow: 'hidden', border: '1px solid #e8e8e8' }}>
+        <Editor
+          height={Math.min(lineCount * LINE_HEIGHT + EDITOR_PADDING, 200)}
+          defaultLanguage="sql"
+          value={sql}
+          theme="vs-light"
+          options={{ ...baseOptions, fontSize: 12, lineNumbers: 'off', wordWrap: 'on' }}
+        />
+      </div>
     );
   }
 
+  /* ── Full mode ─────────────────────────────────────────────────────── */
   return (
-    <div style={{ marginTop: 8, borderRadius: 4, overflow: 'hidden' }}>
+    <div style={{
+      marginTop: 8,
+      borderRadius: 6,
+      overflow: 'hidden',
+      border: '1px solid #dbe4ff',
+      boxShadow: '0 1px 3px rgba(24,144,255,0.06)',
+    }}>
+
+      {/* ── Toolbar ── */}
       <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '6px 12px',
+        display:         'flex',
+        justifyContent:  'space-between',
+        alignItems:      'center',
+        padding:         '6px 12px',
         backgroundColor: '#f0f5ff',
-        borderBottom: '1px solid #d6e4ff',
+        borderBottom:    '1px solid #d6e4ff',
       }}>
         <Space>
           <CodeOutlined style={{ color: '#1890ff' }} />
@@ -163,22 +226,31 @@ const SqlBlock = ({ sql, compact = false }) => {
 
         <Space>
           {sql.length > 200 && (
-            <Tooltip title={expanded ? 'Collapse' : 'Expand (Format)'}>
-              <Button type="text" size="small" icon={<AlignLeftOutlined />} onClick={() => setExpanded(!expanded)} style={{ fontSize: 12, color: expanded ? '#1890ff' : '#8c8c8c' }} />
+            <Tooltip title={expanded ? 'Collapse' : 'Expand & Format'}>
+              <Button
+                type="text" size="small"
+                icon={<AlignLeftOutlined />}
+                onClick={() => setExpanded(!expanded)}
+                style={{ fontSize: 12, color: expanded ? '#1890ff' : '#8c8c8c' }}
+              />
             </Tooltip>
           )}
           <Tooltip title={copied ? 'Copied!' : 'Copy SQL'}>
-            <Button type="text" size="small" icon={copied ? <CheckOutlined /> : <CopyOutlined />} onClick={handleCopy} style={{ fontSize: 12, color: copied ? '#52c41a' : '#8c8c8c' }} />
+            <Button
+              type="text" size="small"
+              icon={copied ? <CheckOutlined /> : <CopyOutlined />}
+              onClick={handleCopy}
+              style={{ fontSize: 12, color: copied ? '#52c41a' : '#8c8c8c' }}
+            />
           </Tooltip>
           <Tooltip title="Export .sql file">
             <Button
-              type="text"
-              size="small"
+              type="text" size="small"
               icon={<CodeOutlined />}
               onClick={() => {
                 const blob = new Blob([sql], { type: 'application/sql' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
+                const url  = URL.createObjectURL(blob);
+                const a    = document.createElement('a');
                 a.href = url;
                 a.download = `query_${Date.now()}.sql`;
                 a.click();
@@ -190,41 +262,27 @@ const SqlBlock = ({ sql, compact = false }) => {
         </Space>
       </div>
 
-      <div style={{
-        padding: '12px',
-        backgroundColor: '#fafafa',
-        fontFamily: "'Monaco', 'Menlo', 'Ubuntu Mono', monospace",
-        fontSize: 13,
-        lineHeight: 1.6,
-        overflowX: 'auto',
-        overflowY: expanded ? 'auto' : 'hidden',
-        maxHeight: expanded ? 'none' : '100px',
-        position: 'relative',
-        whiteSpace: shouldFormat ? 'pre' : 'pre-wrap',
-        wordBreak: 'break-word',
-      }}>
-        <div dangerouslySetInnerHTML={{ __html: highlightSql(sqlToShow) }} />
+      {/* ── Monaco Editor ── */}
+      <div style={{ position: 'relative' }}>
+        <Editor
+          height={editorHeight}
+          defaultLanguage="sql"
+          value={sqlToShow}
+          theme="vs-light"
+          options={{ ...baseOptions, fontSize: 13 }}
+        />
+
+        {/* Fade overlay when collapsed */}
         {!expanded && sql.length > 200 && (
           <div style={{
             position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: '40px',
-            background: 'linear-gradient(transparent, #fafafa)',
-            pointerEvents: 'none'
+            bottom: 0, left: 0, right: 0,
+            height: 40,
+            background: 'linear-gradient(transparent, #ffffff)',
+            pointerEvents: 'none',
           }} />
         )}
       </div>
-
-      <style>{`
-        .sql-keyword { color: #0000ff; font-weight: 600; }
-        .sql-datatype { color: #267f99; }
-        .sql-string { color: #a31515; }
-        .sql-number { color: #098658; }
-        .sql-comment { color: #008000; font-style: italic; }
-        .sql-function { color: #af00db; }
-      `}</style>
     </div>
   );
 };

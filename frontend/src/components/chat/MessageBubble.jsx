@@ -27,7 +27,6 @@ import EnhancedMessageInfo from './EnhancedMessageInfo';
 import ConversationContextIndicator from './ConversationContextIndicator';
 import TableSchemaButton from './TableSchemaButton';
 import ForbiddenWarning from './ForbiddenWarning';
-import { escapeHtml } from '../../utils/security';
 import { renderTableLinks, extractTableNames } from '../../utils/tableLinksRenderer';
 import useConnectionStore from '../../store/connectionStore';
 
@@ -236,7 +235,7 @@ const MessageBubble = ({ message, onSuggestedQueryClick, tableNames = [] }) => {
             }}>
               {!isUser && tableNames.length > 0
                 ? renderTableLinks(message.content, tableNames)
-                : escapeHtml(message.content)
+                : message.content
               }
             </Text>
           </div>

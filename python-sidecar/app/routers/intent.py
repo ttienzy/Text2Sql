@@ -13,6 +13,7 @@ import joblib
 import numpy as np
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+from training.ml_utils import build_feature_text
 
 logger = logging.getLogger("sidecar.intent")
 
@@ -26,6 +27,8 @@ class ClassifyRequest(BaseModel):
     """Input schema for intent classification."""
     question: str = Field(..., min_length=1, max_length=2000, description="User query text")
     language: str = Field(default="auto", description="Language hint: 'vi', 'en', or 'auto'")
+    conversation_context: Optional[str] = Field(default=None, description="Recent conversation context or follow-up history")
+    database_context: Optional[str] = Field(default=None, description="Optional database/schema context")
 
 
 class ClassifyResponse(BaseModel):
@@ -80,6 +83,10 @@ _model_version = "not_loaded"
 _model_metadata: dict = {}
 _service_state = "not_ready"
 _fallback_reason: Optional[str] = "startup_not_completed"
+_release_status: dict = {}
+_release_gate_passed = False
+_advisory_only = True
+_activation_reason = "startup_not_completed"
 
 SERVICE_STATE_READY = "ready"
 SERVICE_STATE_DEGRADED = "degraded"
@@ -91,17 +98,69 @@ CLASSIFIER_MODE_ML = "ml"
 CLASSIFIER_MODE_SAFETY_OVERRIDE = "safety_override"
 CLASSIFIER_MODE_RULE_FALLBACK = "rule_fallback"
 
-ADVISORY_ONLY = os.environ.get("SIDECAR_ADVISORY_ONLY", "true").strip().lower() not in {"false", "0", "no"}
-
 MODEL_DIR = os.environ.get("MODEL_CACHE_DIR", os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
     "models", "intent_classifier"
 ))
+RELEASE_STATUS_PATH = os.path.join(MODEL_DIR, "release_status.json")
+
+
+def parse_optional_bool(raw_value: Optional[str]) -> Optional[bool]:
+    if raw_value is None:
+        return None
+
+    value = raw_value.strip().lower()
+    if value in {"true", "1", "yes"}:
+        return True
+    if value in {"false", "0", "no"}:
+        return False
+
+    raise ValueError(f"Invalid boolean value: {raw_value}")
+
+
+def resolve_advisory_only(release_gate_passed: bool) -> tuple[bool, str]:
+    try:
+        override = parse_optional_bool(os.environ.get("SIDECAR_ADVISORY_ONLY"))
+    except ValueError as ex:
+        logger.warning("Invalid SIDECAR_ADVISORY_ONLY value: %s", ex)
+        return True, "invalid_env_override"
+
+    if override is not None:
+        return override, "env_override"
+    if release_gate_passed:
+        return False, "release_gates_passed"
+    return True, "release_gates_missing_or_failed"
+
+
+def load_release_status(model_version: str) -> tuple[dict, bool]:
+    if not os.path.exists(RELEASE_STATUS_PATH):
+        return {}, False
+
+    try:
+        with open(RELEASE_STATUS_PATH, "r", encoding="utf-8") as f:
+            release_status = json.load(f)
+    except Exception as ex:
+        logger.warning("Failed to load release status from %s: %s", RELEASE_STATUS_PATH, ex)
+        return {}, False
+
+    report_model_version = str(release_status.get("model_version", "")).strip()
+    if report_model_version and model_version not in {"", "not_loaded"} and report_model_version != model_version:
+        logger.warning(
+            "Intent release status model mismatch. expected=%s actual=%s",
+            model_version,
+            report_model_version,
+        )
+        release_status["mismatch"] = True
+        return release_status, False
+
+    passed = bool(release_status.get("release_gates", {}).get("passed", False))
+    return release_status, passed
 
 
 def load_model():
     """Load the trained intent classifier model from disk."""
-    global _model, _vectorizer, _label_encoder, _model_version, _model_metadata, _service_state, _fallback_reason
+    global _model, _vectorizer, _label_encoder, _model_version, _model_metadata
+    global _service_state, _fallback_reason, _release_status, _release_gate_passed, _advisory_only, _activation_reason
     
     model_path = os.path.join(MODEL_DIR, "model.pkl")
     vectorizer_path = os.path.join(MODEL_DIR, "vectorizer.pkl")
@@ -115,6 +174,10 @@ def load_model():
     _model_version = "not_loaded"
     _service_state = SERVICE_STATE_NOT_READY
     _fallback_reason = "model_loader_not_executed"
+    _release_status = {}
+    _release_gate_passed = False
+    _advisory_only = True
+    _activation_reason = "model_loader_not_executed"
 
     if os.path.exists(metadata_path):
         try:
@@ -146,6 +209,8 @@ def load_model():
 
             _service_state = SERVICE_STATE_READY
             _fallback_reason = None
+            _release_status, _release_gate_passed = load_release_status(_model_version)
+            _advisory_only, _activation_reason = resolve_advisory_only(_release_gate_passed)
             logger.info("Intent model loaded from %s with version=%s", MODEL_DIR, _model_version)
         except Exception as e:
             logger.warning("Failed to load trained model: %s. Using rule-based fallback.", e)
@@ -155,11 +220,15 @@ def load_model():
             _model_version = _model_metadata.get("version", "rule-based-fallback")
             _service_state = SERVICE_STATE_DEGRADED
             _fallback_reason = "model_load_failure"
+            _advisory_only = True
+            _activation_reason = "model_load_failure"
     else:
         logger.info("No trained model found. Using rule-based classifier.")
         _model_version = _model_metadata.get("version", "rule-based-fallback")
         _service_state = SERVICE_STATE_MODEL_MISSING
         _fallback_reason = "trained_model_artifacts_missing"
+        _advisory_only = True
+        _activation_reason = "trained_model_artifacts_missing"
 
 
 def get_model_info() -> dict:
@@ -171,20 +240,27 @@ def get_model_info() -> dict:
         "model_dir": MODEL_DIR,
         "service_state": _service_state,
         "fallback_reason": _fallback_reason,
-        "advisory_only": ADVISORY_ONLY,
+        "advisory_only": _advisory_only,
+        "activation_reason": _activation_reason,
+        "release_gate_passed": _release_gate_passed,
+        "release_status": _release_status,
         "metadata": _model_metadata,
     }
 
 
 def get_service_status() -> dict:
     """Return runtime status used by health and readiness endpoints."""
+    routing_ready = _service_state == SERVICE_STATE_READY and not _advisory_only
     return {
         "service_state": _service_state,
         "ready": _service_state == SERVICE_STATE_READY,
+        "routing_ready": routing_ready,
         "classifier_mode": CLASSIFIER_MODE_ML if _service_state == SERVICE_STATE_READY else CLASSIFIER_MODE_RULE_FALLBACK,
         "model_version": _model_version,
         "fallback_reason": _fallback_reason,
-        "advisory_only": ADVISORY_ONLY,
+        "advisory_only": _advisory_only,
+        "activation_reason": _activation_reason,
+        "release_gate_passed": _release_gate_passed,
     }
 
 
@@ -209,7 +285,7 @@ def _build_response(
         classifier_mode=classifier_mode,
         service_state=_service_state,
         model_version=_model_version,
-        advisory_only=ADVISORY_ONLY,
+        advisory_only=_advisory_only,
         fallback_reason=fallback_reason,
     )
 
@@ -370,7 +446,13 @@ def rule_based_classify(text: str, language: str) -> ClassifyResponse:
 # ML-Based Classifier
 # ============================================================
 
-def ml_classify(text: str, language: str) -> ClassifyResponse:
+def ml_classify(
+    text: str,
+    language: str,
+    *,
+    conversation_context: Optional[str] = None,
+    database_context: Optional[str] = None,
+) -> ClassifyResponse:
     """
     Classify intent using trained ML model (scikit-learn).
     Falls back to rule-based if model not loaded.
@@ -380,7 +462,13 @@ def ml_classify(text: str, language: str) -> ClassifyResponse:
     
     try:
         processed = preprocess_text(text, language)
-        features = _vectorizer.transform([processed])
+        features = _vectorizer.transform([
+            build_feature_text(
+                processed,
+                conversation_context=conversation_context,
+                database_context=database_context,
+            )
+        ])
         
         # Get prediction and confidence
         prediction = _model.predict(features)[0]
@@ -446,7 +534,12 @@ async def classify_intent(request: ClassifyRequest):
             )
     
     # Use ML model if available, else rule-based
-    result = ml_classify(text, language)
+    result = ml_classify(
+        text,
+        language,
+        conversation_context=request.conversation_context,
+        database_context=request.database_context,
+    )
     
     logger.info(
         "Classified '%s' -> %s (conf=%.2f, lang=%s, mode=%s, state=%s)",

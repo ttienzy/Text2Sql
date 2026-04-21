@@ -61,7 +61,7 @@ async def health_check():
     service_status = get_service_status()
     
     return {
-        "status": "healthy" if service_status["ready"] else "degraded",
+        "status": "healthy" if service_status["routing_ready"] else "degraded",
         "service": "python-sidecar",
         "version": "1.0.0",
         "service_state": service_status["service_state"],
@@ -88,11 +88,11 @@ async def readiness_check(response: Response):
     from app.routers.intent import get_service_status
 
     service_status = get_service_status()
-    if not service_status["ready"]:
+    if not service_status["routing_ready"]:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
 
     return {
-        "status": "ready" if service_status["ready"] else "not_ready",
+        "status": "ready" if service_status["routing_ready"] else "not_ready",
         "service": "python-sidecar",
         "version": "1.0.0",
         **service_status,

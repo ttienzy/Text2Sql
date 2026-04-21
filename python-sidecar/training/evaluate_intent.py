@@ -33,6 +33,7 @@ MODEL_DIR = os.path.join(ROOT_DIR, "models", "intent_classifier")
 REPORT_DIR = os.path.join(TRAINING_DIR, "reports")
 GATES_PATH = os.path.join(TRAINING_DIR, "intent_release_gates.json")
 REPORT_PATH = os.path.join(REPORT_DIR, "intent_eval_report.json")
+RELEASE_STATUS_PATH = os.path.join(MODEL_DIR, "release_status.json")
 DEFAULT_DATASET = os.path.join(DATA_DIR, "labeled_queries.jsonl")
 PROMOTED_DATASET = os.path.join(DATA_DIR, "review", "generated", "labeled_queries.promoted.jsonl")
 EVAL_DATA_PATH = os.path.join(BENCHMARK_DIR, "eval.jsonl")
@@ -147,12 +148,27 @@ def main() -> None:
     }
 
     write_json(REPORT_PATH, report)
+    write_json(
+        RELEASE_STATUS_PATH,
+        {
+            "generated_at_utc": report["generated_at_utc"],
+            "model_version": report["model_version"],
+            "source_dataset": expected_source_dataset,
+            "evaluation_dataset": report["evaluation_dataset"],
+            "metrics": {
+                "accuracy": metrics["accuracy"],
+                "macro_f1": metrics["macro_avg"]["f1_score"],
+            },
+            "release_gates": gate_results,
+        },
+    )
 
     print("Intent evaluation complete")
     print(f"- accuracy: {metrics['accuracy']:.4f}")
     print(f"- macro_f1: {metrics['macro_avg']['f1_score']:.4f}")
     print(f"- release gates passed: {gate_results['passed']}")
     print(f"- report: {REPORT_PATH}")
+    print(f"- release status: {RELEASE_STATUS_PATH}")
 
 
 if __name__ == "__main__":

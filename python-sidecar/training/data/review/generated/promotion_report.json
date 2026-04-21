@@ -2,6 +2,7 @@
   "canonical_dataset": "D:\\DACN1\\TextToSqlAgent\\python-sidecar\\training\\data\\labeled_queries.jsonl",
   "generated_dataset": "D:\\DACN1\\TextToSqlAgent\\python-sidecar\\training\\data\\review\\generated\\labeled_queries.promoted.jsonl",
   "candidate_files": [
+    "contextual_followups_v1.jsonl",
     "enterprise_risky_intents_v1.jsonl"
   ],
   "approved_records": 0,

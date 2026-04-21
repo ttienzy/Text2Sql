@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from training.ml_utils import (
+    build_feature_text,
     detect_internal_query_conflicts,
     detect_label_conflicts,
     normalize_query_text,
@@ -25,12 +26,31 @@ class TrainingWorkflowTests(unittest.TestCase):
 
         self.assertEqual(normalized, "doanh thu theo thang")
 
+    def test_build_feature_text_includes_contextual_segments(self):
+        feature_text = build_feature_text(
+            "Cũng xem đơn hàng của họ",
+            conversation_context="user: liệt kê khách hàng vip\nassistant: đã liệt kê 15 khách hàng",
+            database_context="customers, orders",
+            previous_intent="SELECT",
+            context_turn=2,
+        )
+
+        self.assertIn("[query] cũng xem đơn hàng của họ", feature_text)
+        self.assertIn("[conversation] user: liệt kê khách hàng vip assistant: đã liệt kê 15 khách hàng", feature_text)
+        self.assertIn("[database] customers, orders", feature_text)
+        self.assertIn("[previous_intent] SELECT", feature_text)
+        self.assertIn("[turn] 2", feature_text)
+
     def test_detect_label_conflicts_flags_existing_query_with_new_intent(self):
         canonical_records = [
             {
                 "query": "doanh thu theo thang",
                 "intent": "AGGREGATE",
                 "normalized_query": "doanh thu theo thang",
+                "normalized_conversation_context": None,
+                "normalized_database_context": None,
+                "previous_intent": None,
+                "context_turn": None,
             }
         ]
         candidate_records = [
@@ -38,6 +58,10 @@ class TrainingWorkflowTests(unittest.TestCase):
                 "query": "doanh thu theo thang",
                 "intent": "AMBIGUOUS",
                 "normalized_query": "doanh thu theo thang",
+                "normalized_conversation_context": None,
+                "normalized_database_context": None,
+                "previous_intent": None,
+                "context_turn": None,
             }
         ]
 
@@ -48,12 +72,56 @@ class TrainingWorkflowTests(unittest.TestCase):
 
     def test_detect_internal_query_conflicts_flags_multiple_labels_for_same_query(self):
         conflicts = detect_internal_query_conflicts([
-            {"query": "top customers", "intent": "AGGREGATE", "normalized_query": "top customers"},
-            {"query": "top customers", "intent": "AMBIGUOUS", "normalized_query": "top customers"},
+            {
+                "query": "top customers",
+                "intent": "AGGREGATE",
+                "normalized_query": "top customers",
+                "normalized_conversation_context": None,
+                "normalized_database_context": None,
+                "previous_intent": None,
+                "context_turn": None,
+            },
+            {
+                "query": "top customers",
+                "intent": "AMBIGUOUS",
+                "normalized_query": "top customers",
+                "normalized_conversation_context": None,
+                "normalized_database_context": None,
+                "previous_intent": None,
+                "context_turn": None,
+            },
         ])
 
         self.assertEqual(len(conflicts), 1)
         self.assertEqual(conflicts[0]["intents"], ["AGGREGATE", "AMBIGUOUS"])
+
+    def test_detect_label_conflicts_allows_same_query_when_context_differs(self):
+        canonical_records = [
+            {
+                "query": "cũng xem của họ",
+                "intent": "SELECT",
+                "normalized_query": "cũng xem của họ",
+                "normalized_conversation_context": "user: liệt kê khách hàng vip",
+                "normalized_database_context": None,
+                "previous_intent": "SELECT",
+                "context_turn": 2,
+            }
+        ]
+        candidate_records = [
+            {
+                "query": "cũng xem của họ",
+                "intent": "AMBIGUOUS",
+                "normalized_query": "cũng xem của họ",
+                "normalized_conversation_context": None,
+                "normalized_database_context": None,
+                "previous_intent": None,
+                "context_turn": None,
+            }
+        ]
+
+        conflicts = detect_label_conflicts(candidate_records, canonical_records)
+
+        self.assertEqual(conflicts, [])
 
     def test_validate_file_marks_canonical_conflict_as_invalid(self):
         canonical_records = [
@@ -61,6 +129,10 @@ class TrainingWorkflowTests(unittest.TestCase):
                 "query": "doanh thu theo thang",
                 "intent": "AGGREGATE",
                 "normalized_query": "doanh thu theo thang",
+                "normalized_conversation_context": None,
+                "normalized_database_context": None,
+                "previous_intent": None,
+                "context_turn": None,
             }
         ]
 

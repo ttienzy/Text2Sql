@@ -15,7 +15,7 @@ import {
 } from '@ant-design/icons';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { MessageBubble, ChatInput, MessageSkeleton, ConversationStatus } from '../chat';
-import StageProgressBar from '../chat/StageProgressBar';
+import ThinkingIndicator from '../chat/ThinkingIndicator';
 import ConversationLimitBanner from '../chat/ConversationLimitBanner';
 import { ResponsiveChatMessageSkeleton } from '../common';
 import WriteConfirmationModal from '../write/WriteConfirmationModal';
@@ -908,65 +908,19 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
               />
             ))}
 
-            {/* ✅ SSE: Show real-time pipeline stages during streaming */}
+            {/* ✅ SSE: Premium thinking indicator during streaming */}
             {sseIsStreaming && currentQuestion && (
-              <StageProgressBar
+              <ThinkingIndicator
                 stages={sseStages}
                 currentStage={sseCurrentStage}
                 progress={sseProgress}
                 isStreaming={sseIsStreaming}
                 error={sseError}
+                generatedSql={sseGeneratedSql}
               />
             )}
 
-            {/* ✅ SSE: Show real-time SQL generation during streaming */}
-            {sseIsStreaming && sseGeneratedSql && (
-              <div style={{
-                padding: '12px 16px',
-                backgroundColor: '#fafafa',
-                borderRadius: '8px',
-                border: '1px solid #f0f0f0',
-                marginBottom: '8px',
-                fontFamily: 'monospace',
-                fontSize: '13px',
-                color: '#595959',
-              }}>
-                <div style={{ marginBottom: '4px', color: '#8c8c8c', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span style={{
-                    display: 'inline-block',
-                    width: '8px',
-                    height: '8px',
-                    borderRadius: '50%',
-                    backgroundColor: '#1890ff',
-                    animation: 'pulse 1s infinite'
-                  }} />
-                  Generating SQL...
-                </div>
-                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                  {sseGeneratedSql}
-                  <span style={{
-                    display: 'inline-block',
-                    width: '8px',
-                    height: '14px',
-                    backgroundColor: '#1890ff',
-                    animation: 'blink 1s infinite',
-                    verticalAlign: 'text-bottom',
-                    marginLeft: '2px'
-                  }} />
-                </pre>
-              </div>
-            )}
 
-            <style>{`
-              @keyframes pulse {
-                0%, 100% { opacity: 1; }
-                50% { opacity: 0.4; }
-              }
-              @keyframes blink {
-                0%, 50% { opacity: 1; }
-                51%, 100% { opacity: 0; }
-              }
-            `}</style>
           </div>
         )}
 

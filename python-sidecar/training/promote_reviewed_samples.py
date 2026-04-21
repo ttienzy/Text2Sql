@@ -15,10 +15,10 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from training.ml_utils import (  # noqa: E402
+    build_record_signature,
     detect_internal_query_conflicts,
     detect_label_conflicts,
     load_jsonl_records,
-    normalize_query_text,
     write_json,
     write_jsonl,
 )
@@ -52,7 +52,7 @@ def main() -> None:
         raise FileNotFoundError(f"Canonical dataset not found: {CANONICAL_DATASET}")
 
     canonical_records = load_jsonl_records(CANONICAL_DATASET)
-    canonical_keys = {(record["normalized_query"], record["intent"]) for record in canonical_records}
+    canonical_keys = {(build_record_signature(record), record["intent"]) for record in canonical_records}
     candidate_records = load_candidate_records()
 
     approved = [record for record in candidate_records if record.get("review_status") == "approved"]
@@ -82,11 +82,20 @@ def main() -> None:
         )
 
     for record in approved:
-        key = (normalize_query_text(record["query"]), str(record["intent"]).strip())
         normalized_record = {
             "query": str(record["query"]).strip(),
             "intent": str(record["intent"]).strip(),
         }
+        if record.get("conversation_context") is not None:
+            normalized_record["conversation_context"] = str(record["conversation_context"]).strip()
+        if record.get("database_context") is not None:
+            normalized_record["database_context"] = str(record["database_context"]).strip()
+        if record.get("previous_intent") is not None:
+            normalized_record["previous_intent"] = str(record["previous_intent"]).strip().upper()
+        if record.get("context_turn") not in {None, ""}:
+            normalized_record["context_turn"] = int(record["context_turn"])
+
+        key = (build_record_signature(normalized_record), normalized_record["intent"])
 
         if key in canonical_keys:
             skipped_duplicates.append({

@@ -29,6 +29,17 @@ Each JSONL record in `candidates/` should follow this shape:
 }
 ```
 
+Optional context-aware fields are also supported for multi-turn training samples:
+
+```json
+{
+  "conversation_context": "user: list VIP customers\nassistant: found 15 VIP customers",
+  "previous_intent": "SELECT",
+  "context_turn": 2,
+  "database_context": "customers, orders"
+}
+```
+
 ## Allowed Review Status
 - `pending_review`
 - `approved`
@@ -43,8 +54,8 @@ Each JSONL record in `candidates/` should follow this shape:
 
 ## Promotion Rules
 - Only records marked `approved` are eligible for promotion.
-- Promotion is de-duplicated against the canonical dataset by normalized query and intent.
-- Approved records that reuse an existing normalized query with a different intent are treated as conflicts and must be resolved before promotion.
+- Promotion is de-duplicated against the canonical dataset by normalized query plus optional context fields (`conversation_context`, `previous_intent`, `context_turn`, `database_context`) and intent.
+- Approved records that reuse the same normalized query + context signature with a different intent are treated as conflicts and must be resolved before promotion.
 - Promotion writes a generated output file instead of mutating the canonical dataset in place.
 
 ## Enterprise Guidance

@@ -85,19 +85,34 @@ dist/
 dist-ssr/
 **/dist-ssr/
 
-# Build results
-[Dd]ebug/
-[Dd]ebugPublic/
-[Rr]elease/
-[Rr]eleases/
-x64/
-x86/
-[Aa][Rr][Mm]/
-[Aa][Rr][Mm]64/
-bld/
+# .NET SDK cache/telemetry
+.dotnet-home/
+
+# Python virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Temporary test folders
+.tmp-tests/
+
+# Build output folders
+.obj/
 [Bb]in/
 [Oo]bj/
-[Ll]og/
+
+# Log files
+err.txt
+files_to_comment.txt
+*.log
+logs/
+**/logs/
+
 # Summary and documentation files (optional - remove if needed)
 *_SUMMARY.md
 *_FIX_SUMMARY.md
@@ -165,3 +180,4 @@ dist
 # Temporary folders
 tmp/
 temp/
+.tmp-tests/

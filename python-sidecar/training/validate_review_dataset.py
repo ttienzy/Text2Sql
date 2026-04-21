@@ -16,10 +16,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from training.ml_utils import (  # noqa: E402
     VALID_INTENTS,
+    build_record_signature,
     detect_internal_query_conflicts,
     detect_label_conflicts,
     load_jsonl_records,
     normalize_query_text,
+    normalize_optional_int,
+    normalize_optional_intent,
+    normalize_optional_text,
     write_json,
 )
 
@@ -77,7 +81,30 @@ def validate_file(path: Path, canonical_records: list[dict]) -> dict:
             if review_status not in VALID_REVIEW_STATUSES:
                 errors.append(f"{path.name}:{line_number} invalid review_status: {review_status}")
 
-            duplicate_key = (query.lower(), intent)
+            try:
+                previous_intent = normalize_optional_intent(item.get("previous_intent"))
+            except (TypeError, ValueError) as ex:
+                errors.append(f"{path.name}:{line_number} invalid previous_intent: {ex}")
+                previous_intent = None
+
+            try:
+                context_turn = normalize_optional_int(item.get("context_turn"))
+            except (TypeError, ValueError) as ex:
+                errors.append(f"{path.name}:{line_number} invalid context_turn: {ex}")
+                context_turn = None
+
+            parsed_record = {
+                **item,
+                "query": query,
+                "intent": intent,
+                "previous_intent": previous_intent,
+                "context_turn": context_turn,
+                "normalized_query": normalize_query_text(query),
+                "normalized_conversation_context": normalize_optional_text(item.get("conversation_context")),
+                "normalized_database_context": normalize_optional_text(item.get("database_context")),
+            }
+
+            duplicate_key = (build_record_signature(parsed_record), intent)
             if duplicate_key in seen:
                 duplicates.append(f"{path.name}:{line_number} duplicate query+intent: {query} / {intent}")
             else:
@@ -85,12 +112,7 @@ def validate_file(path: Path, canonical_records: list[dict]) -> dict:
 
             counts_by_intent[intent] += 1
             counts_by_status[review_status] += 1
-            parsed_records.append({
-                **item,
-                "query": query,
-                "intent": intent,
-                "normalized_query": normalize_query_text(query),
-            })
+            parsed_records.append(parsed_record)
 
     canonical_conflicts = detect_label_conflicts(parsed_records, canonical_records)
     internal_conflicts = detect_internal_query_conflicts(parsed_records)
