@@ -891,6 +891,8 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
       >
         {showMessagesSkeleton ? (
           <ResponsiveChatMessageSkeleton />
+        ) : isLoadingMessages ? (
+          <div style={{ flex: 1 }} /> // Blank state during the first 300ms delay to prevent flashing
         ) : messages.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 48 }}>
             <Text type="secondary">

@@ -233,8 +233,8 @@ const MainLayout = () => {
               placement="bottomRight"
             >
               <Space style={{ cursor: 'pointer' }}>
-                <Avatar icon={<UserOutlined />} />
-                <Text>{user?.email || user?.username || 'User'}</Text>
+                <Avatar src={user?.avatarUrl} icon={!user?.avatarUrl && <UserOutlined />} />
+                {/* <Text>{user?.email || user?.username || 'User'}</Text> */}
               </Space>
             </Dropdown>
           </Space>

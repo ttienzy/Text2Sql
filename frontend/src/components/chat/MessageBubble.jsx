@@ -6,6 +6,8 @@ import {
   Spin,
   Tooltip,
   Tag,
+  Tabs,
+  Card,
 } from 'antd';
 import {
   UserOutlined,
@@ -17,11 +19,13 @@ import {
   TableOutlined,
   SendOutlined,
   ThunderboltOutlined,
+  BarChartOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import SqlBlock from './SqlBlock';
 import ResultTable from './ResultTable';
+import DynamicChart from './DynamicChart';
 import TokenInfo from './TokenInfo';
 import EnhancedMessageInfo from './EnhancedMessageInfo';
 import ConversationContextIndicator from './ConversationContextIndicator';
@@ -29,6 +33,7 @@ import TableSchemaButton from './TableSchemaButton';
 import ForbiddenWarning from './ForbiddenWarning';
 import { renderTableLinks, extractTableNames } from '../../utils/tableLinksRenderer';
 import useConnectionStore from '../../store/connectionStore';
+import useAuthStore from '../../store/authStore';
 
 dayjs.extend(relativeTime);
 
@@ -47,6 +52,7 @@ const MessageBubble = ({ message, onSuggestedQueryClick, tableNames = [] }) => {
   const [typingIndex, setTypingIndex] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
   const { activeConnection } = useConnectionStore();
+  const { user } = useAuthStore();
 
   const isUser = message.role === 'user';
   const isPending = message.isPending || message.status === 'pending';
@@ -59,15 +65,36 @@ const MessageBubble = ({ message, onSuggestedQueryClick, tableNames = [] }) => {
     : [];
 
   let results = null;
-  if (message.results) {
+  if (message.results || message.Results) {
     try {
-      results = typeof message.results === 'string'
-        ? JSON.parse(message.results)
-        : message.results;
+      const rawResults = message.results || message.Results;
+      results = typeof rawResults === 'string'
+        ? JSON.parse(rawResults)
+        : rawResults;
     } catch (e) {
       console.warn('Failed to parse results:', e);
     }
   }
+
+  // Normalize properties since the backend API may return them capitalized (e.g., on page reload)
+  const chartType = message.chartType || message.ChartType;
+  const chartImageBase64 = message.chartImageBase64 || message.ChartImageBase64;
+  const sqlQuery = message.sqlQuery || message.SqlQuery;
+  const rowCount = message.rowCount || message.RowCount;
+  const totalTokens = message.totalTokens || message.TotalTokens;
+  const inputTokens = message.inputTokens || message.InputTokens;
+  const outputTokens = message.outputTokens || message.OutputTokens;
+  const cost = message.cost || message.Cost;
+  const model = message.model || message.Model;
+
+  // Heuristic to check if raw data can be charted (useful for restoring charts on page reload when ChartType is lost)
+  const isChartableData = (data) => {
+    if (!data || data.length === 0 || data.length < 2 || data.length > 100) return false;
+    const firstRow = data[0];
+    return Object.values(firstRow).some(val => typeof val === 'number' && !isNaN(val));
+  };
+
+  const canShowChart = chartType || chartImageBase64 || isChartableData(results);
 
   const handleCopy = async () => {
     const textToCopy = message.content || message.sqlQuery || '';
@@ -191,9 +218,10 @@ const MessageBubble = ({ message, onSuggestedQueryClick, tableNames = [] }) => {
       onMouseLeave={() => setIsHovered(false)}
     >
       <Avatar
-        icon={isUser ? <UserOutlined /> : <RobotOutlined />}
+        src={isUser ? user?.avatarUrl : undefined}
+        icon={isUser && !user?.avatarUrl ? <UserOutlined /> : (!isUser ? <RobotOutlined /> : undefined)}
         style={{
-          backgroundColor: isUser ? '#1890ff' : '#52c41a',
+          backgroundColor: isUser && !user?.avatarUrl ? '#1890ff' : (isUser ? 'transparent' : '#52c41a'),
           marginLeft: isUser ? 8 : 0,
           marginRight: isUser ? 0 : 8,
           flexShrink: 0,
@@ -273,44 +301,78 @@ const MessageBubble = ({ message, onSuggestedQueryClick, tableNames = [] }) => {
           </div>
         )}
 
-        {(message.sqlQuery || message.SqlQuery) && (
-          <SqlBlock sql={message.sqlQuery || message.SqlQuery} />
+        {sqlQuery && (
+          <SqlBlock sql={sqlQuery} />
         )}
 
-        {results && results.length > 0 && (
-          <ResultTable
-            data={results}
-            rowCount={message.rowCount || message.RowCount}
-          />
-        )}
-
-        {message.chartImageBase64 && (
-          <div style={{ marginTop: 12, marginBottom: 12, overflow: 'hidden' }}>
-            <Text strong style={{ display: 'block', marginBottom: 8, color: '#1890ff', fontSize: 13 }}>
-              Data Visualization ({message.chartType || 'Chart'})
-            </Text>
-            <img 
-              src={`data:image/png;base64,${message.chartImageBase64}`} 
-              alt={`${message.chartType || 'Data'} Chart`}
-              style={{
-                maxWidth: '100%',
-                maxHeight: '400px',
-                borderRadius: 8,
-                border: '1px solid #f0f0f0',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
-                objectFit: 'contain'
-              }} 
-            />
+        {(results && results.length > 0) || chartImageBase64 ? (
+          <div style={{ marginTop: 16, marginBottom: 12 }}>
+            {canShowChart ? (
+              <Card 
+                size="small" 
+                styles={{ body: { padding: 0 } }}
+                style={{ overflow: 'hidden', borderRadius: 8, border: '1px solid #f0f0f0' }}
+              >
+                <Tabs
+                  defaultActiveKey={chartType || chartImageBase64 ? "chart" : "table"}
+                  items={[
+                    {
+                      key: 'chart',
+                      label: (
+                        <span style={{ padding: '0 16px' }}>
+                          <BarChartOutlined /> Chart View
+                        </span>
+                      ),
+                      children: (
+                        <div style={{ padding: '16px', backgroundColor: '#fff' }}>
+                          {results && results.length > 0 ? (
+                            <DynamicChart data={results} type={chartType || 'line'} />
+                          ) : chartImageBase64 ? (
+                            <img 
+                              src={`data:image/png;base64,${chartImageBase64}`} 
+                              alt={`${chartType || 'Data'} Chart`}
+                              style={{ maxWidth: '100%', maxHeight: '400px', borderRadius: 8, border: '1px solid #f0f0f0', objectFit: 'contain' }} 
+                            />
+                          ) : null}
+                        </div>
+                      ),
+                    },
+                    ...(results && results.length > 0 ? [{
+                      key: 'table',
+                      label: (
+                        <span style={{ padding: '0 16px' }}>
+                          <TableOutlined /> Data Table
+                        </span>
+                      ),
+                      children: (
+                        <div style={{ padding: '16px 0 0 0' }}>
+                          <ResultTable
+                            data={results}
+                            rowCount={rowCount}
+                          />
+                        </div>
+                      ),
+                    }] : [])
+                  ]}
+                  tabBarStyle={{ marginBottom: 0, padding: '0 8px', backgroundColor: '#fafafa', borderBottom: '1px solid #f0f0f0' }}
+                />
+              </Card>
+            ) : (
+              <ResultTable
+                data={results}
+                rowCount={rowCount}
+              />
+            )}
           </div>
-        )}
+        ) : null}
 
-        {(message.totalTokens || message.TotalTokens) && (
+        {totalTokens && (
           <TokenInfo
-            inputTokens={message.inputTokens || message.InputTokens}
-            outputTokens={message.outputTokens || message.OutputTokens}
-            totalTokens={message.totalTokens || message.TotalTokens}
-            cost={message.cost || message.Cost}
-            model={message.model || message.Model}
+            inputTokens={inputTokens}
+            outputTokens={outputTokens}
+            totalTokens={totalTokens}
+            cost={cost}
+            model={model}
           />
         )}
 

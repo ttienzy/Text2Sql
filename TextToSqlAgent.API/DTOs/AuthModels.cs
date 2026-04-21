@@ -40,6 +40,7 @@ public class AuthResponse
     public string RefreshToken { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
     public string FullName { get; set; } = string.Empty;
+    public string? AvatarUrl { get; set; }
     public DateTime AccessTokenExpiration { get; set; }
     public DateTime RefreshTokenExpiration { get; set; }
 }
@@ -67,6 +68,7 @@ public class AuthResult
                 RefreshToken = refreshToken,
                 Email = user.Email!,
                 FullName = user.FullName ?? user.Email!,
+                AvatarUrl = user.AvatarUrl,
                 AccessTokenExpiration = DateTime.UtcNow.AddMinutes(180),
                 RefreshTokenExpiration = DateTime.UtcNow.AddDays(7)
             }

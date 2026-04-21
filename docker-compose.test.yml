@@ -1,7 +1,11 @@
 version: '3.8'
 
 services:
-  # SQL Server for integration tests
+  # ============================================
+  # Test Infrastructure Only
+  # No application services - run tests against local dev environment
+  # ============================================
+
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: texttosql-test-db
@@ -14,15 +18,14 @@ services:
     volumes:
       - ./test-data/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     healthcheck:
-      test: /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P Test@Pass123! -Q "SELECT 1" || exit 1
+      test: /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "Test@Pass123!" -Q "SELECT 1" || exit 1
       interval: 10s
-      timeout: 3s
+      timeout: 5s
       retries: 10
-      start_period: 10s
+      start_period: 15s
     networks:
       - test-network
 
-  # Qdrant vector database for integration tests
   qdrant:
     image: qdrant/qdrant:latest
     container_name: texttosql-test-qdrant
@@ -36,13 +39,12 @@ services:
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
       interval: 10s
-      timeout: 3s
-      retries: 10
+      timeout: 5s
+      retries: 5
       start_period: 5s
     networks:
       - test-network
 
-  # Optional: Redis for caching tests
   redis:
     image: redis:7-alpine
     container_name: texttosql-test-redis
@@ -51,14 +53,22 @@ services:
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
-      timeout: 3s
+      timeout: 5s
       retries: 5
     networks:
       - test-network
 
+# ============================================
+# Volumes
+# ============================================
+
 volumes:
   qdrant-test-data:
     driver: local
+
+# ============================================
+# Networks
+# ============================================
 
 networks:
   test-network:

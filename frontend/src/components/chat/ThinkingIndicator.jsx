@@ -22,19 +22,43 @@ import {
  * Shows collapsible thinking process with animated stage timeline.
  */
 
+// Mappings for C# AgentStage integer values
+const STAGE_KEYS = [
+  'VALIDATING',        // 0
+  'CLASSIFYING',       // 1
+  'AGENT_THINKING',    // 2
+  'AGENT_ACTION',      // 3
+  'SCHEMA_RETRIEVAL',  // 4
+  'SQL_GENERATION',    // 5
+  'SQL_VALIDATION',    // 6
+  'SQL_PREVIEW',       // 7
+  'AWAITING_CONFIRM',  // 8
+  'EXECUTING',         // 9
+  'CORRECTING',        // 10
+  'BUILDING_RESPONSE', // 11
+  'COMPLETED',         // 12
+  'BLOCKED',           // 13
+  'ERROR',             // 14
+];
+
 const STAGE_META = {
-  VALIDATING:       { label: 'Validating input',           icon: SafetyOutlined,       color: '#6366f1' },
-  CLASSIFYING:      { label: 'Classifying intent',         icon: SearchOutlined,       color: '#8b5cf6' },
-  SCHEMA_RETRIEVAL: { label: 'Retrieving schema',          icon: DatabaseOutlined,     color: '#3b82f6' },
-  SQL_GENERATION:   { label: 'Generating SQL',             icon: ThunderboltOutlined,  color: '#a855f7' },
-  SQL_VALIDATION:   { label: 'Validating SQL',             icon: CheckCircleOutlined,  color: '#6366f1' },
-  EXECUTING:        { label: 'Executing query',            icon: PlayCircleOutlined,   color: '#0ea5e9' },
-  CORRECTING:       { label: 'Self-correcting',            icon: SyncOutlined,         color: '#f59e0b' },
-  BUILDING_RESPONSE:{ label: 'Building response',          icon: MessageOutlined,      color: '#10b981' },
-  COMPLETED:        { label: 'Completed',                  icon: CheckCircleOutlined,  color: '#10b981' },
-  ERROR:            { label: 'Error occurred',             icon: CloseCircleOutlined,  color: '#ef4444' },
-  AGENT_THINKING:   { label: 'Agent reasoning',            icon: BulbOutlined,         color: '#8b5cf6' },
+  VALIDATING:       { label: 'Validating input',           icon: SafetyOutlined,       color: '#1677ff' }, // blue
+  CLASSIFYING:      { label: 'Classifying intent',         icon: SearchOutlined,       color: '#1677ff' },
+  AGENT_THINKING:   { label: 'Agent reasoning',            icon: BulbOutlined,         color: '#1677ff' },
+  AGENT_ACTION:     { label: 'Agent action',               icon: SyncOutlined,         color: '#1677ff' },
+  SCHEMA_RETRIEVAL: { label: 'Retrieving schema',          icon: DatabaseOutlined,     color: '#1677ff' },
+  SQL_GENERATION:   { label: 'Generating SQL',             icon: ThunderboltOutlined,  color: '#722ed1' }, // purple for AI Gen
+  SQL_VALIDATION:   { label: 'Validating SQL',             icon: CheckCircleOutlined,  color: '#1677ff' },
+  SQL_PREVIEW:      { label: 'Generating preview',         icon: BulbOutlined,         color: '#faad14' }, // warning/yellow
+  AWAITING_CONFIRM: { label: 'Awaiting confirmation',      icon: SyncOutlined,         color: '#faad14' },
+  EXECUTING:        { label: 'Executing query',            icon: PlayCircleOutlined,   color: '#1677ff' },
+  CORRECTING:       { label: 'Self-correcting',            icon: SyncOutlined,         color: '#faad14' }, // warning/yellow
+  BUILDING_RESPONSE:{ label: 'Building response',          icon: MessageOutlined,      color: '#52c41a' }, // success/green
+  COMPLETED:        { label: 'Completed',                  icon: CheckCircleOutlined,  color: '#52c41a' },
+  BLOCKED:          { label: 'Blocked',                    icon: CloseCircleOutlined,  color: '#ff4d4f' }, // error/red
+  ERROR:            { label: 'Error occurred',             icon: CloseCircleOutlined,  color: '#ff4d4f' },
 };
+
 
 const ThinkingIndicator = ({
   stages = [],
@@ -60,11 +84,14 @@ const ThinkingIndicator = ({
   // Track completed stages
   useEffect(() => {
     if (stages.length > 0) {
+      const getStageKey = (st) => !isNaN(st) ? STAGE_KEYS[parseInt(st)] : st;
+      const currentStageKey = getStageKey(currentStage?.stage);
+      
       const done = stages.filter(s => {
-        const idx = stages.findIndex(st => st.stage === currentStage?.stage);
+        const idx = stages.findIndex(st => getStageKey(st.stage) === currentStageKey);
         return stages.indexOf(s) < idx;
       });
-      setCompletedStages(done.map(s => s.stage));
+      setCompletedStages(done.map(s => getStageKey(s.stage)));
     }
   }, [stages, currentStage]);
 
@@ -75,7 +102,9 @@ const ThinkingIndicator = ({
     return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`;
   };
 
-  const currentMeta = currentStage?.stage ? STAGE_META[currentStage.stage] : null;
+  const getStageKey = (st) => !isNaN(st) ? STAGE_KEYS[parseInt(st)] : st;
+  const currentStageKey = getStageKey(currentStage?.stage);
+  const currentMeta = currentStageKey ? STAGE_META[currentStageKey] : null;
   const CurrentIcon = currentMeta?.icon || BulbOutlined;
 
   return (
@@ -116,8 +145,8 @@ const ThinkingIndicator = ({
               ...styles.progressFill,
               width: `${Math.min(progress, 100)}%`,
               background: error
-                ? '#ef4444'
-                : 'linear-gradient(90deg, #8b5cf6, #3b82f6, #10b981)',
+                ? '#ff4d4f'
+                : 'linear-gradient(90deg, #1677ff, #52c41a)',
             }}
           />
           {!error && progress < 100 && <div style={styles.progressShimmer} />}
@@ -136,12 +165,13 @@ const ThinkingIndicator = ({
           {/* Stage Timeline */}
           <div style={styles.timeline}>
             {stages.map((stage, idx) => {
-              const meta = STAGE_META[stage.stage] || { label: stage.stage, color: '#6b7280' };
+              const stageKey = getStageKey(stage.stage);
+              const meta = STAGE_META[stageKey] || { label: stageKey, color: '#8c8c8c' };
               const StageIcon = meta.icon || BulbOutlined;
-              const isCurrent = currentStage?.stage === stage.stage;
+              const isCurrent = currentStageKey === stageKey;
               const isDone =
-                completedStages.includes(stage.stage) ||
-                stages.findIndex(s => s.stage === currentStage?.stage) > idx;
+                completedStages.includes(stageKey) ||
+                stages.findIndex(s => getStageKey(s.stage) === currentStageKey) > idx;
               const isLast = idx === stages.length - 1;
 
               return (
@@ -170,11 +200,11 @@ const ThinkingIndicator = ({
                     }}
                   >
                     {isCurrent && !isDone ? (
-                      <LoadingOutlined spin style={{ fontSize: 11, color: meta.color }} />
+                      <LoadingOutlined spin style={{ fontSize: 9, color: meta.color }} />
                     ) : isDone ? (
-                      <CheckCircleOutlined style={{ fontSize: 11, color: '#fff' }} />
+                      <CheckCircleOutlined style={{ fontSize: 9, color: '#fff' }} />
                     ) : (
-                      <StageIcon style={{ fontSize: 11, color: '#9ca3af' }} />
+                      <StageIcon style={{ fontSize: 9, color: '#bfbfbf' }} />
                     )}
                   </div>
 
@@ -263,10 +293,10 @@ const styles = {
   },
   avatar: {
     position: 'relative',
-    width: 36,
-    height: 36,
+    width: 32,
+    height: 32,
     borderRadius: '50%',
-    background: 'linear-gradient(135deg, #8b5cf6, #3b82f6)',
+    background: 'linear-gradient(135deg, #1677ff, #0958d9)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -276,7 +306,7 @@ const styles = {
     position: 'absolute',
     inset: -3,
     borderRadius: '50%',
-    border: '2px solid #8b5cf660',
+    border: '2px solid rgba(22, 119, 255, 0.4)',
     animation: 'pulse-ring 2s ease-out infinite',
   },
   bubble: {
@@ -310,14 +340,14 @@ const styles = {
     width: 6,
     height: 6,
     borderRadius: '50%',
-    backgroundColor: '#8b5cf6',
+    backgroundColor: '#1677ff',
     animation: 'thinking-dot 1.4s infinite ease-in-out',
     display: 'inline-block',
   },
   headerLabel: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: 600,
-    color: '#374151',
+    color: '#1f2937',
   },
   timer: {
     fontSize: 11,
@@ -366,23 +396,23 @@ const styles = {
   timelineItem: {
     display: 'flex',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
     position: 'relative',
-    paddingBottom: 8,
-    minHeight: 28,
+    paddingBottom: 4,
+    minHeight: 24,
   },
   timelineLine: {
     position: 'absolute',
-    left: 11,
-    top: 24,
+    left: 8,
+    top: 20,
     bottom: -2,
     width: 2,
     borderRadius: 1,
     transition: 'background-color 0.3s',
   },
   timelineIcon: {
-    width: 24,
-    height: 24,
+    width: 18,
+    height: 18,
     borderRadius: '50%',
     display: 'flex',
     alignItems: 'center',
@@ -393,9 +423,9 @@ const styles = {
     zIndex: 1,
   },
   timelineLabel: {
-    fontSize: 12,
+    fontSize: 11,
     transition: 'color 0.2s',
-    lineHeight: 1.3,
+    lineHeight: 1.2,
   },
   sqlPreview: {
     marginTop: 8,

@@ -84,7 +84,7 @@ const EnhancedMessageInfo = ({ message, onSuggestedQueryClick }) => {
     })();
 
     // Don't show if no additional info
-    if (!parsedProcessingSteps.length && !parsedSuggestedQueries.length && !parsedCorrectionHistory.length && !queryExplanation) {
+    if (!parsedSuggestedQueries.length && !parsedCorrectionHistory.length && !queryExplanation) {
         return null;
     }
 
@@ -103,31 +103,7 @@ const EnhancedMessageInfo = ({ message, onSuggestedQueryClick }) => {
                 ghost
                 expandIcon={({ isActive }) => <CaretRightOutlined rotate={isActive ? 90 : 0} />}
             >
-                {/* Processing Steps */}
-                {parsedProcessingSteps.length > 0 && (
-                    <Panel
-                        header={
-                            <Space>
-                                <InfoCircleOutlined style={{ color: '#1890ff' }} />
-                                <Text strong>Processing Steps</Text>
-                                <Tag color={success ? 'success' : 'warning'} size="small">
-                                    {parsedProcessingSteps.length} steps
-                                </Tag>
-                            </Space>
-                        }
-                        key="steps"
-                    >
-                        <div style={{ paddingLeft: 16 }}>
-                            {parsedProcessingSteps.map((step, index) => (
-                                <div key={index} style={{ marginBottom: 4 }}>
-                                    <Text type="secondary" style={{ fontSize: 12 }}>
-                                        {index + 1}. {step}
-                                    </Text>
-                                </div>
-                            ))}
-                        </div>
-                    </Panel>
-                )}
+                {/* Processing Steps have been removed as they are now handled by the dynamic ThinkingIndicator */}
 
                 {/* Query Explanation */}
                 {queryExplanation && (
