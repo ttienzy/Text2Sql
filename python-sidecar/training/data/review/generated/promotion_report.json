@@ -1,0 +1,13 @@
+{
+  "canonical_dataset": "D:\\DACN1\\TextToSqlAgent\\python-sidecar\\training\\data\\labeled_queries.jsonl",
+  "generated_dataset": "D:\\DACN1\\TextToSqlAgent\\python-sidecar\\training\\data\\review\\generated\\labeled_queries.promoted.jsonl",
+  "candidate_files": [
+    "enterprise_risky_intents_v1.jsonl"
+  ],
+  "approved_records": 0,
+  "promoted_records": 0,
+  "skipped_duplicates": 0,
+  "promotion_blocked": false,
+  "promoted_distribution": {},
+  "duplicate_examples": []
+}

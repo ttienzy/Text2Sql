@@ -60,6 +60,16 @@ public class QueryPipelineData : IPipelineData
     public PaginationMetadata? Pagination { get; set; }
 
     /// <summary>
+    /// Base64 encoded PNG chart visualization of the data
+    /// </summary>
+    public string? ChartImageBase64 { get; set; }
+
+    /// <summary>
+    /// The type of chart generated (bar, line, pie, etc.)
+    /// </summary>
+    public string? ChartType { get; set; }
+
+    /// <summary>
     /// Result ID for fetching additional pages (lazy loading)
     /// </summary>
     public string? ResultId { get; set; }

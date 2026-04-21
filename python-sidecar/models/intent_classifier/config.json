@@ -1,0 +1,28 @@
+{
+  "version": "v1.0",
+  "accuracy": 0.8,
+  "cv_accuracy": 0.7511711711711712,
+  "cv_std": 0.04695621329545357,
+  "num_samples": 374,
+  "num_features": 5579,
+  "labels": [
+    "AGGREGATE",
+    "AMBIGUOUS",
+    "DDL",
+    "SCHEMA_QUERY",
+    "SELECT",
+    "WRITE_DELETE",
+    "WRITE_INSERT",
+    "WRITE_UPDATE"
+  ],
+  "label_distribution": {
+    "SELECT": 90,
+    "AGGREGATE": 67,
+    "SCHEMA_QUERY": 42,
+    "WRITE_INSERT": 35,
+    "WRITE_UPDATE": 35,
+    "WRITE_DELETE": 35,
+    "DDL": 40,
+    "AMBIGUOUS": 30
+  }
+}

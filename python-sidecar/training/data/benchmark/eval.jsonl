@@ -1,0 +1,74 @@
+{"query": "cho tôi xem top 10 khách hàng có số tiền mua hàng lớn nhất", "intent": "AGGREGATE"}
+{"query": "count all active customers", "intent": "AGGREGATE"}
+{"query": "doanh thu theo quý", "intent": "AGGREGATE"}
+{"query": "doanh thu theo tháng", "intent": "AGGREGATE"}
+{"query": "monthly sales comparison", "intent": "AGGREGATE"}
+{"query": "phân tích xu hướng bán hàng", "intent": "AGGREGATE"}
+{"query": "phần trăm đơn hàng hoàn trả", "intent": "AGGREGATE"}
+{"query": "revenue breakdown by city", "intent": "AGGREGATE"}
+{"query": "top 5 best selling products", "intent": "AGGREGATE"}
+{"query": "total units sold by brand", "intent": "AGGREGATE"}
+{"query": "trung bình giá sản phẩm", "intent": "AGGREGATE"}
+{"query": "tổng doanh thu tháng này", "intent": "AGGREGATE"}
+{"query": "tổng tiền thanh toán hôm nay", "intent": "AGGREGATE"}
+{"query": "I need some data", "intent": "AMBIGUOUS"}
+{"query": "báo cáo", "intent": "AMBIGUOUS"}
+{"query": "bảng hàng", "intent": "AMBIGUOUS"}
+{"query": "gì", "intent": "AMBIGUOUS"}
+{"query": "tôi muốn xem dữ liệu gì đó", "intent": "AMBIGUOUS"}
+{"query": "về đơn hàng", "intent": "AMBIGUOUS"}
+{"query": "alter database set recovery full", "intent": "DDL"}
+{"query": "alter table drop column old_field", "intent": "DDL"}
+{"query": "create schema analytics", "intent": "DDL"}
+{"query": "drop database test_db", "intent": "DDL"}
+{"query": "drop view sales_summary", "intent": "DDL"}
+{"query": "modify table structure", "intent": "DDL"}
+{"query": "rename table old_name to new_name", "intent": "DDL"}
+{"query": "tạo index cho bảng orders", "intent": "DDL"}
+{"query": "ERD diagram of the database", "intent": "SCHEMA_QUERY"}
+{"query": "bảng nào chứa thông tin khách hàng", "intent": "SCHEMA_QUERY"}
+{"query": "foreign key của bảng orders", "intent": "SCHEMA_QUERY"}
+{"query": "show me the schema", "intent": "SCHEMA_QUERY"}
+{"query": "what columns does the products table have", "intent": "SCHEMA_QUERY"}
+{"query": "what constraints exist on orders table", "intent": "SCHEMA_QUERY"}
+{"query": "what is the data type of column price", "intent": "SCHEMA_QUERY"}
+{"query": "which tables reference the users table", "intent": "SCHEMA_QUERY"}
+{"query": "cho xem danh sách category", "intent": "SELECT"}
+{"query": "customer purchase history with amounts", "intent": "SELECT"}
+{"query": "customers who haven't ordered in 30 days", "intent": "SELECT"}
+{"query": "danh sách nhân viên phòng kế toán", "intent": "SELECT"}
+{"query": "find employees who joined in 2024", "intent": "SELECT"}
+{"query": "find orders with issues", "intent": "SELECT"}
+{"query": "get order details for order 5678", "intent": "SELECT"}
+{"query": "get payment history", "intent": "SELECT"}
+{"query": "liệt kê tất cả khách hàng", "intent": "SELECT"}
+{"query": "lấy danh sách đơn hàng cùng với tên khách hàng", "intent": "SELECT"}
+{"query": "lấy thông tin hóa đơn tháng 3", "intent": "SELECT"}
+{"query": "nhân viên có lương cao nhất", "intent": "SELECT"}
+{"query": "pending approval requests", "intent": "SELECT"}
+{"query": "thông tin chi nhánh Hà Nội", "intent": "SELECT"}
+{"query": "tìm kiếm nhà cung cấp theo tên", "intent": "SELECT"}
+{"query": "tìm đơn hàng có giá trị lớn hơn 10 triệu", "intent": "SELECT"}
+{"query": "xem bảng giá hiện tại", "intent": "SELECT"}
+{"query": "đơn hàng chưa thanh toán", "intent": "SELECT"}
+{"query": "delete supplier who no longer works with us", "intent": "WRITE_DELETE"}
+{"query": "loại bỏ nhân viên đã nghỉ việc", "intent": "WRITE_DELETE"}
+{"query": "remove product from catalog", "intent": "WRITE_DELETE"}
+{"query": "xoá comment spam", "intent": "WRITE_DELETE"}
+{"query": "xoá sản phẩm đã ngừng kinh doanh", "intent": "WRITE_DELETE"}
+{"query": "xoá địa chỉ giao hàng cũ", "intent": "WRITE_DELETE"}
+{"query": "xóa bỏ phiếu nhập cũ", "intent": "WRITE_DELETE"}
+{"query": "add a new shipping address for customer 7", "intent": "WRITE_INSERT"}
+{"query": "insert into orders values", "intent": "WRITE_INSERT"}
+{"query": "insert new warehouse location", "intent": "WRITE_INSERT"}
+{"query": "insert payment method credit card", "intent": "WRITE_INSERT"}
+{"query": "insert sản phẩm mới vào bảng products", "intent": "WRITE_INSERT"}
+{"query": "nhập thêm sản phẩm mới", "intent": "WRITE_INSERT"}
+{"query": "tạo mới tài khoản admin", "intent": "WRITE_INSERT"}
+{"query": "change product price to 999", "intent": "WRITE_UPDATE"}
+{"query": "cập nhật thông tin liên hệ", "intent": "WRITE_UPDATE"}
+{"query": "edit supplier contact info", "intent": "WRITE_UPDATE"}
+{"query": "hãy cập nhật email", "intent": "WRITE_UPDATE"}
+{"query": "hãy sửa lại giá trị đơn hàng này", "intent": "WRITE_UPDATE"}
+{"query": "update customer email to new@email.com", "intent": "WRITE_UPDATE"}
+{"query": "update product stock quantity", "intent": "WRITE_UPDATE"}

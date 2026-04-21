@@ -1,0 +1,33 @@
+{
+  "review_dir": "D:\\DACN1\\TextToSqlAgent\\python-sidecar\\training\\data\\review",
+  "files_checked": 1,
+  "overall_valid": false,
+  "results": [
+    {
+      "file": "enterprise_risky_intents_v1.jsonl",
+      "total_records": 42,
+      "counts_by_intent": {
+        "AMBIGUOUS": 12,
+        "DDL": 10,
+        "WRITE_DELETE": 10,
+        "WRITE_UPDATE": 10
+      },
+      "counts_by_status": {
+        "pending_review": 42
+      },
+      "duplicates": [],
+      "canonical_conflicts": [
+        {
+          "query": "doanh thu theo tháng",
+          "candidate_intent": "AMBIGUOUS",
+          "existing_intents": [
+            "AGGREGATE"
+          ]
+        }
+      ],
+      "internal_conflicts": [],
+      "errors": [],
+      "valid": false
+    }
+  ]
+}

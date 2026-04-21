@@ -197,9 +197,25 @@ const SqlBlock = ({ sql, compact = false }) => {
         fontSize: 13,
         lineHeight: 1.6,
         overflowX: 'auto',
+        overflowY: expanded ? 'auto' : 'hidden',
+        maxHeight: expanded ? 'none' : '100px',
+        position: 'relative',
         whiteSpace: shouldFormat ? 'pre' : 'pre-wrap',
         wordBreak: 'break-word',
-      }} dangerouslySetInnerHTML={{ __html: highlightSql(sqlToShow) }} />
+      }}>
+        <div dangerouslySetInnerHTML={{ __html: highlightSql(sqlToShow) }} />
+        {!expanded && sql.length > 200 && (
+          <div style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: '40px',
+            background: 'linear-gradient(transparent, #fafafa)',
+            pointerEvents: 'none'
+          }} />
+        )}
+      </div>
 
       <style>{`
         .sql-keyword { color: #0000ff; font-weight: 600; }

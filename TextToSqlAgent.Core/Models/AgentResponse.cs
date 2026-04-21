@@ -1,4 +1,4 @@
-﻿namespace TextToSqlAgent.Core.Models;
+namespace TextToSqlAgent.Core.Models;
 
 public class AgentResponse
 {
@@ -60,4 +60,16 @@ public class AgentResponse
     /// Additional metadata for specialized responses (Forbidden, Write, DDL)
     /// </summary>
     public Dictionary<string, object>? Metadata { get; set; }
+
+    // ✅ NEW: Data Visualization (Python sidecar Phase 2)
+    /// <summary>
+    /// Base64 encoded PNG chart image generated from query results.
+    /// Frontend should render as: &lt;img src="data:image/png;base64,{ChartImageBase64}" /&gt;
+    /// </summary>
+    public string? ChartImageBase64 { get; set; }
+
+    /// <summary>
+    /// Chart type used for visualization: "bar", "line", "pie", "scatter", or null if no chart
+    /// </summary>
+    public string? ChartType { get; set; }
 }

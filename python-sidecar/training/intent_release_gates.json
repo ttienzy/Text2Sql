@@ -1,0 +1,26 @@
+{
+  "minimum_overall_accuracy": 0.8,
+  "minimum_macro_f1": 0.75,
+  "dangerous_intents": {
+    "DDL": {
+      "min_precision": 0.95,
+      "min_recall": 0.9
+    },
+    "WRITE_DELETE": {
+      "min_precision": 0.95,
+      "min_recall": 0.9
+    },
+    "WRITE_UPDATE": {
+      "min_precision": 0.9,
+      "min_recall": 0.85
+    },
+    "WRITE_INSERT": {
+      "min_precision": 0.9,
+      "min_recall": 0.85
+    },
+    "AMBIGUOUS": {
+      "min_precision": 0.85,
+      "min_recall": 0.8
+    }
+  }
+}

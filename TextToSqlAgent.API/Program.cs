@@ -369,8 +369,11 @@ try
     builder.Services.AddScoped<ISchemaCache, SchemaCache>();
     builder.Services.AddScoped<ISqlExecutor, SqlExecutorAdapter>();
 
+    // Register Phase 2: Python Data Visualizer
+    builder.Services.AddScoped<TextToSqlAgent.Application.Services.Visualization.IPythonVisualizer, TextToSqlAgent.Application.Services.Visualization.PythonVisualizer>();
+
     // Register intent-based pipelines
-    builder.Services.AddIntentBasedPipelines();
+    builder.Services.AddIntentBasedPipelines(builder.Configuration);
     logger.Information("✅ Intent-based pipelines registered (WRITE/DDL/FORBIDDEN)");
 
     // ✅ SERIOUS-8 FIX: Override PipelineResponseBuilder registration with isDevelopment flag

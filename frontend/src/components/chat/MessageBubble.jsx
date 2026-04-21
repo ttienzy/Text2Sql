@@ -285,6 +285,26 @@ const MessageBubble = ({ message, onSuggestedQueryClick, tableNames = [] }) => {
           />
         )}
 
+        {message.chartImageBase64 && (
+          <div style={{ marginTop: 12, marginBottom: 12, overflow: 'hidden' }}>
+            <Text strong style={{ display: 'block', marginBottom: 8, color: '#1890ff', fontSize: 13 }}>
+              Data Visualization ({message.chartType || 'Chart'})
+            </Text>
+            <img 
+              src={`data:image/png;base64,${message.chartImageBase64}`} 
+              alt={`${message.chartType || 'Data'} Chart`}
+              style={{
+                maxWidth: '100%',
+                maxHeight: '400px',
+                borderRadius: 8,
+                border: '1px solid #f0f0f0',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
+                objectFit: 'contain'
+              }} 
+            />
+          </div>
+        )}
+
         {(message.totalTokens || message.TotalTokens) && (
           <TokenInfo
             inputTokens={message.inputTokens || message.InputTokens}

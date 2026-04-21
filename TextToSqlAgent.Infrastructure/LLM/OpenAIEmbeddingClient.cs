@@ -8,19 +8,18 @@ namespace TextToSqlAgent.Infrastructure.LLM;
 
 /// <summary>
 /// OpenAI Embedding client implementation
+/// Uses model and dimensions from OpenAIConfig
 /// </summary>
 public class OpenAIEmbeddingClient : IEmbeddingClient
 {
     private readonly HttpClient _httpClient;
     private readonly OpenAIConfig _config;
-    private readonly QdrantConfig _qdrantConfig;
     private readonly ILogger<OpenAIEmbeddingClient> _logger;
     private const string BaseUrl = "https://api.openai.com/v1/embeddings";
 
-    public OpenAIEmbeddingClient(OpenAIConfig config, QdrantConfig qdrantConfig, ILogger<OpenAIEmbeddingClient> logger)
+    public OpenAIEmbeddingClient(OpenAIConfig config, ILogger<OpenAIEmbeddingClient> logger)
     {
         _config = config;
-        _qdrantConfig = qdrantConfig;
         _logger = logger;
         _httpClient = new HttpClient();
         _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {config.ApiKey}");
@@ -29,6 +28,10 @@ public class OpenAIEmbeddingClient : IEmbeddingClient
         {
             _httpClient.DefaultRequestHeaders.Add("OpenAI-Organization", config.OrganizationId);
         }
+
+        _logger.LogInformation(
+            "[OpenAI Embedding] Initialized with model={Model}, dimensions={Dims}",
+            _config.EmbeddingModel, _config.EmbeddingDimensions);
     }
 
     public async Task<float[]> GenerateEmbeddingAsync(
@@ -43,7 +46,7 @@ public class OpenAIEmbeddingClient : IEmbeddingClient
             {
                 input = text,
                 model = _config.EmbeddingModel,
-                dimensions = _qdrantConfig.VectorSize
+                dimensions = _config.EmbeddingDimensions
             };
 
             var response = await _httpClient.PostAsJsonAsync(BaseUrl, request, cancellationToken);
@@ -94,7 +97,7 @@ public class OpenAIEmbeddingClient : IEmbeddingClient
             {
                 input = texts,
                 model = _config.EmbeddingModel,
-                dimensions = _qdrantConfig.VectorSize
+                dimensions = _config.EmbeddingDimensions
             };
 
             var response = await _httpClient.PostAsJsonAsync(BaseUrl, request, cancellationToken);

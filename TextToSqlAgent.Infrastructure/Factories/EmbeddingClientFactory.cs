@@ -69,6 +69,6 @@ public class EmbeddingClientFactory
         var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
         var logger = loggerFactory.CreateLogger<LLM.OpenAIEmbeddingClient>();
         
-        return new LLM.OpenAIEmbeddingClient(_openAIConfig, _qdrantConfig, logger);
+        return new LLM.OpenAIEmbeddingClient(_openAIConfig, logger);
     }
 }

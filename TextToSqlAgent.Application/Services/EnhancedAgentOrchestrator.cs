@@ -721,12 +721,36 @@ public class EnhancedAgentOrchestrator
                 corrections,
                 context,
                 cancellationToken);
-
             response.Success = true;
             response.Answer = answer;
             response.SqlGenerated = finalSql;
             response.QueryResult = executionResult;
             response.ProcessingSteps = steps;
+
+            // ====================================
+            // STEP 10.5: Data Visualization (Phase 2)
+            // ====================================
+            if (executionResult.Rows != null &&
+                executionResult.Rows.Count > 1 &&
+                executionResult.Rows.Count <= 100)
+            {
+                steps.Add("Step 10.5: Generate data visualization");
+                try
+                {
+                    var visualizer = _serviceFactory.GetPythonVisualizer();
+                    var chartResult = await visualizer.GenerateChartAsync(userQuestion, executionResult.Rows, cancellationToken);
+                    if (chartResult.ShouldDisplay)
+                    {
+                        response.ChartImageBase64 = chartResult.ImageBase64;
+                        response.ChartType = chartResult.ChartType;
+                        _logger.LogInformation("[EnhancedAgent] Generated {ChartType} chart for query results.", chartResult.ChartType);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[EnhancedAgent] Failed to generate data visualization. Proceeding without chart.");
+                }
+            }
 
             // ====================================
             // STEP 11: Generate Contextual Suggestions (NEW!)

@@ -661,6 +661,11 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
       if (data.queryExplanation) {
         processingSteps = [data.queryExplanation];
       }
+      // UI specific data visualizations
+      if (data.chartImageBase64) {
+          sseResult.ChartImageBase64 = data.chartImageBase64;
+          sseResult.ChartType = data.chartType;
+      }
     }
 
     // Fallback to top-level fields if Data is not present
@@ -695,6 +700,8 @@ const ChatArea = ({ onSendMessage, isSending: externalIsSending, onNewConversati
       success: sseResult.success || sseResult.Success,
       errorMessage: (sseResult.success || sseResult.Success) ? null : (sseResult.errorMessage || sseResult.Error?.message),
       correlationId: sseResult.correlationId,
+      chartImageBase64: sseResult.ChartImageBase64 || sseResult.chartImageBase64,
+      chartType: sseResult.ChartType || sseResult.chartType,
     };
 
     updateMessages((prev) => {

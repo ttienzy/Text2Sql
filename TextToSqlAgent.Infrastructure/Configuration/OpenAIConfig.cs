@@ -38,7 +38,14 @@ public class OpenAIConfig
     /// OpenAI embedding model to use
     /// Examples: "text-embedding-3-small", "text-embedding-3-large"
     /// </summary>
-    public string EmbeddingModel { get; set; } = "text-embedding-3-large";
+    public string EmbeddingModel { get; set; } = "text-embedding-3-small";
+
+    /// <summary>
+    /// Embedding output dimensions (Matryoshka representation)
+    /// text-embedding-3-small supports up to 1536, but can output 3072 via Matryoshka
+    /// Keep at 3072 for zero-migration compatibility with existing Qdrant collection
+    /// </summary>
+    public int EmbeddingDimensions { get; set; } = 3072;
 
     /// <summary>
     /// Maximum tokens for completion response
