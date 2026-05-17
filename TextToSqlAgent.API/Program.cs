@@ -368,6 +368,7 @@ try
 
     // Register dependencies for pipelines
     builder.Services.AddScoped<ISchemaCache, SchemaCache>();
+    builder.Services.AddScoped<ISchemaSemanticProfileStore, RedisSchemaSemanticProfileStore>();
     builder.Services.AddScoped<ISqlExecutor, SqlExecutorAdapter>();
 
     // Register Phase 2: Python Data Visualizer

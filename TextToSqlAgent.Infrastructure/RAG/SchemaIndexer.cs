@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Logging;
 using System.Diagnostics;
+using System.Text.Json;
 using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Models;
 
@@ -14,15 +15,18 @@ public class SchemaIndexer
     private readonly IVectorStore _vectorStore;
     private readonly IEmbeddingClient _embeddingClient;
     private readonly ILogger<SchemaIndexer> _logger;
+    private readonly ISchemaSemanticProfileStore? _semanticProfileStore;
 
     public SchemaIndexer(
         IVectorStore vectorStore,
         IEmbeddingClient embeddingClient,
-        ILogger<SchemaIndexer> logger)
+        ILogger<SchemaIndexer> logger,
+        ISchemaSemanticProfileStore? semanticProfileStore = null)
     {
         _vectorStore = vectorStore;
         _embeddingClient = embeddingClient;
         _logger = logger;
+        _semanticProfileStore = semanticProfileStore;
     }
 
     /// <summary>
@@ -115,7 +119,8 @@ public class SchemaIndexer
             List<SchemaDocument> documents;
             try
             {
-                documents = BuildSchemaDocuments(schema, connectionId);
+                var schemaForIndexing = await ApplySemanticProfileAsync(schema, connectionId, cancellationToken);
+                documents = BuildSchemaDocuments(schemaForIndexing, connectionId);
                 _logger.LogDebug("[SchemaIndexer] Created {Count} documents", documents.Count);
             }
             catch (Exception ex)
@@ -285,6 +290,35 @@ public class SchemaIndexer
         }
 
         return documents;
+    }
+
+    private async Task<DatabaseSchema> ApplySemanticProfileAsync(
+        DatabaseSchema schema,
+        string? connectionId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(connectionId) || _semanticProfileStore == null)
+        {
+            return schema;
+        }
+
+        try
+        {
+            var profile = await _semanticProfileStore.GetAsync(connectionId, cancellationToken);
+            if (profile == null)
+            {
+                return schema;
+            }
+
+            var clone = JsonSerializer.Deserialize<DatabaseSchema>(JsonSerializer.Serialize(schema)) ?? schema;
+            _logger.LogInformation("[SchemaIndexer] Applying semantic profile before indexing for {ConnectionId}", connectionId);
+            return SchemaSemanticProfileApplier.Apply(clone, profile);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[SchemaIndexer] Failed to apply semantic profile before indexing for {ConnectionId}", connectionId);
+            return schema;
+        }
     }
 
     /// <summary>

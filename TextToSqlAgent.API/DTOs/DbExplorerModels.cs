@@ -49,6 +49,9 @@ public class TableSummaryDto
     public int ColumnCount { get; set; }
     public int ForeignKeyCount { get; set; }
     public string Description { get; set; } = string.Empty;
+    public string? BusinessMeaning { get; set; }
+    public List<string> Synonyms { get; set; } = new();
+    public bool HasSemanticOverride { get; set; }
 }
 
 /// <summary>
@@ -62,6 +65,9 @@ public class TableDetailResponse
     public string? Module { get; set; }
     public long RowCount { get; set; }
     public string Description { get; set; } = string.Empty;
+    public string? BusinessMeaning { get; set; }
+    public List<string> Synonyms { get; set; } = new();
+    public bool HasSemanticOverride { get; set; }
     public List<ColumnDetailDto> Columns { get; set; } = new();
     public List<RelationshipDto> Relationships { get; set; } = new();
     public List<IndexDto> Indexes { get; set; } = new();
@@ -78,6 +84,13 @@ public class ColumnDetailDto
     public bool IsPrimaryKey { get; set; }
     public bool IsForeignKey { get; set; }
     public int? MaxLength { get; set; }
+    public string? Description { get; set; }
+    public string? BusinessMeaning { get; set; }
+    public string? Role { get; set; }
+    public string? DisplayPriority { get; set; }
+    public bool PreferredForReports { get; set; }
+    public List<string> Synonyms { get; set; } = new();
+    public bool HasSemanticOverride { get; set; }
     public ColumnStatsDto? Statistics { get; set; }
 }
 

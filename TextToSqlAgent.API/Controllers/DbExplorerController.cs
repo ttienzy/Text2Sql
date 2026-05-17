@@ -5,6 +5,8 @@ using TextToSqlAgent.API.DTOs;
 using TextToSqlAgent.API.Repositories;
 using TextToSqlAgent.API.Services;
 using TextToSqlAgent.Application.Services.DbExplorer;
+using TextToSqlAgent.Core.Interfaces;
+using TextToSqlAgent.Core.Models;
 using TextToSqlAgent.Core.Models.DbExplorer;
 using TextToSqlAgent.Infrastructure.Entities;
 
@@ -27,6 +29,7 @@ public class DbExplorerController : BaseController
     private readonly DbExplorerCacheService _cache;
     private readonly IVectorSearchService _vectorSearchService;
     private readonly IConnectionEncryptionService _encryptionService;
+    private readonly ISchemaSemanticProfileStore _semanticProfileStore;
     private new readonly ILogger<DbExplorerController> _logger;
 
     public DbExplorerController(
@@ -38,6 +41,7 @@ public class DbExplorerController : BaseController
         DbExplorerCacheService cache,
         IVectorSearchService vectorSearchService,
         IConnectionEncryptionService encryptionService,
+        ISchemaSemanticProfileStore semanticProfileStore,
         ILogger<DbExplorerController> logger) : base(logger)
     {
         _unitOfWork = unitOfWork;
@@ -48,6 +52,7 @@ public class DbExplorerController : BaseController
         _cache = cache;
         _vectorSearchService = vectorSearchService;
         _encryptionService = encryptionService;
+        _semanticProfileStore = semanticProfileStore;
         _logger = logger;
     }
 
@@ -173,6 +178,103 @@ public class DbExplorerController : BaseController
         }
     }
 
+    /// <summary>
+    /// Get the Redis-backed semantic profile for a connection.
+    /// </summary>
+    [HttpGet("{connectionId}/semantic-profile")]
+    public async Task<IActionResult> GetSemanticProfile(
+        string connectionId,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var (_, errorResult) = await ValidateConnectionAccessAsync(connectionId);
+            if (errorResult != null) return errorResult;
+
+            var profile = await _semanticProfileStore.GetAsync(connectionId, cancellationToken)
+                          ?? new SchemaSemanticProfile { ConnectionId = connectionId };
+
+            return Ok(new
+            {
+                success = true,
+                profile
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[DbExplorer] Error getting semantic profile for {ConnectionId}", connectionId);
+            return StatusCode(500, new { error = "Failed to get semantic profile", details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Save the Redis-backed semantic profile for a connection.
+    /// This changes AI metadata only; it does not mutate the target database.
+    /// </summary>
+    [HttpPut("{connectionId}/semantic-profile")]
+    public async Task<IActionResult> SaveSemanticProfile(
+        string connectionId,
+        [FromBody] SchemaSemanticProfile profile,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var (_, errorResult) = await ValidateConnectionAccessAsync(connectionId);
+            if (errorResult != null) return errorResult;
+
+            var userId = GetRequiredUserId();
+            profile.ConnectionId = connectionId;
+            profile.UpdatedBy = userId;
+
+            NormalizeSemanticProfile(profile);
+
+            await _semanticProfileStore.SetAsync(connectionId, profile, cancellationToken);
+
+            return Ok(new
+            {
+                success = true,
+                message = "Semantic profile saved to Redis. New chat turns will use this metadata automatically.",
+                requiresReindex = true,
+                reindexReason = "Qdrant schema embeddings should be refreshed so semantic search reflects the new descriptions and synonyms.",
+                profile
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[DbExplorer] Error saving semantic profile for {ConnectionId}", connectionId);
+            return StatusCode(500, new { error = "Failed to save semantic profile", details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Delete the Redis-backed semantic profile for a connection.
+    /// </summary>
+    [HttpDelete("{connectionId}/semantic-profile")]
+    public async Task<IActionResult> DeleteSemanticProfile(
+        string connectionId,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var (_, errorResult) = await ValidateConnectionAccessAsync(connectionId);
+            if (errorResult != null) return errorResult;
+
+            await _semanticProfileStore.DeleteAsync(connectionId, cancellationToken);
+
+            return Ok(new
+            {
+                success = true,
+                message = "Semantic profile deleted from Redis.",
+                requiresReindex = true
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[DbExplorer] Error deleting semantic profile for {ConnectionId}", connectionId);
+            return StatusCode(500, new { error = "Failed to delete semantic profile", details = ex.Message });
+        }
+    }
+
     private string? ExtractDatabaseNameFromConnectionString(string connectionString)
     {
         try
@@ -184,6 +286,48 @@ public class DbExplorerController : BaseController
         {
             return null;
         }
+    }
+
+    private static void NormalizeSemanticProfile(SchemaSemanticProfile profile)
+    {
+        profile.GlobalSynonyms = NormalizeSynonyms(profile.GlobalSynonyms);
+
+        profile.Tables = profile.Tables
+            .Where(t => !string.IsNullOrWhiteSpace(t.TableName))
+            .GroupBy(t => t.TableName.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(g =>
+            {
+                var table = g.Last();
+                table.TableName = table.TableName.Trim();
+                table.Synonyms = NormalizeSynonyms(table.Synonyms);
+                table.Columns = table.Columns
+                    .Where(c => !string.IsNullOrWhiteSpace(c.ColumnName))
+                    .GroupBy(c => c.ColumnName.Trim(), StringComparer.OrdinalIgnoreCase)
+                    .Select(cg =>
+                    {
+                        var column = cg.Last();
+                        column.ColumnName = column.ColumnName.Trim();
+                        column.Synonyms = NormalizeSynonyms(column.Synonyms);
+                        return column;
+                    })
+                    .ToList();
+                return table;
+            })
+            .ToList();
+    }
+
+    private static List<string> NormalizeSynonyms(IEnumerable<string>? synonyms)
+    {
+        return synonyms?
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s => s.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? new List<string>();
+    }
+
+    private static string? FirstNonEmpty(params string?[] values)
+    {
+        return values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
     }
 
     /// <summary>
@@ -417,6 +561,7 @@ public class DbExplorerController : BaseController
 
             // Filter tables
             var tables = schema.EnhancedTables.AsEnumerable();
+            var semanticProfile = await _semanticProfileStore.GetAsync(connectionId);
 
             if (!string.IsNullOrEmpty(role) && Enum.TryParse<TableRole>(role, true, out var roleEnum))
             {
@@ -439,6 +584,7 @@ public class DbExplorerController : BaseController
                 Tables = tables.Select(t =>
                 {
                     var roleInfo = analysis?.TableRoles.GetValueOrDefault(t.TableName);
+                    var tableProfile = semanticProfile?.FindTable(t.TableName);
                     return new TableSummaryDto
                     {
                         TableName = t.TableName,
@@ -448,7 +594,10 @@ public class DbExplorerController : BaseController
                         RowCount = t.RowCount,
                         ColumnCount = t.ColumnCount,
                         ForeignKeyCount = t.ForeignKeys.Count,
-                        Description = roleInfo?.Description ?? ""
+                        Description = FirstNonEmpty(tableProfile?.BusinessMeaning, tableProfile?.Description, roleInfo?.Description) ?? "",
+                        BusinessMeaning = tableProfile?.BusinessMeaning,
+                        Synonyms = tableProfile?.Synonyms ?? new List<string>(),
+                        HasSemanticOverride = tableProfile != null
                     };
                 }).ToList()
             };
@@ -493,6 +642,8 @@ public class DbExplorerController : BaseController
 
             // Get role info
             var roleInfo = analysis?.TableRoles.GetValueOrDefault(table.TableName);
+            var semanticProfile = await _semanticProfileStore.GetAsync(connectionId);
+            var tableProfile = semanticProfile?.FindTable(table.TableName);
 
             // Build relationships
             var relationships = new List<RelationshipDto>();
@@ -529,25 +680,39 @@ public class DbExplorerController : BaseController
                 Role = table.Role ?? TableRole.Unknown,
                 Module = table.Module,
                 RowCount = table.RowCount,
-                Description = roleInfo?.Description ?? "",
-                Columns = table.Columns.Select(c => new ColumnDetailDto
+                Description = FirstNonEmpty(tableProfile?.BusinessMeaning, tableProfile?.Description, roleInfo?.Description) ?? "",
+                BusinessMeaning = tableProfile?.BusinessMeaning,
+                Synonyms = tableProfile?.Synonyms ?? new List<string>(),
+                HasSemanticOverride = tableProfile != null,
+                Columns = table.Columns.Select(c =>
                 {
-                    ColumnName = c.ColumnName,
-                    DataType = c.DataType,
-                    IsNullable = c.IsNullable,
-                    IsPrimaryKey = c.IsPrimaryKey,
-                    IsForeignKey = c.IsForeignKey,
-                    MaxLength = c.MaxLength,
-                    Statistics = table.ColumnStats.TryGetValue(c.ColumnName, out var stats)
-                        ? new ColumnStatsDto
-                        {
-                            NullRate = stats.NullRate,
-                            DistinctCount = stats.DistinctCount,
-                            MinValue = stats.MinValue,
-                            MaxValue = stats.MaxValue,
-                            AvgValue = stats.AvgValue
-                        }
-                        : null
+                    var columnProfile = tableProfile?.FindColumn(c.ColumnName);
+                    return new ColumnDetailDto
+                    {
+                        Description = FirstNonEmpty(columnProfile?.BusinessMeaning, columnProfile?.Description, c.Description),
+                        BusinessMeaning = columnProfile?.BusinessMeaning,
+                        Role = columnProfile?.Role ?? c.Role,
+                        DisplayPriority = columnProfile?.DisplayPriority ?? c.DisplayPriority,
+                        PreferredForReports = columnProfile?.PreferredForReports ?? c.PreferredForReports,
+                        Synonyms = columnProfile?.Synonyms ?? new List<string>(),
+                        HasSemanticOverride = columnProfile != null,
+                        ColumnName = c.ColumnName,
+                        DataType = c.DataType,
+                        IsNullable = c.IsNullable,
+                        IsPrimaryKey = c.IsPrimaryKey,
+                        IsForeignKey = c.IsForeignKey,
+                        MaxLength = c.MaxLength,
+                        Statistics = table.ColumnStats.TryGetValue(c.ColumnName, out var stats)
+                            ? new ColumnStatsDto
+                            {
+                                NullRate = stats.NullRate,
+                                DistinctCount = stats.DistinctCount,
+                                MinValue = stats.MinValue,
+                                MaxValue = stats.MaxValue,
+                                AvgValue = stats.AvgValue
+                            }
+                            : null
+                    };
                 }).ToList(),
                 Relationships = relationships,
                 Indexes = table.Indexes.Select(i => new IndexDto

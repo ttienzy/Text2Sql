@@ -15,6 +15,7 @@ namespace TextToSqlAgent.Infrastructure.Caching;
 public class SchemaCache : ISchemaCache
 {
     private readonly IDistributedCache? _distributedCache;
+    private readonly ISchemaSemanticProfileStore? _semanticProfileStore;
     private readonly MemorySchemaCache _memoryCache;
     private readonly ILogger<SchemaCache> _logger;
     private readonly SchemaCacheOptions _options;
@@ -25,9 +26,11 @@ public class SchemaCache : ISchemaCache
     public SchemaCache(
         IDistributedCache? distributedCache,
         ILogger<SchemaCache> logger,
-        SchemaCacheOptions? options = null)
+        SchemaCacheOptions? options = null,
+        ISchemaSemanticProfileStore? semanticProfileStore = null)
     {
         _distributedCache = distributedCache;
+        _semanticProfileStore = semanticProfileStore;
         _memoryCache = new MemorySchemaCache();
         _logger = logger;
         _options = options ?? new SchemaCacheOptions();
@@ -54,7 +57,8 @@ public class SchemaCache : ISchemaCache
                 if (!string.IsNullOrEmpty(cached))
                 {
                     _logger.LogDebug("[SchemaCache] Redis HIT for key: {Key}", key);
-                    return JsonSerializer.Deserialize<DatabaseSchema>(cached);
+                    var schema = JsonSerializer.Deserialize<DatabaseSchema>(cached);
+                    return await ApplySemanticProfileAsync(connectionId, schema, cancellationToken);
                 }
             }
             catch (Exception ex)
@@ -68,7 +72,7 @@ public class SchemaCache : ISchemaCache
         if (memoryResult != null)
         {
             _logger.LogDebug("[SchemaCache] Memory HIT for key: {Key}", key);
-            return memoryResult;
+            return await ApplySemanticProfileAsync(connectionId, memoryResult, cancellationToken);
         }
 
         _logger.LogDebug("[SchemaCache] MISS for key: {Key}", key);
@@ -168,6 +172,39 @@ public class SchemaCache : ISchemaCache
     }
 
     private static string GetCacheKey(string connectionId) => $"schema:{connectionId}";
+
+    private async Task<DatabaseSchema?> ApplySemanticProfileAsync(
+        string connectionId,
+        DatabaseSchema? schema,
+        CancellationToken cancellationToken)
+    {
+        if (schema == null || _semanticProfileStore == null)
+        {
+            return schema;
+        }
+
+        try
+        {
+            var profile = await _semanticProfileStore.GetAsync(connectionId, cancellationToken);
+            if (profile == null)
+            {
+                return CloneSchema(schema);
+            }
+
+            return SchemaSemanticProfileApplier.Apply(CloneSchema(schema), profile);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[SchemaCache] Failed to apply semantic profile for {ConnectionId}", connectionId);
+            return CloneSchema(schema);
+        }
+    }
+
+    private static DatabaseSchema CloneSchema(DatabaseSchema schema)
+    {
+        var json = JsonSerializer.Serialize(schema);
+        return JsonSerializer.Deserialize<DatabaseSchema>(json) ?? schema;
+    }
 }
 
 /// <summary>

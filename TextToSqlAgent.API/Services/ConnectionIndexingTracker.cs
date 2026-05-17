@@ -107,6 +107,8 @@ public class ConnectionIndexingStatusSnapshot
     public string Message { get; set; } = string.Empty;
     public int ProgressPercent { get; set; }
     public bool SchemaCached { get; set; }
+    public bool SchemaChanged { get; set; }
+    public bool CacheUpdated { get; set; }
     public bool ChatReady { get; set; }
     public bool FingerprintMatched { get; set; }
     public int TableCount { get; set; }
@@ -129,6 +131,8 @@ public class ConnectionIndexingStatusState
     public string Message { get; set; } = string.Empty;
     public int ProgressPercent { get; set; }
     public bool SchemaCached { get; set; }
+    public bool SchemaChanged { get; set; }
+    public bool CacheUpdated { get; set; }
     public bool ChatReady { get; set; }
     public bool FingerprintMatched { get; set; }
     public int TableCount { get; set; }
@@ -153,6 +157,8 @@ public class ConnectionIndexingStatusState
             Message = Message,
             ProgressPercent = ProgressPercent,
             SchemaCached = SchemaCached,
+            SchemaChanged = SchemaChanged,
+            CacheUpdated = CacheUpdated,
             ChatReady = ChatReady,
             FingerprintMatched = FingerprintMatched,
             TableCount = TableCount,

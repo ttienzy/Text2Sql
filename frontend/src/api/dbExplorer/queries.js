@@ -16,6 +16,7 @@ export const dbExplorerKeys = {
     tableDetail: (connectionId, tableName) => [...dbExplorerKeys.all, 'table', connectionId, tableName],
     health: (connectionId) => [...dbExplorerKeys.all, 'health', connectionId],
     graph: (connectionId) => [...dbExplorerKeys.all, 'graph', connectionId],
+    semanticProfile: (connectionId) => [...dbExplorerKeys.all, 'semanticProfile', connectionId],
 };
 
 /**
@@ -96,6 +97,22 @@ export const useTableDetailQuery = (connectionId, tableName, options = {}) => {
         },
         enabled: !!connectionId && !!tableName,
         staleTime: 1000 * 60 * 60, // 1 hour
+        ...options,
+    });
+};
+
+/**
+ * useSemanticProfileQuery - Get Redis-backed semantic profile for a connection
+ */
+export const useSemanticProfileQuery = (connectionId, options = {}) => {
+    return useQuery({
+        queryKey: dbExplorerKeys.semanticProfile(connectionId),
+        queryFn: async () => {
+            const response = await axiosInstance.get(`/api/db-explorer/${connectionId}/semantic-profile`);
+            return response.data.profile;
+        },
+        enabled: !!connectionId && options.enabled !== false,
+        staleTime: 1000 * 60,
         ...options,
     });
 };

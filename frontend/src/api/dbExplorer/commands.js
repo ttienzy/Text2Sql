@@ -87,3 +87,48 @@ export const useExportDocumentationMutation = (options = {}) => {
         ...options,
     });
 };
+
+/**
+ * useSaveSemanticProfileMutation - Save Redis-backed semantic profile
+ */
+export const useSaveSemanticProfileMutation = (options = {}) => {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async ({ connectionId, profile }) => {
+            const response = await axiosInstance.put(
+                `/api/db-explorer/${connectionId}/semantic-profile`,
+                profile
+            );
+            return response.data;
+        },
+        onSuccess: (data, { connectionId }) => {
+            queryClient.invalidateQueries({ queryKey: dbExplorerKeys.semanticProfile(connectionId) });
+            queryClient.invalidateQueries({ queryKey: dbExplorerKeys.tables(connectionId) });
+            queryClient.invalidateQueries({ queryKey: dbExplorerKeys.all });
+        },
+        ...options,
+    });
+};
+
+/**
+ * useDeleteSemanticProfileMutation - Delete Redis-backed semantic profile
+ */
+export const useDeleteSemanticProfileMutation = (options = {}) => {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (connectionId) => {
+            const response = await axiosInstance.delete(
+                `/api/db-explorer/${connectionId}/semantic-profile`
+            );
+            return response.data;
+        },
+        onSuccess: (data, connectionId) => {
+            queryClient.invalidateQueries({ queryKey: dbExplorerKeys.semanticProfile(connectionId) });
+            queryClient.invalidateQueries({ queryKey: dbExplorerKeys.tables(connectionId) });
+            queryClient.invalidateQueries({ queryKey: dbExplorerKeys.all });
+        },
+        ...options,
+    });
+};

@@ -1,13 +1,13 @@
 import { useState } from 'react';
-import { Card, Descriptions, Table, Tag, Space, Button, Empty, Spin, Tabs, Modal, message, Tooltip, Progress, Alert } from 'antd';
+import { Card, Descriptions, Table, Tag, Space, Button, Empty, Spin, Tabs, Modal, message, Tooltip, Progress, Alert, Input, Select, Checkbox } from 'antd';
 import {
     TableOutlined, KeyOutlined, LinkOutlined, DatabaseOutlined, MessageOutlined,
     EyeOutlined, CopyOutlined, StarOutlined, StarFilled, WarningOutlined, ArrowRightOutlined,
-    ThunderboltOutlined, BulbOutlined, RobotOutlined
+    ThunderboltOutlined, BulbOutlined, RobotOutlined, EditOutlined
 } from '@ant-design/icons';
 import { formatNumber } from '../../utils/formatters';
-import { useSampleDataQuery } from '../../api/dbExplorer/queries';
-import { useAnalyzeTableDetailMutation } from '../../api/dbExplorer/commands';
+import { useSampleDataQuery, useSemanticProfileQuery } from '../../api/dbExplorer/queries';
+import { useAnalyzeTableDetailMutation, useSaveSemanticProfileMutation } from '../../api/dbExplorer/commands';
 import QuerySuggestions from './QuerySuggestions';
 
 const ROLE_COLORS = {
@@ -30,12 +30,20 @@ const TableDetail = ({ table, loading, onQueryTable, onJumpToTable, pinnedTables
     const [sampleModalVisible, setSampleModalVisible] = useState(false);
     const [enableSampleQuery, setEnableSampleQuery] = useState(false);
     const [tableAnalysis, setTableAnalysis] = useState(null);
+    const [semanticModalVisible, setSemanticModalVisible] = useState(false);
+    const [tableDraft, setTableDraft] = useState({ description: '', businessMeaning: '', synonyms: '' });
+    const [columnDrafts, setColumnDrafts] = useState([]);
 
     // Sample data query
     const { data: sampleData, isLoading: sampleLoading } = useSampleDataQuery(
         table?.connectionId,
         table?.tableName,
         { enabled: enableSampleQuery }
+    );
+
+    const { data: semanticProfile } = useSemanticProfileQuery(
+        table?.connectionId,
+        { enabled: !!table?.connectionId }
     );
 
     // Table detail analysis mutation
@@ -46,6 +54,18 @@ const TableDetail = ({ table, loading, onQueryTable, onJumpToTable, pinnedTables
         },
         onError: (error) => {
             message.error(`Analysis failed: ${error.response?.data?.details || error.message}`);
+        },
+    });
+
+    const saveSemanticProfileMutation = useSaveSemanticProfileMutation({
+        onSuccess: (data) => {
+            setSemanticModalVisible(false);
+            message.success(data?.requiresReindex
+                ? 'Semantic profile saved. Re-index schema when you want Qdrant search to reflect it.'
+                : 'Semantic profile saved.');
+        },
+        onError: (error) => {
+            message.error(`Save failed: ${error.response?.data?.details || error.message}`);
         },
     });
 
@@ -68,6 +88,9 @@ const TableDetail = ({ table, loading, onQueryTable, onJumpToTable, pinnedTables
     }
 
     const isPinned = pinnedTables.includes(table.tableName);
+    const currentTableProfile = semanticProfile?.tables?.find(
+        t => t.tableName?.toLowerCase() === table.tableName.toLowerCase()
+    );
 
     // Handle sample data button click
     const handleViewSampleData = () => {
@@ -89,6 +112,94 @@ const TableDetail = ({ table, loading, onQueryTable, onJumpToTable, pinnedTables
     const copyToClipboard = (text, label) => {
         navigator.clipboard.writeText(text);
         message.success(`${label} copied to clipboard`);
+    };
+
+    const splitSynonyms = (value) => (value || '')
+        .split(',')
+        .map(v => v.trim())
+        .filter(Boolean);
+
+    const openSemanticModal = () => {
+        setTableDraft({
+            description: currentTableProfile?.description || table.description || '',
+            businessMeaning: currentTableProfile?.businessMeaning || table.businessMeaning || '',
+            synonyms: (currentTableProfile?.synonyms || table.synonyms || []).join(', '),
+        });
+
+        setColumnDrafts((table.columns || []).map(column => {
+            const columnProfile = currentTableProfile?.columns?.find(
+                c => c.columnName?.toLowerCase() === column.columnName.toLowerCase()
+            );
+
+            return {
+                columnName: column.columnName,
+                dataType: column.dataType,
+                description: columnProfile?.description || column.description || '',
+                businessMeaning: columnProfile?.businessMeaning || column.businessMeaning || '',
+                role: columnProfile?.role || column.role || '',
+                displayPriority: columnProfile?.displayPriority || column.displayPriority || '',
+                preferredForReports: columnProfile?.preferredForReports ?? column.preferredForReports ?? false,
+                synonyms: (columnProfile?.synonyms || column.synonyms || []).join(', '),
+            };
+        }));
+
+        setSemanticModalVisible(true);
+    };
+
+    const updateColumnDraft = (columnName, patch) => {
+        setColumnDrafts(prev => prev.map(column =>
+            column.columnName === columnName ? { ...column, ...patch } : column
+        ));
+    };
+
+    const handleSaveSemanticProfile = () => {
+        const cleanedColumns = columnDrafts
+            .map(column => ({
+                columnName: column.columnName,
+                description: column.description?.trim() || null,
+                businessMeaning: column.businessMeaning?.trim() || null,
+                role: column.role || null,
+                displayPriority: column.displayPriority || null,
+                preferredForReports: column.preferredForReports,
+                synonyms: splitSynonyms(column.synonyms),
+            }))
+            .filter(column =>
+                column.description ||
+                column.businessMeaning ||
+                column.role ||
+                column.displayPriority ||
+                column.preferredForReports ||
+                column.synonyms.length > 0
+            );
+
+        const nextTableProfile = {
+            tableName: table.tableName,
+            description: tableDraft.description?.trim() || null,
+            businessMeaning: tableDraft.businessMeaning?.trim() || null,
+            synonyms: splitSynonyms(tableDraft.synonyms),
+            columns: cleanedColumns,
+        };
+
+        const nextTables = [
+            ...(semanticProfile?.tables || []).filter(
+                t => t.tableName?.toLowerCase() !== table.tableName.toLowerCase()
+            ),
+            nextTableProfile,
+        ].filter(t =>
+            t.description ||
+            t.businessMeaning ||
+            t.synonyms?.length > 0 ||
+            t.columns?.length > 0
+        );
+
+        saveSemanticProfileMutation.mutate({
+            connectionId: table.connectionId,
+            profile: {
+                ...(semanticProfile || {}),
+                connectionId: table.connectionId,
+                tables: nextTables,
+            },
+        });
     };
 
     // Generate DDL
@@ -225,6 +336,91 @@ const TableDetail = ({ table, loading, onQueryTable, onJumpToTable, pinnedTables
                             />
                         </Tooltip>
                     )}
+                </Space>
+            ),
+        },
+    ];
+
+    const semanticColumnColumns = [
+        {
+            title: 'Column',
+            dataIndex: 'columnName',
+            key: 'columnName',
+            width: 180,
+            render: (text, record) => (
+                <Space direction="vertical" size={0}>
+                    <Space>
+                        <span style={{ fontWeight: 500 }}>{text}</span>
+                        {record.preferredForReports && <Tag color="green">report</Tag>}
+                    </Space>
+                    <span style={{ fontSize: 12, color: '#999' }}>{record.dataType}</span>
+                </Space>
+            ),
+        },
+        {
+            title: 'Meaning',
+            key: 'meaning',
+            width: 320,
+            render: (_, record) => (
+                <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                    <Input
+                        placeholder="Description"
+                        value={record.description}
+                        onChange={(event) => updateColumnDraft(record.columnName, { description: event.target.value })}
+                    />
+                    <Input
+                        placeholder="Business meaning"
+                        value={record.businessMeaning}
+                        onChange={(event) => updateColumnDraft(record.columnName, { businessMeaning: event.target.value })}
+                    />
+                    <Input
+                        placeholder="Synonyms, comma separated"
+                        value={record.synonyms}
+                        onChange={(event) => updateColumnDraft(record.columnName, { synonyms: event.target.value })}
+                    />
+                </Space>
+            ),
+        },
+        {
+            title: 'Semantics',
+            key: 'semantics',
+            width: 260,
+            render: (_, record) => (
+                <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                    <Select
+                        allowClear
+                        placeholder="Role"
+                        value={record.role || undefined}
+                        onChange={(value) => updateColumnDraft(record.columnName, { role: value || '' })}
+                        options={[
+                            { value: 'display_label', label: 'Display label' },
+                            { value: 'business_metric', label: 'Business metric' },
+                            { value: 'time_dimension', label: 'Time dimension' },
+                            { value: 'attribute', label: 'Attribute' },
+                            { value: 'technical_key', label: 'Technical key' },
+                            { value: 'audit_field', label: 'Audit field' },
+                            { value: 'internal_flag', label: 'Internal flag' },
+                        ]}
+                        style={{ width: '100%' }}
+                    />
+                    <Select
+                        allowClear
+                        placeholder="Display priority"
+                        value={record.displayPriority || undefined}
+                        onChange={(value) => updateColumnDraft(record.columnName, { displayPriority: value || '' })}
+                        options={[
+                            { value: 'high', label: 'High' },
+                            { value: 'medium', label: 'Medium' },
+                            { value: 'low', label: 'Low' },
+                        ]}
+                        style={{ width: '100%' }}
+                    />
+                    <Checkbox
+                        checked={record.preferredForReports}
+                        onChange={(event) => updateColumnDraft(record.columnName, { preferredForReports: event.target.checked })}
+                    >
+                        Preferred for reports
+                    </Checkbox>
                 </Space>
             ),
         },
@@ -563,6 +759,9 @@ const TableDetail = ({ table, loading, onQueryTable, onJumpToTable, pinnedTables
                         {table.module && (
                             <Tag color="purple">📦 {table.module}</Tag>
                         )}
+                        {(table.hasSemanticOverride || currentTableProfile) && (
+                            <Tag color="cyan">Semantic override</Tag>
+                        )}
                     </Space>
                 }
                 extra={
@@ -591,6 +790,12 @@ const TableDetail = ({ table, loading, onQueryTable, onJumpToTable, pinnedTables
                             onClick={() => copyToClipboard(generateSelect(), 'SELECT')}
                         >
                             Copy SELECT
+                        </Button>
+                        <Button
+                            icon={<EditOutlined />}
+                            onClick={openSemanticModal}
+                        >
+                            Semantic Profile
                         </Button>
                         <Button.Group>
                             <Button
@@ -632,6 +837,24 @@ const TableDetail = ({ table, loading, onQueryTable, onJumpToTable, pinnedTables
                     </div>
                 )}
 
+                {(table.businessMeaning || table.synonyms?.length > 0) && (
+                    <div style={{ marginBottom: 16, padding: 12, backgroundColor: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 4 }}>
+                        {table.businessMeaning && (
+                            <>
+                                <div style={{ fontWeight: 500, marginBottom: 4, color: '#389e0d' }}>Business meaning:</div>
+                                <div style={{ color: '#389e0d', marginBottom: table.synonyms?.length > 0 ? 8 : 0 }}>
+                                    {table.businessMeaning}
+                                </div>
+                            </>
+                        )}
+                        {table.synonyms?.length > 0 && (
+                            <Space wrap>
+                                {table.synonyms.map(synonym => <Tag key={synonym} color="green">{synonym}</Tag>)}
+                            </Space>
+                        )}
+                    </div>
+                )}
+
                 <Tabs items={tabItems} />
             </Card>
 
@@ -668,6 +891,50 @@ const TableDetail = ({ table, loading, onQueryTable, onJumpToTable, pinnedTables
                 ) : (
                     <Empty description="No sample data available" />
                 )}
+            </Modal>
+
+            <Modal
+                title={`Semantic Profile - ${table.tableName}`}
+                open={semanticModalVisible}
+                onCancel={() => setSemanticModalVisible(false)}
+                width={1100}
+                okText="Save to Redis"
+                onOk={handleSaveSemanticProfile}
+                confirmLoading={saveSemanticProfileMutation.isPending}
+            >
+                <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                    <Alert
+                        type="info"
+                        showIcon
+                        message="These metadata edits are stored in Redis and reused by SQL generation, schema cache, and the next Qdrant re-index."
+                    />
+                    <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                        <Input
+                            placeholder="Table description"
+                            value={tableDraft.description}
+                            onChange={(event) => setTableDraft(prev => ({ ...prev, description: event.target.value }))}
+                        />
+                        <Input.TextArea
+                            rows={2}
+                            placeholder="Business meaning, for example: ReviewDate is the review date, not the sales date"
+                            value={tableDraft.businessMeaning}
+                            onChange={(event) => setTableDraft(prev => ({ ...prev, businessMeaning: event.target.value }))}
+                        />
+                        <Input
+                            placeholder="Table synonyms, comma separated"
+                            value={tableDraft.synonyms}
+                            onChange={(event) => setTableDraft(prev => ({ ...prev, synonyms: event.target.value }))}
+                        />
+                    </Space>
+                    <Table
+                        dataSource={columnDrafts}
+                        columns={semanticColumnColumns}
+                        rowKey="columnName"
+                        pagination={false}
+                        size="small"
+                        scroll={{ y: 420 }}
+                    />
+                </Space>
             </Modal>
         </div>
     );

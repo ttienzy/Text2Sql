@@ -606,14 +606,13 @@ public class ConnectionsController : BaseController
                 }
 
                 DatabaseSchema schema;
+                var schemaCache = HttpContext.RequestServices.GetRequiredService<ISchemaCache>();
+                var cachedSchema = await schemaCache.GetAsync(id);
                 var dbProvider3 = TextToSqlAgent.Infrastructure.Extensions.ConnectionExtensions.GetDatabaseProvider(connection);
                 using (DatabaseConfigContext.SetDatabaseContext(connectionString, dbProvider3))
                 {
                     var schemaScanner = HttpContext.RequestServices.GetRequiredService<SchemaScanner>();
                     schema = await schemaScanner.ScanAsync();
-
-                    var schemaCache = HttpContext.RequestServices.GetRequiredService<ISchemaCache>();
-                    await schemaCache.SetAsync(id, schema);
                 }
 
                 if (schema.Tables.Count == 0)
@@ -630,21 +629,45 @@ public class ConnectionsController : BaseController
                 }
 
                 var fingerprint = BuildSchemaFingerprint(schema);
+                var cachedFingerprint = cachedSchema == null ? null : BuildSchemaFingerprint(cachedSchema);
+                var schemaChanged = cachedFingerprint == null ||
+                    !string.Equals(cachedFingerprint.Hash, fingerprint.Hash, StringComparison.OrdinalIgnoreCase);
                 var expectedPointCount = GetExpectedPointCount(schema);
+
+                if (schemaChanged)
+                {
+                    await schemaCache.SetAsync(id, schema);
+                    _logger.LogInformation(
+                        "Schema cache updated for connection {ConnectionId}. PreviousHash={PreviousHash}, NewHash={NewHash}",
+                        id,
+                        cachedFingerprint?.Hash ?? "none",
+                        fingerprint.Hash);
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "Schema unchanged for connection {ConnectionId}; reused existing schema cache. Hash={Hash}",
+                        id,
+                        fingerprint.Hash);
+                }
 
                 result.ReadyForChat = true;
                 result.SchemaIndexing = new SchemaIndexingResult
                 {
                     SchemaCached = true,
+                    SchemaChanged = schemaChanged,
+                    CacheUpdated = schemaChanged,
                     CanUseChatWhileIndexing = true,
                     TableCount = schema.Tables.Count,
                     ColumnCount = schema.Tables.Sum(t => t.Columns.Count),
                     RelationshipCount = schema.Relationships.Count,
                     ExpectedPointCount = expectedPointCount,
                     Status = "checking",
-                    Stage = "schema_cached",
+                    Stage = schemaChanged ? "schema_cached" : "schema_checked",
                     ProgressPercent = 35,
-                    StatusMessage = $"Schema cached successfully ({schema.Tables.Count} tables)."
+                    StatusMessage = schemaChanged
+                        ? $"Schema cache updated ({schema.Tables.Count} tables)."
+                        : $"Schema unchanged; using existing cache ({schema.Tables.Count} tables)."
                 };
 
                 var collectionName = CollectionNameHelper.NormalizeCollectionName(databaseName);
@@ -697,6 +720,8 @@ public class ConnectionsController : BaseController
                         state.Message = "Schema is ready. Semantic indexing is queued in the background.";
                         state.ProgressPercent = 40;
                         state.SchemaCached = true;
+                        state.SchemaChanged = schemaChanged;
+                        state.CacheUpdated = schemaChanged;
                         state.ChatReady = true;
                         state.FingerprintMatched = fingerprintMatched;
                         state.TableCount = schema.Tables.Count;
@@ -782,12 +807,46 @@ public class ConnectionsController : BaseController
 
     private static SchemaFingerprint BuildSchemaFingerprint(DatabaseSchema schema)
     {
+        var structuralParts = new List<string>();
+
+        foreach (var table in schema.Tables.OrderBy(t => t.Schema).ThenBy(t => t.TableName))
+        {
+            structuralParts.Add($"T:{table.Schema}.{table.TableName}");
+            structuralParts.Add($"PK:{string.Join(",", table.PrimaryKeys.OrderBy(pk => pk, StringComparer.OrdinalIgnoreCase))}");
+
+            foreach (var column in table.Columns.OrderBy(c => c.ColumnName))
+            {
+                structuralParts.Add(string.Join("|",
+                    "C",
+                    table.Schema,
+                    table.TableName,
+                    column.ColumnName,
+                    column.DataType,
+                    column.IsNullable,
+                    column.MaxLength?.ToString() ?? "",
+                    column.IsPrimaryKey,
+                    column.IsForeignKey,
+                    column.DefaultValue ?? ""));
+            }
+        }
+
+        foreach (var relationship in schema.Relationships
+                     .OrderBy(r => r.FromTable)
+                     .ThenBy(r => r.FromColumn)
+                     .ThenBy(r => r.ToTable)
+                     .ThenBy(r => r.ToColumn))
+        {
+            structuralParts.Add(string.Join("|",
+                "R",
+                relationship.FromTable,
+                relationship.FromColumn,
+                relationship.ToTable,
+                relationship.ToColumn));
+        }
+
         var hash = SHA256.HashData(
             Encoding.UTF8.GetBytes(
-                string.Join(",",
-                    schema.Tables
-                        .OrderBy(t => t.TableName)
-                        .Select(t => $"{t.TableName}:{string.Join(",", t.Columns.OrderBy(c => c.ColumnName).Select(c => c.ColumnName))}"))));
+                string.Join("\n", structuralParts)));
 
         return new SchemaFingerprint
         {
@@ -814,6 +873,8 @@ public class ConnectionsController : BaseController
         result.ProgressPercent = snapshot.ProgressPercent;
         result.StatusMessage = snapshot.Message;
         result.SchemaCached = snapshot.SchemaCached;
+        result.SchemaChanged = snapshot.SchemaChanged;
+        result.CacheUpdated = snapshot.CacheUpdated;
         result.CanUseChatWhileIndexing = snapshot.ChatReady;
         result.FingerprintMatched = snapshot.FingerprintMatched;
         result.TableCount = snapshot.TableCount;
@@ -1170,6 +1231,8 @@ public class SchemaIndexingResult
     public bool BackgroundIndexingStarted { get; set; }
     public bool FingerprintMatched { get; set; }
     public bool SchemaCached { get; set; }
+    public bool SchemaChanged { get; set; }
+    public bool CacheUpdated { get; set; }
     public bool CanUseChatWhileIndexing { get; set; }
     public string Status { get; set; } = "idle";
     public string Stage { get; set; } = "idle";
