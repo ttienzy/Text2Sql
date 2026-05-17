@@ -212,8 +212,9 @@ public class ConnectionsController : BaseController
                     {
                         var connectionString = _encryptionService.GetConnectionString(connection);
 
-                        // ✅ CRIT-2 FIX: Use DatabaseConfigContext.SetConnectionString() instead of mutating Singleton
-                        using (DatabaseConfigContext.SetConnectionString(connectionString))
+                        // ✅ CRIT-2 + MULTI-DB: Override both connection string AND provider per-request
+                        var dbProvider = TextToSqlAgent.Infrastructure.Extensions.ConnectionExtensions.GetDatabaseProvider(connection);
+                        using (DatabaseConfigContext.SetDatabaseContext(connectionString, dbProvider))
                         {
                             // Scan database schema
                             var schemaScanner = HttpContext.RequestServices.GetRequiredService<TextToSqlAgent.Infrastructure.Database.SchemaScanner>();
@@ -460,8 +461,9 @@ public class ConnectionsController : BaseController
 
                     try
                     {
-                        // ✅ CRIT-2 FIX: Use DatabaseConfigContext.SetConnectionString() instead of mutating Singleton
-                        using (DatabaseConfigContext.SetConnectionString(connectionString))
+                        // ✅ CRIT-2 + MULTI-DB: Override both connection string AND provider per-request
+                        var dbProvider2 = TextToSqlAgent.Infrastructure.Extensions.ConnectionExtensions.GetDatabaseProvider(connection);
+                        using (DatabaseConfigContext.SetDatabaseContext(connectionString, dbProvider2))
                         {
                             // Scan database schema
                             var schemaScanner = HttpContext.RequestServices.GetRequiredService<TextToSqlAgent.Infrastructure.Database.SchemaScanner>();
@@ -604,7 +606,8 @@ public class ConnectionsController : BaseController
                 }
 
                 DatabaseSchema schema;
-                using (DatabaseConfigContext.SetConnectionString(connectionString))
+                var dbProvider3 = TextToSqlAgent.Infrastructure.Extensions.ConnectionExtensions.GetDatabaseProvider(connection);
+                using (DatabaseConfigContext.SetDatabaseContext(connectionString, dbProvider3))
                 {
                     var schemaScanner = HttpContext.RequestServices.GetRequiredService<SchemaScanner>();
                     schema = await schemaScanner.ScanAsync();
@@ -749,6 +752,14 @@ public class ConnectionsController : BaseController
     {
         try
         {
+            // ✅ MULTI-DB: Check provider from AsyncLocal context for correct parser
+            var currentProvider = DatabaseConfigContext.CurrentProvider;
+            if (currentProvider == TextToSqlAgent.Core.Enums.DatabaseProvider.PostgreSql)
+            {
+                var pgBuilder = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
+                return pgBuilder.Database ?? string.Empty;
+            }
+
             var builder = new SqlConnectionStringBuilder(connectionString);
             return builder.InitialCatalog;
         }
@@ -1055,8 +1066,9 @@ public class ConnectionsController : BaseController
             // Get connection string
             var connectionString = _encryptionService.GetConnectionString(connection);
 
-            // ✅ CRIT-2 FIX: Use DatabaseConfigContext.SetConnectionString() instead of mutating Singleton
-            using (DatabaseConfigContext.SetConnectionString(connectionString))
+            // ✅ CRIT-2 + MULTI-DB: Override both connection string AND provider per-request
+            var dbProvider = TextToSqlAgent.Infrastructure.Extensions.ConnectionExtensions.GetDatabaseProvider(connection);
+            using (DatabaseConfigContext.SetDatabaseContext(connectionString, dbProvider))
             {
                 // Scan schema
                 var schemaScanner = HttpContext.RequestServices.GetRequiredService<SchemaScanner>();

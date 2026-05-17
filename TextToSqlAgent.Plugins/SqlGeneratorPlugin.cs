@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
+using TextToSqlAgent.Core.Enums;
 using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Core.Models;
 using TextToSqlAgent.Infrastructure.Prompts;
@@ -50,9 +51,13 @@ public class SqlGeneratorPlugin
             { "select_columns", string.Join(", ", intent.SelectColumns) }
         };
 
-        var (systemPrompt, userPrompt) = _promptRegistry.BuildSqlGenerationPrompt(
+        // ✅ T7 MULTI-DB: _adapter.Provider is already DatabaseProvider enum
+        var provider = _adapter.Provider;
+
+        var (systemPrompt, userPrompt) = _promptRegistry.BuildSqlGenerationPromptForProvider(
             originalQuestion ?? "",
             schemaContext,
+            provider,
             new List<string>(),
             extraVariables);
 

@@ -3,6 +3,7 @@ using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 using System.Text.RegularExpressions;
 using System.Collections;
+using TextToSqlAgent.Core.Enums;
 
 namespace TextToSqlAgent.Infrastructure.Prompts;
 
@@ -283,6 +284,34 @@ public class PromptRegistry
         }
 
         return GetSystemAndUserPrompts("sql-generation/with-suggestions", patternsToInclude, variables);
+    }
+    /// <summary>
+    /// Build a SQL generation prompt selecting the system prompt based on database provider.
+    /// PostgreSQL → PostgreSqlPrompts.SystemPrompt, MySQL → MySqlPrompts.SystemPrompt,
+    /// SQL Server → standard YAML template system prompt.
+    /// </summary>
+    public (string SystemPrompt, string UserPrompt) BuildSqlGenerationPromptForProvider(
+        string question,
+        string schemaContext,
+        DatabaseProvider provider,
+        List<string>? patternsToInclude = null,
+        Dictionary<string, object>? extraVariables = null)
+    {
+        var patterns = patternsToInclude ?? new List<string>();
+
+        // Get the base system+user prompts from YAML templates (SQL Server default)
+        var (baseSystem, userPrompt) = BuildSqlGenerationPrompt(
+            question, schemaContext, patterns, extraVariables);
+
+        // Override system prompt for non-SQL Server providers
+        var systemPrompt = provider switch
+        {
+            DatabaseProvider.PostgreSql => PostgreSqlPrompts.SystemPrompt,
+            DatabaseProvider.MySql      => MySqlPrompts.SystemPrompt,
+            _                           => baseSystem  // SqlServer uses YAML template as-is
+        };
+
+        return (systemPrompt, userPrompt);
     }
 
     #endregion

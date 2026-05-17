@@ -138,9 +138,10 @@ public class AgentController : ControllerBase
                     conversationHistory.Count, request.ConversationId);
             }
 
-            // ✅ CRIT-2 FIX: Use DatabaseConfigContext.SetConnectionString() instead of mutating Singleton
+            // ✅ CRIT-2 + MULTI-DB: Use DatabaseConfigContext to override both connection string AND provider
             var connectionString = BuildConnectionString(connection);
-            using (DatabaseConfigContext.SetConnectionString(connectionString))
+            var dbProvider = TextToSqlAgent.Infrastructure.Extensions.ConnectionExtensions.GetDatabaseProvider(connection);
+            using (DatabaseConfigContext.SetDatabaseContext(connectionString, dbProvider))
             {
                 // Execute the unified conversation turn flow
                 var turnResult = await _turnOrchestrator.ExecuteAsync(

@@ -215,12 +215,13 @@ try
     });
     builder.Services.AddSingleton<IEmbeddingClient>(sp => sp.GetRequiredService<EmbeddingClientFactory>().CreateClient());
 
-    // Infrastructure - Database (SQL Server only)
+    // Infrastructure - Database (Multi-provider: SQL Server + PostgreSQL)
     builder.Services.AddSingleton<TextToSqlAgent.Infrastructure.Database.Adapters.SqlServer.SqlServerAdapter>();
-    builder.Services.AddSingleton<DatabaseAdapterFactory>();
-    builder.Services.AddSingleton<IDatabaseAdapter>(sp => sp.GetRequiredService<DatabaseAdapterFactory>().CreateAdapter());
-    builder.Services.AddScoped<SchemaScanner>(); // Changed to Scoped - has state
-    builder.Services.AddScoped<SqlExecutor>(); // Changed to Scoped - has state
+    builder.Services.AddSingleton<TextToSqlAgent.Infrastructure.Database.Adapters.PostgreSql.PostgreSqlAdapter>();
+    builder.Services.AddScoped<DatabaseAdapterFactory>(); // Scoped — reads per-request provider from AsyncLocal
+    builder.Services.AddScoped<IDatabaseAdapter>(sp => sp.GetRequiredService<DatabaseAdapterFactory>().CreateAdapter());
+    builder.Services.AddScoped<SchemaScanner>(); // Scoped - has state
+    builder.Services.AddScoped<SqlExecutor>(); // Scoped - has state
 
     // Infrastructure - RAG
     // ✅ TD-10: Register named Qdrant HttpClient to prevent socket exhaustion

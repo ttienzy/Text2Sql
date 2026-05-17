@@ -181,15 +181,16 @@ public class StreamingAgentController : ControllerBase
                 return;
             }
 
-            // ✅ CRIT-2 FIX: Use DatabaseConfigContext (AsyncLocal) to safely override connection per-request
-            // This prevents race conditions when multiple users query different databases simultaneously
+            // ✅ CRIT-2 + MULTI-DB: Use DatabaseConfigContext to override both connection string AND provider per-request
+            // This prevents race conditions and ensures correct adapter resolution for each database type
             var connectionString = _encryptionService.GetConnectionString(connection);
+            var dbProvider = TextToSqlAgent.Infrastructure.Extensions.ConnectionExtensions.GetDatabaseProvider(connection);
 
-            using (TextToSqlAgent.Infrastructure.Configuration.DatabaseConfigContext.SetConnectionString(connectionString))
+            using (TextToSqlAgent.Infrastructure.Configuration.DatabaseConfigContext.SetDatabaseContext(connectionString, dbProvider))
             {
-                // All database operations in this async context will use the override connection string
-                // No need for scoped service provider - DatabaseConfig.ConnectionString will automatically
-                // return the async-local override for this request only
+                // All database operations in this async context will use the override connection string + provider
+                // DatabaseConfig.ConnectionString and DatabaseConfig.Provider will automatically
+                // return the async-local overrides for this request only
 
                 // ✅ CRIT-4 FIX: Use Channel for SQL token streaming to prevent race conditions
                 // Channel ensures tokens are written in order and thread-safe

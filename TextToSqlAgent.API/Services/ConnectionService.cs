@@ -1,10 +1,14 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.DependencyInjection;
 using System.Diagnostics;
 using TextToSqlAgent.API.DTOs;
 using TextToSqlAgent.API.Repositories;
 using TextToSqlAgent.Infrastructure.Entities;
+using TextToSqlAgent.Infrastructure.Extensions;
+using TextToSqlAgent.Infrastructure.Factories;
 using TextToSqlAgent.Core.Interfaces;
+using TextToSqlAgent.Core.Enums;
 
 namespace TextToSqlAgent.API.Services;
 
@@ -15,20 +19,20 @@ public class ConnectionService : IConnectionService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly IConnectionEncryptionService _encryptionService;
-    private readonly IDatabaseAdapter _databaseAdapter;
+    private readonly DatabaseAdapterFactory _adapterFactory;
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<ConnectionService> _logger;
 
     public ConnectionService(
         IUnitOfWork unitOfWork,
         IConnectionEncryptionService encryptionService,
-        IDatabaseAdapter databaseAdapter,
+        DatabaseAdapterFactory adapterFactory,
         IServiceProvider serviceProvider,
         ILogger<ConnectionService> logger)
     {
         _unitOfWork = unitOfWork;
         _encryptionService = encryptionService;
-        _databaseAdapter = databaseAdapter;
+        _adapterFactory = adapterFactory;
         _serviceProvider = serviceProvider;
         _logger = logger;
     }
@@ -53,10 +57,12 @@ public class ConnectionService : IConnectionService
                     var connectionString = _encryptionService.GetConnectionString(connection);
                     var databaseName = ExtractDatabaseNameFromConnectionString(connectionString);
 
-                    // Test database connection
+                    // Test database connection using provider-specific adapter
                     try
                     {
-                        isConnected = await _databaseAdapter.TestConnectionAsync(connectionString);
+                        var provider = connection.GetDatabaseProvider();
+                        var adapter = _adapterFactory.CreateAdapter(provider);
+                        isConnected = await adapter.TestConnectionAsync(connectionString);
                     }
                     catch
                     {
@@ -466,8 +472,10 @@ public class ConnectionService : IConnectionService
                 };
             }
 
-            // Test connection using database adapter
-            var isValid = await _databaseAdapter.TestConnectionAsync(connectionString);
+            // Test connection using provider-specific database adapter
+            var provider = connection.GetDatabaseProvider();
+            var adapter = _adapterFactory.CreateAdapter(provider);
+            var isValid = await adapter.TestConnectionAsync(connectionString);
             stopwatch.Stop();
 
             if (isValid)
@@ -506,13 +514,20 @@ public class ConnectionService : IConnectionService
     }
 
     /// <summary>
-    /// Extract database name from connection string
+    /// Extract database name from connection string — provider-aware.
+    /// Prefers the entity's Database field; falls back to parsing only if needed.
     /// </summary>
-    private string ExtractDatabaseNameFromConnectionString(string connectionString)
+    private string ExtractDatabaseNameFromConnectionString(string connectionString, DatabaseProvider? provider = null)
     {
         try
         {
-            // Parse SQL Server connection string
+            // ✅ MULTI-DB: Use Npgsql parser for PostgreSQL, SQL Server parser otherwise
+            if (provider == DatabaseProvider.PostgreSql)
+            {
+                var pgBuilder = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
+                return pgBuilder.Database ?? string.Empty;
+            }
+
             var builder = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(connectionString);
             return builder.InitialCatalog;
         }

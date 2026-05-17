@@ -230,8 +230,8 @@ public class TestController : ControllerBase
             using var scope = _serviceProvider.CreateScope();
             var scopedServices = scope.ServiceProvider;
 
-            // ✅ CRIT-2 FIX: Use DatabaseConfigContext.SetConnectionString() instead of mutating Singleton
-            using (DatabaseConfigContext.SetConnectionString(TEST_CONNECTION_STRING))
+            // ✅ CRIT-2 + MULTI-DB: Use SetDatabaseContext (test controller defaults to SqlServer)
+            using (DatabaseConfigContext.SetDatabaseContext(TEST_CONNECTION_STRING, TextToSqlAgent.Core.Enums.DatabaseProvider.SqlServer))
             {
                 // Get the enhanced agent orchestrator and pipeline orchestrator from scoped DI
                 var agent = scopedServices.GetRequiredService<EnhancedAgentOrchestrator>();

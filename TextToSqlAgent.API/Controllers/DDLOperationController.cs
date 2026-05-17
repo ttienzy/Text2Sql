@@ -83,9 +83,10 @@ public class DDLOperationController : ControllerBase
             using var scope = _serviceProvider.CreateScope();
             var scopedServices = scope.ServiceProvider;
 
-            // ✅ CRIT-2 FIX: Use DatabaseConfigContext.SetConnectionString() instead of mutating Singleton
+            // ✅ CRIT-2 + MULTI-DB: Override both connection string AND provider per-request
             var connectionString = BuildConnectionString(connection);
-            using (DatabaseConfigContext.SetConnectionString(connectionString))
+            var dbProvider = TextToSqlAgent.Infrastructure.Extensions.ConnectionExtensions.GetDatabaseProvider(connection);
+            using (DatabaseConfigContext.SetDatabaseContext(connectionString, dbProvider))
             {
                 var ddlPipeline = scopedServices.GetRequiredService<IDDLPipeline>();
 
@@ -156,9 +157,10 @@ public class DDLOperationController : ControllerBase
             using var scope = _serviceProvider.CreateScope();
             var scopedServices = scope.ServiceProvider;
 
-            // ✅ CRIT-2 FIX: Use DatabaseConfigContext.SetConnectionString() instead of mutating Singleton
+            // ✅ CRIT-2 + MULTI-DB: Override both connection string AND provider per-request
             var connectionString = BuildConnectionString(connection);
-            using (DatabaseConfigContext.SetConnectionString(connectionString))
+            var dbProvider = TextToSqlAgent.Infrastructure.Extensions.ConnectionExtensions.GetDatabaseProvider(connection);
+            using (DatabaseConfigContext.SetDatabaseContext(connectionString, dbProvider))
             {
                 var ddlPipeline = scopedServices.GetRequiredService<IDDLPipeline>();
 

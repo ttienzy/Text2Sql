@@ -127,9 +127,10 @@ public class ConversationAwareAgentController : BaseController
                 _logger.LogInformation("Loaded {Count} messages from conversation history", conversationHistory.Count);
             }
 
-            // ✅ CRIT-2 FIX: Use DatabaseConfigContext.SetConnectionString() instead of mutating Singleton
+            // ✅ CRIT-2 + MULTI-DB: Use DatabaseConfigContext to override both connection string AND provider
             var connectionString = BuildConnectionString(connection);
-            using (DatabaseConfigContext.SetConnectionString(connectionString))
+            var dbProvider = TextToSqlAgent.Infrastructure.Extensions.ConnectionExtensions.GetDatabaseProvider(connection);
+            using (DatabaseConfigContext.SetDatabaseContext(connectionString, dbProvider))
             {
                 // Get the orchestrator with intent routing
                 var turnResult = await _turnOrchestrator.ExecuteAsync(

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using TextToSqlAgent.Core.Interfaces;
 using TextToSqlAgent.Infrastructure.VectorDB;
@@ -10,21 +11,21 @@ namespace TextToSqlAgent.Infrastructure.Observability;
 public class HealthCheckService
 {
     private readonly ILogger<HealthCheckService> _logger;
+    private readonly IServiceProvider _serviceProvider;
     private readonly ILLMClient? _llmClient;
-    private readonly IDatabaseAdapter? _databaseAdapter;
     private readonly QdrantService? _qdrantService;
     private readonly string? _connectionString;
 
     public HealthCheckService(
         ILogger<HealthCheckService> logger,
+        IServiceProvider serviceProvider,
         ILLMClient? llmClient = null,
-        IDatabaseAdapter? databaseAdapter = null,
         QdrantService? qdrantService = null,
         string? connectionString = null)
     {
         _logger = logger;
+        _serviceProvider = serviceProvider;
         _llmClient = llmClient;
-        _databaseAdapter = databaseAdapter;
         _qdrantService = qdrantService;
         _connectionString = connectionString;
     }
@@ -49,10 +50,7 @@ public class HealthCheckService
         }
 
         // Check Database
-        if (_databaseAdapter != null)
-        {
-            result.Checks.Add(await CheckDatabaseHealthAsync(ct));
-        }
+        result.Checks.Add(await CheckDatabaseHealthAsync(ct));
 
         // Check Qdrant
         if (_qdrantService != null)
@@ -115,19 +113,28 @@ public class HealthCheckService
 
         try
         {
+            // Create a scope to resolve the scoped IDatabaseAdapter
+            using var scope = _serviceProvider.CreateScope();
+            var databaseAdapter = scope.ServiceProvider.GetService<IDatabaseAdapter>();
+
+            if (databaseAdapter == null || _connectionString == null)
+            {
+                health.Status = HealthStatus.Degraded;
+                health.Message = _connectionString == null
+                    ? "No connection string configured"
+                    : "Database adapter not available";
+                return health;
+            }
+
             // Test connection with simple query
             var startTime = DateTime.UtcNow;
-            var canConnect = _connectionString != null
-                ? await _databaseAdapter!.TestConnectionAsync(_connectionString, ct)
-                : false;
+            var canConnect = await databaseAdapter.TestConnectionAsync(_connectionString, ct);
             var responseTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
 
             health.Status = canConnect ? HealthStatus.Healthy : HealthStatus.Unhealthy;
             health.Message = canConnect
                 ? "Database connection successful"
-                : _connectionString == null
-                    ? "No connection string configured"
-                    : "Database connection failed";
+                : "Database connection failed";
             health.ResponseTimeMs = (long)responseTime;
         }
         catch (Exception ex)
