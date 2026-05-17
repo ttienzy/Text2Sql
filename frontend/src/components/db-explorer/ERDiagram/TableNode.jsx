@@ -1,51 +1,64 @@
 import { memo } from 'react';
 import { Handle, Position } from 'reactflow';
-import { Card, Tag, Space, Divider } from 'antd';
+import { Card, Tag, Space } from 'antd';
 import { TableOutlined, KeyOutlined, LinkOutlined } from '@ant-design/icons';
 
 const ROLE_COLORS = {
-    master: '#1890ff',
-    transaction: '#52c41a',
-    bridge: '#faad14',
+    master: '#1677ff',
+    transaction: '#389e0d',
+    bridge: '#d48806',
     configuration: '#722ed1',
-    logaudit: '#8c8c8c',
-    unknown: '#d9d9d9',
+    logaudit: '#595959',
+    unknown: '#8c8c8c',
 };
 
 const TableNode = ({ data, selected }) => {
-    const { tableName, role, rowCount, columnCount, module, columns = [] } = data;
+    const {
+        tableName,
+        role = 'unknown',
+        rowCount,
+        columnCount,
+        module,
+        columns = [],
+        showColumns = true,
+        isFocused,
+        isRelated,
+        dimmed,
+    } = data;
 
-    // Limit columns to show (max 10)
     const displayColumns = columns.slice(0, 10);
     const hasMoreColumns = columns.length > 10;
+    const borderColor = selected || isFocused
+        ? ROLE_COLORS[role]
+        : isRelated
+            ? '#13c2c2'
+            : '#d9d9d9';
 
     return (
-        <div style={{ minWidth: 220, maxWidth: 300 }}>
+        <div style={{ minWidth: 240, maxWidth: 320, opacity: dimmed ? 0.35 : 1 }}>
             <Handle type="target" position={Position.Top} />
 
             <Card
                 size="small"
                 style={{
-                    border: selected ? `2px solid ${ROLE_COLORS[role]}` : '1px solid #d9d9d9',
-                    borderRadius: 8,
-                    boxShadow: selected ? '0 4px 12px rgba(0,0,0,0.15)' : '0 2px 8px rgba(0,0,0,0.1)',
+                    border: selected || isFocused || isRelated ? `2px solid ${borderColor}` : '1px solid #d9d9d9',
+                    borderRadius: 6,
+                    boxShadow: selected || isFocused ? '0 6px 16px rgba(0,0,0,0.16)' : '0 2px 8px rgba(0,0,0,0.08)',
                     cursor: 'pointer',
-                    transition: 'all 0.3s',
+                    transition: 'border 0.2s, box-shadow 0.2s, opacity 0.2s',
                 }}
                 bodyStyle={{ padding: 0 }}
             >
-                {/* Header */}
-                <div style={{ padding: 12, background: ROLE_COLORS[role], color: '#fff' }}>
+                <div style={{ padding: 12, background: ROLE_COLORS[role] || ROLE_COLORS.unknown, color: '#fff' }}>
                     <Space style={{ width: '100%', justifyContent: 'space-between' }}>
                         <Space>
                             <TableOutlined style={{ fontSize: 14 }} />
-                            <span style={{ fontWeight: 600, fontSize: 13 }}>
+                            <span style={{ fontWeight: 600, fontSize: 13, maxWidth: 190, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                 {tableName}
                             </span>
                         </Space>
                     </Space>
 
-                    {/* Role & Module */}
                     <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                         <Tag
                             style={{
@@ -70,74 +83,73 @@ const TableNode = ({ data, selected }) => {
                                     color: '#fff'
                                 }}
                             >
-                                📦 {module}
+                                {module}
                             </Tag>
                         )}
                     </div>
                 </div>
 
-                {/* Columns List */}
-                <div style={{ padding: '8px 0', maxHeight: 200, overflowY: 'auto' }}>
-                    {displayColumns.map((column, index) => (
-                        <div
-                            key={column.name}
-                            style={{
-                                padding: '4px 12px',
-                                fontSize: 11,
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 6,
-                                borderBottom: index < displayColumns.length - 1 ? '1px solid #f0f0f0' : 'none',
-                                background: column.isPrimaryKey ? '#fff7e6' : 'transparent',
-                            }}
-                        >
-                            {/* Icons */}
-                            <div style={{ width: 16, display: 'flex', justifyContent: 'center' }}>
-                                {column.isPrimaryKey && (
-                                    <KeyOutlined style={{ color: '#faad14', fontSize: 10 }} />
-                                )}
-                                {column.isForeignKey && !column.isPrimaryKey && (
-                                    <LinkOutlined style={{ color: '#1890ff', fontSize: 10 }} />
-                                )}
-                            </div>
-
-                            {/* Column Name */}
-                            <span
+                {showColumns && (
+                    <div style={{ padding: '8px 0', maxHeight: 210, overflowY: 'auto' }}>
+                        {displayColumns.map((column, index) => (
+                            <div
+                                key={column.name}
                                 style={{
-                                    flex: 1,
-                                    fontWeight: column.isPrimaryKey ? 600 : 400,
-                                    color: column.isPrimaryKey ? '#000' : '#333'
+                                    padding: '4px 12px',
+                                    fontSize: 11,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    borderBottom: index < displayColumns.length - 1 ? '1px solid #f0f0f0' : 'none',
+                                    background: column.isPrimaryKey ? '#fff7e6' : 'transparent',
                                 }}
                             >
-                                {column.name}
-                            </span>
+                                <div style={{ width: 16, display: 'flex', justifyContent: 'center' }}>
+                                    {column.isPrimaryKey && (
+                                        <KeyOutlined style={{ color: '#d48806', fontSize: 10 }} />
+                                    )}
+                                    {column.isForeignKey && !column.isPrimaryKey && (
+                                        <LinkOutlined style={{ color: '#1677ff', fontSize: 10 }} />
+                                    )}
+                                </div>
 
-                            {/* Type */}
-                            <span style={{ color: '#999', fontSize: 10 }}>
-                                {column.type}
-                            </span>
+                                <span
+                                    style={{
+                                        flex: 1,
+                                        minWidth: 0,
+                                        fontWeight: column.isPrimaryKey ? 600 : 400,
+                                        color: column.isPrimaryKey ? '#000' : '#333',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap',
+                                    }}
+                                >
+                                    {column.name}
+                                </span>
 
-                            {/* Nullable indicator */}
-                            {column.isNullable && (
-                                <span style={{ color: '#999', fontSize: 9 }}>?</span>
-                            )}
-                        </div>
-                    ))}
+                                <span style={{ color: '#999', fontSize: 10, maxWidth: 92, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {column.type}
+                                </span>
 
-                    {hasMoreColumns && (
-                        <div style={{
-                            padding: '4px 12px',
-                            fontSize: 10,
-                            color: '#999',
-                            textAlign: 'center',
-                            fontStyle: 'italic'
-                        }}>
-                            +{columns.length - 10} more columns...
-                        </div>
-                    )}
-                </div>
+                                {column.isNullable && (
+                                    <span style={{ color: '#999', fontSize: 9 }}>?</span>
+                                )}
+                            </div>
+                        ))}
 
-                {/* Footer Stats */}
+                        {hasMoreColumns && (
+                            <div style={{
+                                padding: '4px 12px',
+                                fontSize: 10,
+                                color: '#666',
+                                textAlign: 'center'
+                            }}>
+                                +{columns.length - 10} more columns
+                            </div>
+                        )}
+                    </div>
+                )}
+
                 <div style={{
                     padding: '6px 12px',
                     background: '#fafafa',
