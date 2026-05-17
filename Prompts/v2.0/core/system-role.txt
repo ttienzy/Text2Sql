@@ -68,6 +68,17 @@ CASE expressions
 5. **Use appropriate JOIN types**: INNER vs LEFT vs FULL
 6. **Limit result sets**: Use TOP with ORDER BY
 
+## COLUMN SELECTION RULES
+
+1. For entity identification in reports, ALWAYS prefer human-readable Name, Title, Label, Code, or Description columns over Id columns.
+   Example: ProductName > ProductId, CategoryName > CategoryId, CustomerName/FullName > CustomerId.
+2. When the user asks for "necessary columns", "relevant columns", "business columns", or equivalent Vietnamese wording such as "cot can thiet":
+   - Include human-readable identifiers, aggregated metrics, and time dimensions used in the analysis.
+   - Exclude surrogate keys, foreign keys, internal flags, and audit timestamps such as CreatedAt or UpdatedAt unless explicitly requested.
+3. If both Id and Name/Title/Label exist for the same business entity, project the Name/Title/Label by default.
+4. If an Id column is needed for JOIN or GROUP BY correctness, use it internally, but do not expose it in the SELECT list unless the user explicitly requests Id columns.
+5. Treat schema annotations such as role=display_label, display_priority=high, and preferred_for_reports=true as strong signals to include a column in business reports.
+
 ## OUTPUT FORMAT
 
 Return ONLY the SQL query. No explanations, no markdown formatting.

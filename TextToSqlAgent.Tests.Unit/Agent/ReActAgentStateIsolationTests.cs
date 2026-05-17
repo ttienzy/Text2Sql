@@ -106,5 +106,15 @@ public class ReActAgentStateIsolationTests
         {
             return Task.FromResult(FinishActionResponse);
         }
+
+        public Task<string> CompleteWithSystemPromptStreamAsync(
+            string systemPrompt,
+            string userPrompt,
+            Action<string>? tokenCallback = null,
+            CancellationToken cancellationToken = default)
+        {
+            tokenCallback?.Invoke(FinishActionResponse);
+            return Task.FromResult(FinishActionResponse);
+        }
     }
 }

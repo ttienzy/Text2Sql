@@ -288,4 +288,59 @@ public class SchemaIndexerEnhancedChunkingTests
         Assert.Contains("Type: decimal", columnContent);
         Assert.Contains("Table: Products (Product catalog)", columnContent);
     }
+
+    [Fact]
+    public async Task IndexSchemaAsync_ColumnPayload_IncludesReportDisplayHints()
+    {
+        // Arrange
+        var schema = new DatabaseSchema
+        {
+            Tables = new List<TableInfo>
+            {
+                new TableInfo
+                {
+                    TableName = "Products",
+                    Columns = new List<ColumnInfo>
+                    {
+                        new ColumnInfo { ColumnName = "ProductId", DataType = "int", IsPrimaryKey = true },
+                        new ColumnInfo { ColumnName = "ProductName", DataType = "nvarchar" }
+                    }
+                }
+            },
+            Relationships = new List<RelationshipInfo>()
+        };
+
+        var capturedPoints = new List<VectorPoint>();
+        _mockVectorStore.Setup(x => x.EnsureCollectionAsync(It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        _mockVectorStore.Setup(x => x.UpsertPointsAsync(It.IsAny<List<VectorPoint>>(), It.IsAny<CancellationToken>()))
+            .Callback<List<VectorPoint>, CancellationToken>((points, ct) => capturedPoints.AddRange(points))
+            .Returns(Task.CompletedTask);
+        _mockVectorStore.Setup(x => x.StoreSchemaFingerprintAsync(It.IsAny<SchemaFingerprint>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        _mockEmbeddingClient.Setup(x => x.GenerateEmbeddingAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new float[] { 0.1f, 0.2f, 0.3f });
+
+        var fingerprint = CreateTestFingerprint(schema);
+
+        // Act
+        var result = await _indexer.IndexSchemaAsync(schema, fingerprint, CancellationToken.None);
+
+        // Assert
+        Assert.True(result.Success);
+
+        var idPoint = capturedPoints.First(p =>
+            p.Payload["type"].ToString() == "column" &&
+            p.Payload["column_name"].ToString() == "ProductId");
+        Assert.Equal("technical_key", idPoint.Payload["column_role"]);
+        Assert.Equal("low", idPoint.Payload["display_priority"]);
+        Assert.Equal("False", idPoint.Payload["preferred_for_reports"]);
+
+        var namePoint = capturedPoints.First(p =>
+            p.Payload["type"].ToString() == "column" &&
+            p.Payload["column_name"].ToString() == "ProductName");
+        Assert.Equal("display_label", namePoint.Payload["column_role"]);
+        Assert.Equal("high", namePoint.Payload["display_priority"]);
+        Assert.Equal("True", namePoint.Payload["preferred_for_reports"]);
+    }
 }

@@ -48,7 +48,8 @@ public class SqlGeneratorPlugin
             { "target", intent.Target },
             { "filters", string.Join("\n", intent.Filters.Select(f => $"- {f.Field} {f.Operator} {ConvertFilterValue(f.Value)}")) },
             { "metrics", string.Join("\n", intent.Metrics.Select(m => $"- {m.Alias}: {m.Calculation}")) },
-            { "select_columns", string.Join(", ", intent.SelectColumns) }
+            { "select_columns", string.Join(", ", intent.SelectColumns) },
+            { "column_intent_instruction", BuildColumnIntentInstruction(originalQuestion, intent.SelectColumns) }
         };
 
         // ✅ T7 MULTI-DB: _adapter.Provider is already DatabaseProvider enum
@@ -115,7 +116,7 @@ public class SqlGeneratorPlugin
         var cols = string.Join(", ", table.Columns.Select(c =>
         {
             var pk = c.IsPrimaryKey ? " PK" : "";
-            return $"{c.ColumnName} {c.DataType}{pk}";
+            return FormatColumnForPrompt(c, table.TableName, pk, "");
         }));
 
         var context = $"{table.TableName}({cols})";
@@ -321,7 +322,8 @@ public class SqlGeneratorPlugin
             { "target", intent.Target },
             { "filters", string.Join("\n", intent.Filters.Select(f => $"- {f.Field} {f.Operator} {ConvertFilterValue(f.Value)}")) },
             { "metrics", string.Join("\n", intent.Metrics.Select(m => $"- {m.Alias}: {m.Calculation}")) },
-            { "select_columns", string.Join(", ", intent.SelectColumns) }
+            { "select_columns", string.Join(", ", intent.SelectColumns) },
+            { "column_intent_instruction", BuildColumnIntentInstruction(originalQuestion, intent.SelectColumns) }
         };
 
         if (conversationHistory != null)
@@ -395,7 +397,8 @@ public class SqlGeneratorPlugin
             { "target", intent.Target },
             { "filters", string.Join("\n", intent.Filters.Select(f => $"- {f.Field} {f.Operator} {ConvertFilterValue(f.Value)}")) },
             { "metrics", string.Join("\n", intent.Metrics.Select(m => $"- {m.Alias}: {m.Calculation}")) },
-            { "select_columns", string.Join(", ", intent.SelectColumns) }
+            { "select_columns", string.Join(", ", intent.SelectColumns) },
+            { "column_intent_instruction", BuildColumnIntentInstruction(originalQuestion, intent.SelectColumns) }
         };
 
         if (conversationHistory != null)
@@ -478,7 +481,7 @@ public class SqlGeneratorPlugin
             {
                 var pk = c.IsPrimaryKey ? " PK" : "";
                 var fk = c.IsForeignKey ? " FK" : "";
-                return $"{c.ColumnName} {c.DataType}{pk}{fk}";
+                return FormatColumnForPrompt(c, table.TableName, pk, fk);
             }));
             tables.Add($"{table.TableName}({cols})");
         }
@@ -494,6 +497,130 @@ public class SqlGeneratorPlugin
         }
 
         return schemaText;
+    }
+
+    private static string FormatColumnForPrompt(ColumnInfo column, string tableName, string primaryKeyMarker, string foreignKeyMarker)
+    {
+        var profile = ColumnSemanticHints.Infer(column, tableName);
+        var preferred = profile.PreferredForReports ? " preferred_for_reports=true" : "";
+        return $"{column.ColumnName} {column.DataType}{primaryKeyMarker}{foreignKeyMarker} role={profile.Role} display_priority={profile.DisplayPriority}{preferred}";
+    }
+
+    private static string BuildColumnIntentInstruction(string? question, IReadOnlyCollection<string>? selectColumns)
+    {
+        var intent = DetectColumnIntent(question, selectColumns);
+
+        return intent switch
+        {
+            ColumnIntent.Explicit => """
+                The user explicitly requested output columns. Respect those requested columns, but when an entity Id is requested together with a matching Name/Title/Label column, include the human-readable column unless the user explicitly asked for Id-only output.
+                """,
+            ColumnIntent.Full => """
+                The user asked for full/detail output. Include useful business columns, but still prefer human-readable labels over raw Id columns for entity identification.
+                """,
+            ColumnIntent.MinimalRelevant => """
+                Select only columns meaningful for business reporting.
+                Include human-readable identifiers, aggregated metrics, and necessary time dimensions.
+                Exclude surrogate keys, foreign keys, internal flags, and audit timestamps unless explicitly requested.
+                If a technical key is needed for JOIN or GROUP BY correctness, use it internally but project the corresponding Name/Title/Label column instead.
+                """,
+            _ => """
+                Prefer business-readable output columns by default. Use Name/Title/Label columns as entity identifiers, and avoid exposing technical Id columns unless the user asks for them.
+                """
+        };
+    }
+
+    private static ColumnIntent DetectColumnIntent(string? question, IReadOnlyCollection<string>? selectColumns)
+    {
+        if (selectColumns != null && selectColumns.Count > 0)
+        {
+            return ColumnIntent.Explicit;
+        }
+
+        if (string.IsNullOrWhiteSpace(question))
+        {
+            return ColumnIntent.DefaultBusinessReadable;
+        }
+
+        var normalized = NormalizeForIntent(question);
+
+        var asksForId = ContainsAny(normalized,
+        [
+            "id column",
+            "ids",
+            "ma dinh danh",
+            "ma so",
+            "cot id"
+        ]);
+
+        if (!asksForId && ContainsAny(normalized,
+        [
+            "necessary columns",
+            "relevant columns",
+            "essential columns",
+            "needed columns",
+            "business columns",
+            "minimal columns",
+            "minimum columns",
+            "only necessary",
+            "only relevant",
+            "cot can thiet",
+            "nhung cot can thiet",
+            "cac cot can thiet",
+            "chi lay nhung cot",
+            "chi lay ra nhung cot",
+            "chi lay cac cot",
+            "cot lien quan"
+        ]))
+        {
+            return ColumnIntent.MinimalRelevant;
+        }
+
+        if (ContainsAny(normalized,
+        [
+            "all columns",
+            "every column",
+            "full information",
+            "all information",
+            "full details",
+            "tat ca cot",
+            "tat ca thong tin",
+            "toan bo thong tin",
+            "day du thong tin",
+            "chi tiet day du"
+        ]))
+        {
+            return ColumnIntent.Full;
+        }
+
+        return ColumnIntent.DefaultBusinessReadable;
+    }
+
+    private static bool ContainsAny(string source, IEnumerable<string> needles)
+    {
+        return needles.Any(needle => source.Contains(needle, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string NormalizeForIntent(string value)
+    {
+        var normalized = value.ToLowerInvariant()
+            .Replace('\u0111', 'd')
+            .Normalize(System.Text.NormalizationForm.FormD);
+
+        var chars = normalized
+            .Where(c => System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark)
+            .Select(c => char.IsLetterOrDigit(c) ? c : ' ')
+            .ToArray();
+
+        return Regex.Replace(new string(chars), @"\s+", " ").Trim();
+    }
+
+    private enum ColumnIntent
+    {
+        DefaultBusinessReadable,
+        MinimalRelevant,
+        Full,
+        Explicit
     }
 
 

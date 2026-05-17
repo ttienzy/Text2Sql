@@ -225,6 +225,7 @@ public class SchemaIndexer
             // ==========================================
             foreach (var column in table.Columns)
             {
+                var profile = ColumnSemanticHints.Infer(column, table.TableName);
                 var columnDoc = new SchemaDocument
                 {
                     Id = $"column_{pointId++}",
@@ -237,7 +238,10 @@ public class SchemaIndexer
                         ["column_name"] = column.ColumnName,
                         ["data_type"] = column.DataType,
                         ["is_primary_key"] = column.IsPrimaryKey.ToString(),
-                        ["is_foreign_key"] = column.IsForeignKey.ToString()
+                        ["is_foreign_key"] = column.IsForeignKey.ToString(),
+                        ["column_role"] = profile.Role,
+                        ["display_priority"] = profile.DisplayPriority,
+                        ["preferred_for_reports"] = profile.PreferredForReports.ToString()
                     }
                 };
 
@@ -294,7 +298,9 @@ public class SchemaIndexer
         {
             var pk = c.IsPrimaryKey ? ", PK" : "";
             var fk = c.IsForeignKey ? ", FK" : "";
-            return $"{c.ColumnName} ({c.DataType}{pk}{fk})";
+            var profile = ColumnSemanticHints.Infer(c, table.TableName);
+            var reportHint = profile.PreferredForReports ? ", preferred_for_reports" : "";
+            return $"{c.ColumnName} ({c.DataType}{pk}{fk}, role={profile.Role}, display_priority={profile.DisplayPriority}{reportHint})";
         }));
 
         // Include all foreign key relationships involving the table
@@ -324,9 +330,12 @@ public class SchemaIndexer
 
         // Include parent table context
         var tableContext = table.Description ?? InferTablePurpose(table.TableName);
+        var profile = ColumnSemanticHints.Infer(column, table.TableName);
+        var reportHint = profile.PreferredForReports ? ", PreferredForReports: true" : "";
 
         return $"Column: {table.TableName}.{column.ColumnName}, Description: {description}, " +
-               $"Type: {column.DataType}, Table: {table.TableName} ({tableContext})";
+               $"Type: {column.DataType}, Role: {profile.Role}, DisplayPriority: {profile.DisplayPriority}{reportHint}, " +
+               $"Table: {table.TableName} ({tableContext})";
     }
 
     /// <summary>
@@ -370,7 +379,9 @@ public class SchemaIndexer
 
         // Handle common column patterns
         if (lower == "id") return "unique identifier";
+        if (lower.EndsWith("id")) return "technical identifier used for joins";
         if (lower.Contains("name")) return "name information";
+        if (lower.Contains("title") || lower.Contains("label")) return "display label information";
         if (lower.Contains("email")) return "email address";
         if (lower.Contains("phone")) return "phone number";
         if (lower.Contains("address")) return "address information";

@@ -66,6 +66,11 @@ user_template: |
   {{#if select_columns}}
   Desired Columns: {{select_columns}}
   {{/if}}
+
+  {{#if column_intent_instruction}}
+  Column Selection Intent:
+  {{column_intent_instruction}}
+  {{/if}}
   
   {{#if filters}}
   Filters: {{filters}}
@@ -92,7 +97,7 @@ user_template: |
   - Make them ACTIONABLE and INTERESTING for business users
   - Focus on business insights, not technical details
   
-  IMPORTANT: Always include human-readable name/title columns for any entity being queried. Never return only ID columns as the sole identifier for an entity.
+  IMPORTANT: Always include human-readable name/title/label columns for any entity being queried. Never return only ID columns as the sole identifier for an entity.
   REQUIRED: Always include exactly 3 business-relevant suggested_queries.
   CRITICAL: The suggested_queries field is MANDATORY - never omit it!
 

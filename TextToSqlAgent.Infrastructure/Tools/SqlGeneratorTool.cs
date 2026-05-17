@@ -74,7 +74,14 @@ public class SqlGeneratorTool : ITool
         var tables = new List<string>();
         foreach (var table in context.RelevantTables)
         {
-            var cols = string.Join(", ", table.Columns.Select(c => $"{c.ColumnName} {c.DataType}"));
+            var cols = string.Join(", ", table.Columns.Select(c =>
+            {
+                var profile = ColumnSemanticHints.Infer(c, table.TableName);
+                var pk = c.IsPrimaryKey ? " PK" : "";
+                var fk = c.IsForeignKey ? " FK" : "";
+                var preferred = profile.PreferredForReports ? " preferred_for_reports=true" : "";
+                return $"{c.ColumnName} {c.DataType}{pk}{fk} role={profile.Role} display_priority={profile.DisplayPriority}{preferred}";
+            }));
             tables.Add($"{table.TableName}({cols})");
         }
         return string.Join("\n", tables);

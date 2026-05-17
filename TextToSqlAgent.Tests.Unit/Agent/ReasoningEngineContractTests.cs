@@ -78,5 +78,15 @@ public class ReasoningEngineContractTests
         {
             return Task.FromResult(_response);
         }
+
+        public Task<string> CompleteWithSystemPromptStreamAsync(
+            string systemPrompt,
+            string userPrompt,
+            Action<string>? tokenCallback = null,
+            CancellationToken cancellationToken = default)
+        {
+            tokenCallback?.Invoke(_response);
+            return Task.FromResult(_response);
+        }
     }
 }

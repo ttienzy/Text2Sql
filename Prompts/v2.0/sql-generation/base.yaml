@@ -48,6 +48,11 @@ user_template: |
   {{#if select_columns}}
   Desired Columns: {{select_columns}}
   {{/if}}
+
+  {{#if column_intent_instruction}}
+  Column Selection Intent:
+  {{column_intent_instruction}}
+  {{/if}}
   
   {{#if filters}}
   Filters: {{filters}}
@@ -58,7 +63,7 @@ user_template: |
   {{/if}}
   
   Generate SQL query (query only, no explanation, NO PARAMETERS):
-  IMPORTANT: Always include human-readable name/title columns for any entity being queried (ProductName, CustomerName, etc.), even if not explicitly listed in Desired Columns. Never return only ID columns as the sole identifier for an entity.
+  IMPORTANT: Always include human-readable name/title/label columns for any entity being queried (ProductName, CustomerName, etc.), even if not explicitly listed in Desired Columns. Never return only ID columns as the sole identifier for an entity.
 
 output:
   format: "sql"

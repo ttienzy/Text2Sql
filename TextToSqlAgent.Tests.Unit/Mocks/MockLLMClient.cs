@@ -81,4 +81,15 @@ public class MockLLMClient : ILLMClient
         var combinedPrompt = $"{systemPrompt}\n{userPrompt}";
         return CompleteAsync(combinedPrompt, cancellationToken);
     }
+
+    public async Task<string> CompleteWithSystemPromptStreamAsync(
+        string systemPrompt,
+        string userPrompt,
+        Action<string>? tokenCallback = null,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await CompleteWithSystemPromptAsync(systemPrompt, userPrompt, cancellationToken);
+        tokenCallback?.Invoke(response);
+        return response;
+    }
 }
