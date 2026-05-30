@@ -29,17 +29,21 @@ AI-powered Natural Language to SQL Converter với Agentic Architecture
 
 ### Prerequisites
 
-- .NET 10 SDK
-- Node.js 20+
 - Docker & Docker Compose
-- SQL Server 2022 (local or container)
-- Qdrant (vector database)
 
-### 1. Start Infrastructure
+For the self-hosted path you do not need a local .NET SDK, Node.js, SQL Server, Redis, or Qdrant. Docker Compose builds and runs everything.
+
+### 1. Configure Environment
 
 ```bash
-# Start all services (SQL Server, Qdrant, Redis, API, Frontend, Python Sidecar)
-docker-compose up -d
+cp .env.example .env
+# Fill OPENAI_API_KEY or switch LLM_PROVIDER=Gemini and fill GEMINI_API_KEY.
+```
+
+### 2. Start Everything
+
+```bash
+docker compose up -d --build
 ```
 
 Services:
@@ -51,17 +55,20 @@ Services:
 | Qdrant | 6333 | http://localhost:6333 |
 | SQL Server | 11433 | localhost,11433 |
 
-### 2. Database Setup
+The `db-migrator` container runs once before the API starts. It applies EF Core migrations, optionally seeds development data, creates the configured Qdrant collection, then exits with code 0.
 
 ```bash
-# Initialize test database (if using test container)
-docker exec -i texttosql-test-db /opt/mssql-tools/bin/sqlcmd \
-  -S localhost -U sa -P "Test@Pass123!" < test-data/setup-test-db.sql
+docker compose logs db-migrator
 ```
 
 ### 3. Run Locally (Without Docker)
 
+Prerequisites for local development without Docker: .NET 10 SDK, Node.js 20+, and running SQL Server/Qdrant/Redis instances.
+
 ```bash
+# Start only infrastructure
+docker compose up -d sqlserver qdrant redis python-sidecar db-migrator
+
 # Backend
 dotnet run --project TextToSqlAgent.API
 
@@ -73,22 +80,24 @@ npm run dev
 
 ## Environment Variables
 
-### Required (.env)
+### Required for Docker
 
 ```bash
-# Create in TextToSqlAgent.API/
+SA_PASSWORD=YourStrong@Passw0rd
 OPENAI_API_KEY=sk-your-openai-key
-DATABASE_CONNECTION_STRING=Server=localhost;Database=TextToSqlAgent;User Id=sa;Password=YourPassword;TrustServerCertificate=True;
+JWT_SECRET=your-32-char-min-secret-key
+ENCRYPTION_KEY=your-32-char-min-encryption-key
 ```
 
 ### Optional
 
 ```bash
-QDRANT_URL=http://localhost:6333
-JWT_SECRET=your-32-char-min-secret-key
-REDIS_CONNECTION_STRING=localhost:6379
-INTENT_CLASSIFIER_PROVIDER=Python  # or "LLM"
-PYTHON_SIDECAR_URL=http://localhost:8100
+LLM_PROVIDER=Gemini
+GEMINI_API_KEY=your-gemini-key
+QDRANT_COLLECTION_NAME=schema_embeddings_large
+QDRANT_VECTOR_SIZE=3072
+SEED_DEVELOPMENT_DATA=true
+VITE_API_BASE_URL=http://localhost:5251
 ```
 
 ## Project Structure

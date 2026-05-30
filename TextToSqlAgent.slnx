@@ -16,6 +16,7 @@
     <Project Path="TextToSqlAgent.Core/TextToSqlAgent.Core.csproj" Id="40d74849-756f-4bd4-869d-ab07c2a5001c" />
     <Project Path="TextToSqlAgent.Evaluation/TextToSqlAgent.Evaluation.csproj" />
     <Project Path="TextToSqlAgent.Infrastructure/TextToSqlAgent.Infrastructure.csproj" Id="c9c1744c-ec43-4f83-8567-48636bb1751a" />
+    <Project Path="TextToSqlAgent.Migrator/TextToSqlAgent.Migrator.csproj" />
     <Project Path="TextToSqlAgent.Plugins/TextToSqlAgent.Plugins.csproj" Id="f559366f-4fb8-43c9-94df-711d6acf874d" />
   </Folder>
 </Solution>

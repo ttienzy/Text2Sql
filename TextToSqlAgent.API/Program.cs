@@ -673,30 +673,17 @@ try
 
     app.MapControllers();
 
-    // Initialize Database with proper error handling and seeding
-    using (var scope = app.Services.CreateScope())
-    {
-        var dbInitializer = scope.ServiceProvider.GetRequiredService<DatabaseInitializer>();
-
-        try
-        {
-            await dbInitializer.InitializeAsync();
-            logger.Information("Database initialization completed successfully");
-        }
-        catch (Exception ex)
-        {
-            logger.Fatal(ex, "Failed to initialize database");
-            throw; // Re-throw to prevent startup with broken database
-        }
-    }
+    // Database migrations/seeding are handled by the db-migrator container.
+    // Keeping this out of API startup gives self-hosted users a clear failure
+    // boundary: `docker compose logs db-migrator`.
 
     // ✅ Configuration validation is now handled at startup (lines 77-109)
     logger.Information("✅ All startup validation complete");
 
     logger.Information("TextToSqlAgent API started successfully");
     logger.Information("Environment: {Environment}", app.Environment.EnvironmentName);
-    logger.Information("API available at: http://localhost:5000");
-    logger.Information("Health check: http://localhost:5000/api/agent/health");
+    logger.Information("API available at: http://localhost:5251");
+    logger.Information("Health check: http://localhost:5251/health");
 
     app.Run();
 }
